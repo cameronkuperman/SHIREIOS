@@ -1,8 +1,18 @@
 import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
+import { useTheme } from '@/theme';
 
 export default function HostLayout() {
+  const { colors } = useTheme();
+
   return (
-    <NativeTabs>
+    <NativeTabs
+      tabBarActiveTintColor={colors.accent}
+      tabBarInactiveTintColor={colors.text.muted}
+      tabBarStyle={{
+        backgroundColor: colors.surface.level1,
+        borderTopColor: colors.border.subtle,
+      }}
+    >
       <NativeTabs.Trigger name="index">
         <Label>Floor Plan</Label>
         <Icon sf="map.fill" />

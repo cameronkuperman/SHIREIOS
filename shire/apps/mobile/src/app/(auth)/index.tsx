@@ -10,6 +10,20 @@ import {
     useWindowDimensions,
     ImageBackground,
 } from 'react-native';
+import Animated, {
+    FadeIn,
+    FadeInDown,
+    FadeInUp,
+    SlideInDown,
+    ZoomIn,
+    withDelay,
+    withSpring,
+    withTiming,
+    useSharedValue,
+    useAnimatedStyle,
+    interpolate,
+    Extrapolate
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
@@ -35,34 +49,35 @@ export default function LoginScreen() {
             style={styles.container}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-            {/* 
-        This View acts as our cinematic environment. 
-        In production, this would be a looping Video or a highly complex mesh gradient Image.
-      */}
-            <View style={styles.cinematicBackground}>
-                {/* Placeholder for the dark mode cinematic background */}
-                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: DARK_MODE_BG }]} />
-
-                {/* Abstract shapes to give the BlurView something to refract */}
-                <View style={styles.ambientBlob1} />
-                <View style={styles.ambientBlob2} />
-            </View>
+            {/* Cinematic Background */}
+            <Animated.View style={[styles.cinematicBackground, { backgroundColor: DARK_MODE_BG }]} entering={FadeIn.duration(1000)}>
+                <ImageBackground
+                    source={require('../../../assets/images/abstract_cinematic_bg.png')}
+                    style={StyleSheet.absoluteFillObject}
+                    resizeMode="cover"
+                />
+            </Animated.View>
 
             <View style={styles.contentOverlay}>
 
+                {/* Animated Logo - Appears First */}
+                <Animated.View
+                    style={[styles.logoContainer, { marginTop: isIPad ? -180 : -140 }]}
+                    entering={FadeInDown.duration(800).delay(300).springify()}
+                >
+                    <Text style={styles.logoText}>SHIRE</Text>
+                    <Text style={styles.logoSubText}>HOST TERMINAL</Text>
+                </Animated.View>
+
                 {/* The Glass Login Module (Fallback) */}
-                <View
+                <Animated.View
+                    entering={FadeInUp.duration(600).delay(1200).springify()}
                     style={[
                         styles.glassPanel,
                         isIPad ? styles.glassPanelIPad : styles.glassPanelIPhone,
                         { backgroundColor: 'rgba(25, 25, 30, 0.85)' } // Fallback for when expo-blur native module isn't built
                     ]}
                 >
-                    <View style={styles.logoContainer}>
-                        {/* Placeholder for the premium Serif logo */}
-                        <Text style={styles.logoText}>Shire</Text>
-                        <Text style={styles.logoSubText}>Host Terminal</Text>
-                    </View>
 
                     <View style={styles.formContainer}>
                         <View style={styles.inputGroup}>
@@ -122,7 +137,7 @@ export default function LoginScreen() {
                         </TouchableOpacity>
                     </View>
 
-                </View>
+                </Animated.View>
             </View>
         </KeyboardAvoidingView>
     );
@@ -136,28 +151,6 @@ const styles = StyleSheet.create({
     cinematicBackground: {
         ...StyleSheet.absoluteFillObject,
         overflow: 'hidden',
-    },
-    // Abstract shapes to create depth behind the glass
-    ambientBlob1: {
-        position: 'absolute',
-        top: '20%',
-        left: '10%',
-        width: 400,
-        height: 400,
-        borderRadius: 200,
-        backgroundColor: 'rgba(90, 70, 50, 0.4)', // Warm terracotta hint
-        transform: [{ scaleX: 1.5 }],
-        filter: 'blur(50px)', // Web/New exp only, BlurView handles the real blur on native
-    },
-    ambientBlob2: {
-        position: 'absolute',
-        bottom: '-10%',
-        right: '-10%',
-        width: 600,
-        height: 600,
-        borderRadius: 300,
-        backgroundColor: 'rgba(30, 40, 50, 0.5)', // Deep slate hint
-        filter: 'blur(80px)',
     },
     contentOverlay: {
         flex: 1,
@@ -186,15 +179,14 @@ const styles = StyleSheet.create({
     },
     logoContainer: {
         alignItems: 'center',
-        marginBottom: 48,
+        marginBottom: 32,
+        zIndex: 10,
     },
     logoText: {
-        fontSize: 48,
+        fontSize: 56,
         fontWeight: '300',
-        letterSpacing: 2,
+        letterSpacing: 4,
         color: '#FFF',
-        // In actual implementation, we'd use a custom Serif font here
-        // fontFamily: 'NewYork-Regular'
     },
     logoSubText: {
         fontSize: 14,
@@ -202,7 +194,6 @@ const styles = StyleSheet.create({
         letterSpacing: 4,
         color: 'rgba(255, 255, 255, 0.5)',
         marginTop: 8,
-        textTransform: 'uppercase',
     },
     formContainer: {
         gap: 24,

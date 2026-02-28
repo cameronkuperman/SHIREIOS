@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { queryClient } from '@/services/api/queryClient';
 import { setupNetworkListener } from '@/lib/network';
 import { validateEnv } from '@/config/env';
+import { ThemeProvider } from '@/theme';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -17,12 +18,14 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <Stack>
-          <Stack.Screen name="(host)" options={{ headerShown: false }} />
-          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        </Stack>
-      </QueryClientProvider>
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <Stack>
+            <Stack.Screen name="(host)" options={{ headerShown: false }} />
+            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+          </Stack>
+        </QueryClientProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
