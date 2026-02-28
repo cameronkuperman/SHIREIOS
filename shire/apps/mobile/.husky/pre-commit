@@ -1,0 +1,1 @@
+cd shire/apps/mobile && npx lint-staged

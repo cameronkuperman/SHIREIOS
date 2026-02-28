@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+ios/
+android/
+web-build/
+
+# Build outputs
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Turbo
+.turbo/
+
+# Testing
+coverage/
+
+# EAS
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
