@@ -1,0 +1,70 @@
+import React from 'react';
+import { ActivityIndicator, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ReservationEditor } from '@/components/ReservationEditor';
+import { useReservationDetail, useReservationMutations } from '@/features/host/hooks';
+import { textStyles, useTheme } from '@/theme';
+
+export default function ReservationDetailModal() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ id?: string; date?: string }>();
+  const { colors } = useTheme();
+  const reservationId = typeof params.id === 'string' ? params.id : null;
+  const date = typeof params.date === 'string' ? params.date : undefined;
+  const reservation = useReservationDetail(reservationId, date);
+  const { updateReservation, runReservationAction, isSaving } = useReservationMutations();
+
+  if (!reservationId) {
+    return (
+      <SafeAreaView style={[styles.state, { backgroundColor: colors.background }]}>
+        <Text style={[styles.stateText, { color: colors.text.muted }]}>Reservation not found.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!reservation) {
+    return (
+      <SafeAreaView style={[styles.state, { backgroundColor: colors.background }]}>
+        <View style={styles.loadingState}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={[styles.stateText, { color: colors.text.muted }]}>Loading reservation…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <ReservationEditor
+      mode="edit"
+      reservation={reservation}
+      isSaving={isSaving}
+      onClose={() => router.back()}
+      onSave={async (values) => {
+        await updateReservation({
+          reservationId: reservation.id,
+          input: values,
+        });
+        router.back();
+      }}
+      onRunAction={async (action) => {
+        await runReservationAction({ reservationId: reservation.id, action });
+      }}
+      onOpenFloor={() => router.replace('/(host)')}
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  state: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingState: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  stateText: {
+    ...textStyles.body,
+  },
+});

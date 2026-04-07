@@ -1,6 +1,52 @@
 // Shire Design System — Color Tokens
 
-export const lightColors = {
+type StatusPalette = {
+  fill: string;
+  border: string;
+  text: string;
+};
+
+export type Colors = {
+  background: string;
+  backgroundDark: string;
+  surface: {
+    level1: string;
+    level2: string;
+    level3: string;
+    level4: string;
+  };
+  text: {
+    primary: string;
+    secondary: string;
+    muted: string;
+    inverse: string;
+  };
+  status: {
+    available: StatusPalette;
+    occupied: StatusPalette;
+    dirty: StatusPalette;
+    reserved: StatusPalette;
+  };
+  accent: string;
+  accentLight: string;
+  glass: {
+    tint: string;
+    border: string;
+    borderSubtle: string;
+    shadow: string;
+    innerHighlight: string;
+  };
+  border: {
+    default: string;
+    subtle: string;
+    strong: string;
+    warm: string;
+  };
+  white: string;
+  black: string;
+};
+
+export const lightColors: Colors = {
   // Backgrounds
   background: '#F7F5F0',
   backgroundDark: '#1a1a2e',
@@ -69,9 +115,9 @@ export const lightColors = {
   // Semantic
   white: '#FFFFFF',
   black: '#000000',
-} as const;
+};
 
-export const darkColors = {
+export const darkColors: Colors = {
   background: '#121214',
   backgroundDark: '#0A0A0C',
 
@@ -132,10 +178,9 @@ export const darkColors = {
 
   white: '#FFFFFF',
   black: '#000000',
-} as const;
+};
 
 // Backward-compatible static export (light theme default)
 export const colors = lightColors;
 
-export type Colors = typeof lightColors;
-export type StatusKey = keyof typeof lightColors.status;
+export type StatusKey = keyof Colors['status'];

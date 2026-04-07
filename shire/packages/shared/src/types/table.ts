@@ -1,18 +1,326 @@
+import type { BusinessRuleError, WaitlistEntry } from "./host.ts";
+import type { WaiterRoutingState } from "./routing.ts";
+
 export const TableState = {
-  EMPTY_CLEAN: 'empty_clean',
-  OCCUPIED: 'occupied',
-  EMPTY_DIRTY: 'empty_dirty',
+  EMPTY_CLEAN: "empty_clean",
+  OCCUPIED: "occupied",
+  EMPTY_DIRTY: "empty_dirty",
 } as const;
 
 export type TableState = (typeof TableState)[keyof typeof TableState];
+
+export type TableDisplayStatus =
+  | "available"
+  | "occupied"
+  | "dirty"
+  | "reserved";
+export type TableShape = "circle" | "square" | "horizontal";
+export type TableType =
+  | "regular"
+  | "high-top"
+  | "counter"
+  | "bar"
+  | "outdoor"
+  | "booth";
+export type PartySource = "waitlist" | "reservations" | "walk_in" | "manual";
+export type TableCommandType =
+  | "seat_party"
+  | "seat_walk_in"
+  | "clear_table"
+  | "mark_clean"
+  | "block_table"
+  | "unblock_table";
+export type TableUpdateSource = "host" | "ml";
+export type ConnectionState =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected"
+  | "error";
 
 export interface Table {
   tableId: string;
   section: string;
   capacity: number;
-  type: 'regular' | 'high-top' | 'counter' | 'bar' | 'outdoor' | 'booth';
+  type: TableType;
   predictedState: TableState;
   stateConfidence: number;
   lastStateChange: string;
   isBlocked: boolean;
 }
+
+export interface FloorMapTable {
+  tableId: string;
+  tableNumber: string;
+  roomId: string;
+  section: string;
+  capacity: number;
+  shape: TableShape;
+  type: TableType;
+  assignedServer?: string | null;
+  x?: number;        // normalized 0–1 position on canvas
+  y?: number;        // normalized 0–1 position on canvas
+  rotation?: number; // degrees, default 0
+}
+
+export interface FloorMapRoom {
+  roomId: string;
+  label: string;
+  filterLabel: string;
+  flex?: number;
+  variant?: "default" | "patio";
+  rows: string[][];
+  layoutMode?: "grid" | "freeform"; // default 'grid' for backward compat
+}
+
+export interface FloorMap {
+  floorId: string;
+  mapVersion: string;
+  rooms: FloorMapRoom[];
+  tables: Record<string, FloorMapTable>;
+}
+
+export interface TableParty {
+  id: string;
+  name: string;
+  size: number;
+  source: PartySource;
+}
+
+export interface TableOverride {
+  source: "host";
+  commandType: TableCommandType;
+  createdAt: string;
+  active: boolean;
+}
+
+export interface TableLiveState {
+  tableId: string;
+  tableNumber?: string;
+  displayStatus: TableDisplayStatus;
+  sensedState: TableState;
+  stateConfidence: number;
+  lastStateChange: string;
+  updatedAt: string;
+  sequence: number;
+  isBlocked: boolean;
+  override: TableOverride | null;
+  party: TableParty | null;
+  seatedAt: string | null;
+  assignedServer?: string | null;
+  currentWaiterId?: string | null;
+  currentWaiterName?: string | null;
+  currentWaitlistEntryId?: string | null;
+  currentPartySize?: number | null;
+  lastUpdateSource?: TableUpdateSource | null;
+  emittedAt?: string | null;
+}
+
+export interface FloorSnapshot {
+  floorId: string;
+  mapVersion: string;
+  generatedAt: string;
+  sequence: number;
+  tables: TableLiveState[];
+}
+
+interface BaseTableCommand {
+  commandId: string;
+  floorId: string;
+  tableId: string;
+  requestedAt: string;
+}
+
+export interface SeatTableCommand extends BaseTableCommand {
+  type: "seat_party" | "seat_walk_in";
+  party: TableParty;
+  waiterId?: string;
+}
+
+export interface ClearTableCommand extends BaseTableCommand {
+  type: "clear_table";
+}
+
+export interface MarkCleanCommand extends BaseTableCommand {
+  type: "mark_clean";
+}
+
+export interface BlockTableCommand extends BaseTableCommand {
+  type: "block_table" | "unblock_table";
+}
+
+export type TableCommand =
+  | SeatTableCommand
+  | ClearTableCommand
+  | MarkCleanCommand
+  | BlockTableCommand;
+
+export interface FloorSnapshotMessage {
+  type: "floor.snapshot";
+  floorId: string;
+  sequence: number;
+  snapshot: FloorSnapshot;
+  emittedAt?: string;
+}
+
+export interface TableUpdatedMessage {
+  type: "table.updated";
+  floorId: string;
+  sequence: number;
+  table: TableLiveState;
+  commandId?: string | null;
+  source?: TableUpdateSource;
+  emittedAt?: string;
+}
+
+export interface TableBatchUpdatedMessage {
+  type: "table.batch_updated";
+  floorId: string;
+  sequence: number;
+  tables: TableLiveState[];
+  commandId?: string | null;
+  source?: TableUpdateSource;
+  emittedAt?: string;
+}
+
+export interface CommandRejectedMessage {
+  type: "command.rejected";
+  floorId: string;
+  sequence: number;
+  commandId: string;
+  tableId: string;
+  error?: BusinessRuleError;
+  reason?: string;
+  emittedAt?: string;
+}
+
+export interface WaitlistUpdatedMessage {
+  type: "waitlist.updated";
+  entry: WaitlistEntry;
+}
+
+export interface RoutingUpdatedMessage {
+  type: "routing.updated";
+  locationId: string;
+  routing: WaiterRoutingState;
+  emittedAt?: string;
+}
+
+export interface FloorPingMessage {
+  type: "connection.ping";
+  timestamp: string;
+}
+
+export interface FloorPongMessage {
+  type: "connection.pong";
+  timestamp: string;
+}
+
+export type FloorStreamMessage =
+  | FloorSnapshotMessage
+  | TableUpdatedMessage
+  | TableBatchUpdatedMessage
+  | CommandRejectedMessage
+  | WaitlistUpdatedMessage
+  | RoutingUpdatedMessage
+  | FloorPingMessage
+  | FloorPongMessage;
+
+export interface SubscribeFloorMessage {
+  type: "subscribe";
+  floorId: string;
+}
+
+export interface CommandMessage {
+  type: "command";
+  command: TableCommand;
+}
+
+export type FloorClientMessage =
+  | SubscribeFloorMessage
+  | CommandMessage
+  | FloorPongMessage;
+
+export type BackendTableState =
+  | "available"
+  | "clean"
+  | "dirty"
+  | "occupied"
+  | TableState;
+
+export interface BackendLiveTable {
+  id: string;
+  tableNumber: string;
+  capacity: number;
+  state: BackendTableState;
+  stateConfidence: number | null;
+  updatedAt: string;
+  stateChangedAt?: string | null;
+  seatedAt?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  currentVisitId?: string | null;
+  currentPartyName?: string | null;
+  currentPartySize?: number | null;
+  currentWaitlistEntryId?: string | null;
+  currentWaiterId?: string | null;
+  currentWaiterName?: string | null;
+  isBlocked: boolean;
+  block?: unknown | null;
+}
+
+export interface BackendFloorSnapshotDto {
+  floorId: string;
+  mapVersion: string;
+  snapshotAt?: string;
+  generatedAt?: string;
+  sequence: number;
+  tables?: BackendLiveTable[];
+  tablesById?: Record<string, BackendLiveTable>;
+}
+
+export interface BackendFloorSnapshotMessage {
+  type: "floor.snapshot";
+  floorId: string;
+  sequence: number;
+  snapshot: BackendFloorSnapshotDto;
+  emittedAt?: string;
+}
+
+export interface BackendTableUpdatedMessage {
+  type: "table.updated";
+  floorId: string;
+  sequence: number;
+  table: BackendLiveTable;
+  commandId: string | null;
+  source: TableUpdateSource;
+  emittedAt: string;
+}
+
+export interface BackendTableBatchUpdatedMessage {
+  type: "table.batch_updated";
+  floorId: string;
+  sequence: number;
+  tables: BackendLiveTable[];
+  commandId: string | null;
+  source: TableUpdateSource;
+  emittedAt: string;
+}
+
+export interface BackendRoutingUpdatedMessage {
+  type: "routing.updated";
+  locationId: string;
+  routing: WaiterRoutingState;
+  emittedAt?: string;
+}
+
+export type BackendFloorStreamMessage =
+  | BackendFloorSnapshotMessage
+  | BackendTableUpdatedMessage
+  | BackendTableBatchUpdatedMessage
+  | BackendRoutingUpdatedMessage
+  | CommandRejectedMessage
+  | WaitlistUpdatedMessage
+  | FloorPingMessage
+  | FloorPongMessage;

@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "turbo dev",
+    "dev:host": "turbo dev --filter=@shire/mobile --filter=@shire/mock-floor-server",
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test",

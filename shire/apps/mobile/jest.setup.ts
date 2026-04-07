@@ -1,5 +1,3 @@
-import '@testing-library/react-native/extend-expect';
-
 // Mock react-native-mmkv
 jest.mock('react-native-mmkv', () => {
   const store = new Map<string, string>();

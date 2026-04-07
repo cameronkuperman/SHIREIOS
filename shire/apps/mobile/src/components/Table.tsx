@@ -11,6 +11,8 @@ type TableProps = {
   shape?: TableShape;
   capacity?: number;
   onPress?: () => void;
+  sectionColor?: string;
+  dimmed?: boolean;
 };
 
 const SHAPE_STYLES: Record<TableShape, ViewStyle> = {
@@ -37,6 +39,8 @@ export function Table({
   shape = 'circle',
   capacity,
   onPress,
+  sectionColor,
+  dimmed,
 }: TableProps) {
   const { colors, isDark } = useTheme();
   const statusColors = colors.status[status];
@@ -63,7 +67,7 @@ export function Table({
     <TouchableOpacity
       activeOpacity={0.7}
       onPress={onPress}
-      style={[tableStyle, fillOverride]}
+      style={[tableStyle, fillOverride, dimmed && { opacity: 0.35 }]}
     >
       <View
         style={[
@@ -79,6 +83,14 @@ export function Table({
         <Text style={[baseStyles.tableCapacity, { color: colors.text.muted }]}>
           {capacity}p
         </Text>
+      )}
+      {sectionColor != null && (
+        <View
+          style={[
+            baseStyles.sectionDot,
+            { backgroundColor: sectionColor },
+          ]}
+        />
       )}
     </TouchableOpacity>
   );
@@ -103,5 +115,15 @@ const baseStyles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     marginTop: 1,
+  },
+  sectionDot: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
   },
 });

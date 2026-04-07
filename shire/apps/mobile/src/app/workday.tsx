@@ -1,0 +1,210 @@
+import React, { useState } from 'react';
+import {
+  ActivityIndicator,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useRouter, Redirect } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { Ionicons } from '@expo/vector-icons';
+import { GlassSurface } from '@/components/GlassSurface';
+import { useAuth } from '@/features/auth';
+import { useIsWorkdayActive, useWorkdayStore } from '@/features/workday';
+import { queryKeys } from '@/services/api/queryKeys';
+import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
+
+export default function WorkdayScreen() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const { colors } = useTheme();
+  const { isAuthenticated, currentLocation, userSession, signOut } = useAuth();
+  const startWorkday = useWorkdayStore((state) => state.startWorkday);
+  const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
+  const [isStarting, setIsStarting] = useState(false);
+
+  if (!isAuthenticated) {
+    return <Redirect href="/(auth)" />;
+  }
+
+  if (!currentLocation) {
+    return <Redirect href="/(auth)/location" />;
+  }
+
+  if (isWorkdayActive) {
+    return <Redirect href="/(host)" />;
+  }
+
+  const handleStartWorkday = async () => {
+    if (isStarting) {
+      return;
+    }
+
+    setIsStarting(true);
+    startWorkday(currentLocation.id);
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.bootstrap.location(currentLocation.id),
+    });
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.waitlist.list(currentLocation.id),
+    });
+    setIsStarting(false);
+    router.replace('/(host)');
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.content}>
+        <Text style={[styles.eyebrow, { color: colors.text.muted }]}>PRE-SHIFT</Text>
+        <Text style={[styles.title, { color: colors.text.primary }]}>Start Workday</Text>
+        <Text style={[styles.subtitle, { color: colors.text.secondary }]}>
+          Connect the host stand to live floor state and waitlist updates for {currentLocation.name}.
+        </Text>
+
+        <GlassSurface intensity={45} borderRadius={borderRadius['2xl']} style={styles.card}>
+          <View style={styles.locationHeader}>
+            <View>
+              <Text style={[styles.locationName, { color: colors.text.primary }]}>
+                {currentLocation.name}
+              </Text>
+              <Text style={[styles.locationMeta, { color: colors.text.muted }]}>
+                {currentLocation.timezone}
+              </Text>
+            </View>
+            <Ionicons name="radio-outline" size={28} color={colors.accent} />
+          </View>
+
+          <View style={[styles.detailRow, { borderTopColor: colors.border.subtle }]}>
+            <Text style={[styles.detailLabel, { color: colors.text.muted }]}>Signed in as</Text>
+            <Text style={[styles.detailValue, { color: colors.text.primary }]}>
+              {userSession?.user.email ?? 'Unknown'}
+            </Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={[styles.detailLabel, { color: colors.text.muted }]}>Floor</Text>
+            <Text style={[styles.detailValue, { color: colors.text.primary }]}>
+              {currentLocation.floorId}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.startButton, { backgroundColor: colors.accent }]}
+            activeOpacity={0.8}
+            onPress={() => void handleStartWorkday()}
+            disabled={isStarting}
+          >
+            {isStarting ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <>
+                <Ionicons name="play-circle" size={20} color={colors.white} />
+                <Text style={styles.startButtonText}>Start Workday</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </GlassSurface>
+
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.secondaryButton, { borderColor: colors.border.default }]}
+            activeOpacity={0.8}
+            onPress={() => router.replace('/(auth)/location')}
+          >
+            <Text style={[styles.secondaryButtonText, { color: colors.text.primary }]}>
+              Change Location
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.secondaryButton, { borderColor: colors.border.default }]}
+            activeOpacity={0.8}
+            onPress={() => void signOut()}
+          >
+            <Text style={[styles.secondaryButtonText, { color: colors.text.primary }]}>
+              Sign Out
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing['2xl'],
+    gap: spacing.lg,
+  },
+  eyebrow: {
+    ...textStyles.sectionLabel,
+  },
+  title: {
+    ...textStyles.title,
+  },
+  subtitle: {
+    ...textStyles.body,
+    maxWidth: 420,
+  },
+  card: {
+    padding: spacing.xl,
+    gap: spacing.lg,
+    marginTop: spacing.md,
+  },
+  locationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  locationName: {
+    ...textStyles.subtitle,
+  },
+  locationMeta: {
+    ...textStyles.caption,
+    marginTop: spacing.xs,
+  },
+  detailRow: {
+    gap: spacing.xs,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+  },
+  detailLabel: {
+    ...textStyles.captionMedium,
+    textTransform: 'uppercase',
+  },
+  detailValue: {
+    ...textStyles.body,
+  },
+  startButton: {
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  startButtonText: {
+    ...textStyles.label,
+    color: '#FFFFFF',
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  secondaryButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    ...textStyles.label,
+  },
+});

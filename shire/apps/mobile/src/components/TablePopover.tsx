@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -12,20 +12,30 @@ import { Ionicons } from '@expo/vector-icons';
 import { textStyles, spacing, shadows, borderRadius } from '@/theme';
 import { useTheme } from '@/theme';
 import type { StatusKey } from '@/theme';
+import type { WaiterChipData } from '@/features/routing';
 
 type TablePopoverProps = {
   visible: boolean;
   onClose: () => void;
   tableId: string;
+  tableLabel?: string;
   status: StatusKey;
+  isBlocked?: boolean;
   capacity?: number;
   server?: string;
+  serverColor?: string;
   partyName?: string;
   seatedTime?: string;
   anchorLayout?: LayoutRectangle;
   onSeat?: () => void;
   onClear?: () => void;
   onBlock?: () => void;
+  blockActionLabel?: string;
+  servers?: WaiterChipData[];
+  currentServerId?: string;
+  onChangeServer?: (serverId: string) => void;
+  onClearServerAssignment?: () => void;
+  seatWarning?: string;
 };
 
 const STATUS_LABELS: Record<StatusKey, string> = {
@@ -39,17 +49,27 @@ export function TablePopover({
   visible,
   onClose,
   tableId,
+  tableLabel,
   status,
+  isBlocked = false,
   capacity,
   server,
+  serverColor,
   partyName,
   seatedTime,
   anchorLayout,
   onSeat,
   onClear,
   onBlock,
+  blockActionLabel = 'Block',
+  servers,
+  currentServerId,
+  onChangeServer,
+  onClearServerAssignment,
+  seatWarning,
 }: TablePopoverProps) {
   const { colors, isDark } = useTheme();
+  const [serverPickerOpen, setServerPickerOpen] = useState(false);
 
   if (!visible) return null;
 
@@ -60,6 +80,8 @@ export function TablePopover({
 
   const statusColor = colors.status[status];
   const popoverBg = isDark ? 'rgba(30, 30, 34, 0.92)' : 'rgba(255, 255, 255, 0.92)';
+  const canEditServer = Boolean(servers && onChangeServer);
+  const serverLabel = server ?? (canEditServer ? 'Assign waiter' : null);
 
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
@@ -95,7 +117,7 @@ export function TablePopover({
             {/* Header */}
             <View style={styles.header}>
               <Text style={[styles.title, { color: colors.text.primary }]}>
-                Table {tableId}
+                Table {tableLabel ?? tableId}
               </Text>
               <View
                 style={[
@@ -118,12 +140,104 @@ export function TablePopover({
                 </Text>
               </View>
             )}
-            {server && (
-              <View style={styles.infoRow}>
-                <Ionicons name="person-outline" size={16} color={colors.text.muted} />
-                <Text style={[styles.infoText, { color: colors.text.secondary }]}>
-                  {server}
+            {serverLabel && (
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  if (canEditServer) {
+                    setServerPickerOpen(!serverPickerOpen);
+                  }
+                }}
+                style={styles.infoRow}
+              >
+                {serverColor ? (
+                  <View style={[styles.serverDotSmall, { backgroundColor: serverColor }]} />
+                ) : (
+                  <Ionicons name="person-outline" size={16} color={colors.text.muted} />
+                )}
+                <Text style={[styles.infoText, { color: colors.text.secondary, flex: 1 }]}>
+                  {serverLabel}
                 </Text>
+                {canEditServer && (
+                  <Ionicons
+                    name={serverPickerOpen ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color={colors.text.muted}
+                  />
+                )}
+              </TouchableOpacity>
+            )}
+            {serverPickerOpen && servers && onChangeServer && (
+              <View style={[styles.serverPickerList, { borderTopColor: colors.border.subtle }]}>
+                {onClearServerAssignment && (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      onClearServerAssignment();
+                      setServerPickerOpen(false);
+                    }}
+                    style={[
+                      styles.serverPickerRow,
+                      {
+                        backgroundColor:
+                          currentServerId == null
+                            ? isDark
+                              ? 'rgba(255,255,255,0.06)'
+                              : 'rgba(0,0,0,0.03)'
+                            : 'transparent',
+                      },
+                    ]}
+                  >
+                    <Ionicons name="swap-horizontal-outline" size={16} color={colors.text.muted} />
+                    <Text
+                      style={[
+                        styles.infoText,
+                        { color: colors.text.secondary, flex: 1 },
+                        currentServerId == null && {
+                          color: colors.text.primary,
+                          fontWeight: '600',
+                        },
+                      ]}
+                    >
+                      Auto Assign
+                    </Text>
+                    {currentServerId == null && (
+                      <Ionicons name="checkmark" size={16} color={colors.accent} />
+                    )}
+                  </TouchableOpacity>
+                )}
+                {servers.map((s) => (
+                  <TouchableOpacity
+                    key={s.id}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      onChangeServer(s.id);
+                      setServerPickerOpen(false);
+                    }}
+                    style={[
+                      styles.serverPickerRow,
+                      {
+                        backgroundColor: s.id === currentServerId
+                          ? (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)')
+                          : 'transparent',
+                      },
+                    ]}
+                  >
+                    <View style={[styles.serverDotSmall, { backgroundColor: s.color }]} />
+                    <Text
+                      style={[
+                        styles.infoText,
+                        { color: colors.text.secondary, flex: 1 },
+                        s.id === currentServerId && { color: colors.text.primary, fontWeight: '600' },
+                      ]}
+                    >
+                      {s.name}
+                    </Text>
+                    {s.id === currentServerId && (
+                      <Ionicons name="checkmark" size={16} color={colors.accent} />
+                    )}
+                  </TouchableOpacity>
+                ))}
               </View>
             )}
             {partyName && (
@@ -139,6 +253,16 @@ export function TablePopover({
                 <Ionicons name="time-outline" size={16} color={colors.text.muted} />
                 <Text style={[styles.infoText, { color: colors.text.secondary }]}>
                   {seatedTime}
+                </Text>
+              </View>
+            )}
+
+            {/* Seating preference warning */}
+            {seatWarning && (
+              <View style={[styles.warningRow, { backgroundColor: colors.status.reserved.fill }]}>
+                <Ionicons name="alert-circle-outline" size={14} color={colors.status.reserved.text} />
+                <Text style={[styles.warningText, { color: colors.status.reserved.text }]}>
+                  {seatWarning}
                 </Text>
               </View>
             )}
@@ -172,7 +296,7 @@ export function TablePopover({
                   <Text style={styles.actionPrimaryText}>Mark Clean</Text>
                 </TouchableOpacity>
               )}
-              {status === 'reserved' && onSeat && (
+              {status === 'reserved' && !isBlocked && onSeat && (
                 <TouchableOpacity
                   style={[styles.actionBtn, { backgroundColor: colors.accent }]}
                   onPress={onSeat}
@@ -195,7 +319,7 @@ export function TablePopover({
                 >
                   <Ionicons name="close-circle-outline" size={18} color={colors.text.secondary} />
                   <Text style={[styles.actionSecondaryText, { color: colors.text.secondary }]}>
-                    Block
+                    {blockActionLabel}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -282,5 +406,37 @@ const styles = StyleSheet.create({
   },
   actionSecondaryText: {
     ...textStyles.captionMedium,
+  },
+  serverDotSmall: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  serverPickerList: {
+    borderTopWidth: 1,
+    paddingTop: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  serverPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: spacing.xs,
+    borderRadius: borderRadius.sm,
+  },
+  warningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: borderRadius.sm,
+    marginTop: spacing.xs,
+  },
+  warningText: {
+    ...textStyles.tiny,
+    fontWeight: '500',
+    flex: 1,
   },
 });

@@ -7,6 +7,7 @@ import { useTheme } from '@/theme';
 
 type QuickSeatCardProps = {
   tableId: string;
+  tableLabel: string;
   tableType: 'Round' | 'Square' | 'Booth' | 'Bar';
   capacity: number;
   server?: string;
@@ -23,6 +24,7 @@ const TABLE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 export function QuickSeatCard({
   tableId,
+  tableLabel,
   tableType,
   capacity,
   server,
@@ -50,10 +52,10 @@ export function QuickSeatCard({
           style={styles.icon}
         />
         <Text style={[styles.tableId, { color: colors.text.primary }]}>
-          Table {tableId}
+          Table {tableLabel}
         </Text>
         <Text style={[styles.meta, { color: colors.text.secondary }]}>
-          {tableType} • {capacity}p
+          {tableType} · {capacity}p
         </Text>
         {server && (
           <Text style={[styles.server, { color: colors.text.muted }]}>{server}</Text>
@@ -65,7 +67,7 @@ export function QuickSeatCard({
 
 const styles = StyleSheet.create({
   card: {
-    width: 180,
+    width: 200,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.lg,
     alignItems: 'center',

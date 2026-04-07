@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -12,22 +13,54 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { textStyles, spacing, shadows, borderRadius, useTheme } from '@/theme';
 import { GlassSurface } from '@/components/GlassSurface';
+import { SeatingPreferencePicker, type SeatingPref } from '@/components/SeatingPreferencePicker';
+import { useAvailableTables, useFloorActions, useFloorStore } from '@/features/floor';
+import { resolveWaiterIdForTable, useWaiterRoutingState } from '@/features/routing';
 
-const availableTables = [
-  { tableId: '2', tableType: 'Round' as const, capacity: 2, server: 'Maria S.' },
-  { tableId: '5', tableType: 'Square' as const, capacity: 2, server: 'James R.' },
-  { tableId: '7', tableType: 'Round' as const, capacity: 2, server: 'Maria S.' },
-  { tableId: '11', tableType: 'Round' as const, capacity: 4, server: 'Alex T.' },
-  { tableId: 'P1', tableType: 'Square' as const, capacity: 4, server: 'Nina W.' },
-  { tableId: 'P2', tableType: 'Square' as const, capacity: 4, server: 'Nina W.' },
-  { tableId: 'P4', tableType: 'Square' as const, capacity: 2, server: 'Nina W.' },
-];
+function toTableType(shape: 'circle' | 'square' | 'horizontal', type: string): 'Round' | 'Square' | 'Booth' | 'Bar' {
+  if (type === 'booth' || shape === 'horizontal') {
+    return 'Booth';
+  }
+
+  if (type === 'bar' || type === 'counter') {
+    return 'Bar';
+  }
+
+  return shape === 'square' ? 'Square' : 'Round';
+}
 
 export default function SeatPartyScreen() {
   const { colors } = useTheme();
+  const availableTables = useAvailableTables();
+  const floorMap = useFloorStore((state) => state.floorMap);
+  const { seatWalkIn } = useFloorActions();
+  const { routing } = useWaiterRoutingState();
   const [partyName, setPartyName] = useState('');
   const [partySize, setPartySize] = useState('2');
+  const [seatingPref, setSeatingPref] = useState<SeatingPref>('none');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+
+  const handleSeat = () => {
+    if (!selectedTable) return;
+    const sectionId = floorMap.tables[selectedTable]?.section ?? null;
+    const waiterId = resolveWaiterIdForTable(routing, selectedTable, sectionId);
+    if (!waiterId) {
+      Alert.alert(
+        'Waiter Required',
+        'Assign a waiter to this table or set the next-up waiter before seating.',
+      );
+      return;
+    }
+
+    const result = seatWalkIn(selectedTable, partyName, parseInt(partySize, 10) || 2, waiterId);
+    if (!result.ok) {
+      return;
+    }
+    setPartyName('');
+    setPartySize('2');
+    setSeatingPref('none');
+    setSelectedTable(null);
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -91,6 +124,11 @@ export default function SeatPartyScreen() {
                 </View>
               </View>
             </View>
+
+            <Text style={[styles.inputLabel, { color: colors.text.muted, marginTop: spacing.lg }]}>
+              Seating Preference
+            </Text>
+            <SeatingPreferencePicker value={seatingPref} onChange={setSeatingPref} />
           </GlassSurface>
         </Animated.View>
 
@@ -102,10 +140,10 @@ export default function SeatPartyScreen() {
           <View style={styles.tableGrid}>
             {availableTables.map((table) => (
               <TouchableOpacity
-                key={table.tableId}
+                key={table.id}
                 activeOpacity={0.7}
                 onPress={() =>
-                  setSelectedTable(selectedTable === table.tableId ? null : table.tableId)
+                  setSelectedTable(selectedTable === table.id ? null : table.id)
                 }
               >
                 <GlassSurface
@@ -113,28 +151,38 @@ export default function SeatPartyScreen() {
                   borderRadius={borderRadius.xl}
                   style={[
                     styles.tableCard,
-                    selectedTable === table.tableId && {
+                    selectedTable === table.id && {
                       borderColor: colors.accent,
                       backgroundColor: colors.accentLight,
                     },
                   ]}
                 >
                   <Ionicons
-                    name={table.tableType === 'Round' ? 'ellipse-outline' : 'square-outline'}
+                    name={
+                      toTableType(table.shape, table.type) === 'Round'
+                        ? 'ellipse-outline'
+                        : toTableType(table.shape, table.type) === 'Booth'
+                          ? 'tablet-landscape-outline'
+                          : toTableType(table.shape, table.type) === 'Bar'
+                            ? 'wine-outline'
+                            : 'square-outline'
+                    }
                     size={28}
                     color={
-                      selectedTable === table.tableId ? colors.accent : colors.text.secondary
+                      selectedTable === table.id ? colors.accent : colors.text.secondary
                     }
                   />
                   <Text style={[styles.tableCardId, { color: colors.text.primary }]}>
-                    Table {table.tableId}
+                    Table {table.label}
                   </Text>
                   <Text style={[styles.tableCardMeta, { color: colors.text.secondary }]}>
-                    {table.tableType} • {table.capacity}p
+                    {toTableType(table.shape, table.type)} • {table.capacity}p
                   </Text>
-                  <Text style={[styles.tableCardServer, { color: colors.text.muted }]}>
-                    {table.server}
-                  </Text>
+                  {table.server && (
+                    <Text style={[styles.tableCardServer, { color: colors.text.muted }]}>
+                      {table.server}
+                    </Text>
+                  )}
                 </GlassSurface>
               </TouchableOpacity>
             ))}
@@ -151,10 +199,13 @@ export default function SeatPartyScreen() {
             ]}
             activeOpacity={0.8}
             disabled={!selectedTable}
+            onPress={handleSeat}
           >
             <Ionicons name="checkmark-circle" size={22} color={colors.white} />
             <Text style={styles.seatButtonText}>
-              {selectedTable ? `Seat at Table ${selectedTable}` : 'Select a Table'}
+              {selectedTable
+                ? `Seat at Table ${availableTables.find((table) => table.id === selectedTable)?.label ?? selectedTable}`
+                : 'Select a Table'}
             </Text>
           </TouchableOpacity>
         </Animated.View>

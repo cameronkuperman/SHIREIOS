@@ -1,250 +1,437 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  Alert,
+  LayoutChangeEvent,
+  LayoutRectangle,
+  Pressable,
   ScrollView,
-  SafeAreaView,
+  StyleSheet,
+  Text,
   TouchableOpacity,
-  type LayoutRectangle,
+  View,
 } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
 import {
-  textStyles,
-  spacing,
-  shadows,
-  borderRadius,
-  useTheme,
-  type StatusKey,
-} from '@/theme';
-import { GlassSurface } from '@/components/GlassSurface';
-import { Table } from '@/components/Table';
-import { WaitlistCard, type WaitlistParty } from '@/components/WaitlistCard';
+  DEFAULT_FLOOR_ID,
+  useFloorActions,
+  useFloorConnectionState,
+  useFloorStore,
+  useFloorTablesByRoom,
+  useQuickSeatSuggestions,
+  useTableDetails,
+} from '@/features/floor';
+import { useAuth } from '@/features/auth';
+import { HostDiagnosticsModal } from '@/components/HostDiagnosticsModal';
 import { FilterPill } from '@/components/FilterPill';
+import { GlassSurface } from '@/components/GlassSurface';
 import { QuickSeatCard } from '@/components/QuickSeatCard';
+import { Table } from '@/components/Table';
 import { TablePopover } from '@/components/TablePopover';
+import { WaitlistCard } from '@/components/WaitlistCard';
+import { getAppVersionLabel, getOrCreateDeviceId } from '@/lib/device';
+import { type HostSidebarParty, useFloorSidebarParties } from '@/features/host/hooks';
+import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
+import {
+  resolveWaiterForTable,
+  resolveWaiterIdForTable,
+  useWaiterChips,
+  useWaiterColorMap,
+  useWaiterRoutingActions,
+  useWaiterRoutingState,
+} from '@/features/routing';
+import { useWorkdayStore } from '@/features/workday';
+import type { TableParty } from '@shire/shared';
+import { borderRadius, shadows, spacing, textStyles, useTheme } from '@/theme';
 
-// ── Mock Data ──────────────────────────────────────────────
+function toTableParty(party: HostSidebarParty): TableParty {
+  return {
+    id: party.id,
+    name: party.name,
+    size: party.size,
+    source: party.source,
+  };
+}
 
-const waitlistData: WaitlistParty[] = [
-  { name: 'Sarah S.', size: 4, wait: '15m', status: 'Waiting' },
-  { name: 'David M.', size: 6, wait: '20m', status: 'Waiting' },
-  { name: 'Emily L.', size: 2, wait: 'Now', status: 'Next' },
-  { name: 'John K.', size: 5, wait: '30m', status: 'Waiting' },
-  { name: 'Anna P.', size: 8, wait: '45m', status: 'Waiting' },
-  { name: 'Chris T.', size: 2, wait: '1h', status: 'Waiting' },
-];
+function formatConnectionLabel(
+  connectionState: string,
+  hasSnapshot: boolean,
+) {
+  if (connectionState === 'error' || connectionState === 'disconnected') {
+    return 'Manual';
+  }
+  if (connectionState === 'connected' && hasSnapshot) {
+    return 'Live';
+  }
 
-const reservationsData: WaitlistParty[] = [
-  { name: 'Williams', size: 4, wait: '6:30 PM', status: 'Waiting' },
-  { name: 'Thompson', size: 2, wait: '7:00 PM', status: 'Waiting' },
-  { name: 'Garcia', size: 6, wait: '7:15 PM', status: 'Next' },
-  { name: 'Chen', size: 8, wait: '7:30 PM', status: 'Waiting' },
-  { name: 'Patel', size: 3, wait: '8:00 PM', status: 'Waiting' },
-];
-
-type TableData = {
-  id: string;
-  status: StatusKey;
-  shape: 'circle' | 'square' | 'horizontal';
-  capacity?: number;
-  server?: string;
-  partyName?: string;
-  seatedTime?: string;
-};
-
-const mainDiningTables: TableData[][] = [
-  [
-    { id: '1', status: 'occupied', shape: 'circle', capacity: 4, server: 'Maria S.', partyName: 'Johnson', seatedTime: '42m' },
-    { id: '2', status: 'available', shape: 'circle', capacity: 2 },
-    { id: '3', status: 'reserved', shape: 'square', capacity: 4 },
-    { id: '4', status: 'dirty', shape: 'circle', capacity: 6 },
-  ],
-  [
-    { id: '5', status: 'available', shape: 'square', capacity: 2 },
-    { id: '6', status: 'occupied', shape: 'square', capacity: 4, server: 'James R.', partyName: 'Lee', seatedTime: '18m' },
-    { id: '7', status: 'available', shape: 'circle', capacity: 2 },
-    { id: '8', status: 'occupied', shape: 'circle', capacity: 4, server: 'Maria S.', partyName: 'Kim', seatedTime: '55m' },
-  ],
-  [
-    { id: '9', status: 'occupied', shape: 'horizontal', capacity: 8, server: 'Alex T.', partyName: 'Martinez', seatedTime: '25m' },
-    { id: '10', status: 'reserved', shape: 'circle', capacity: 2 },
-    { id: '11', status: 'available', shape: 'circle', capacity: 4 },
-  ],
-];
-
-const patioTables: TableData[][] = [
-  [
-    { id: 'P1', status: 'available', shape: 'square', capacity: 4 },
-    { id: 'P2', status: 'available', shape: 'square', capacity: 4 },
-  ],
-  [
-    { id: 'P3', status: 'occupied', shape: 'square', capacity: 4, server: 'Nina W.', partyName: 'Davis', seatedTime: '10m' },
-    { id: 'P4', status: 'available', shape: 'square', capacity: 2 },
-  ],
-];
-
-const quickSeatSuggestions = [
-  { tableId: '2', tableType: 'Round' as const, capacity: 2, server: 'Maria S.', label: 'Best Match' },
-  { tableId: '5', tableType: 'Square' as const, capacity: 2, server: 'James R.' },
-  { tableId: '7', tableType: 'Round' as const, capacity: 2, server: 'Maria S.' },
-  { tableId: '11', tableType: 'Round' as const, capacity: 4, server: 'Alex T.' },
-  { tableId: 'P1', tableType: 'Square' as const, capacity: 4, server: 'Nina W.' },
-];
-
-const FILTERS = ['Main Dining', 'Patio / Outside', 'Booths', 'Bar'] as const;
-
-// ── Component ──────────────────────────────────────────────
+  return 'Syncing';
+}
 
 export default function FloorPlanScreen() {
+  const router = useRouter();
   const { colors, isDark } = useTheme();
-  const [sidebarTab, setSidebarTab] = useState<'waitlist' | 'reservations'>('waitlist');
-  const [activeFilter, setActiveFilter] = useState(0);
-  const [selectedPartyIndex, setSelectedPartyIndex] = useState<number | null>(null);
-  const [popover, setPopover] = useState<{ table: TableData; layout: LayoutRectangle } | null>(null);
+  const { currentLocation, userSession } = useAuth();
+  const {
+    routing,
+    error: routingError,
+    isLoading: isRoutingLoading,
+    isSaving: isRoutingSaving,
+  } = useWaiterRoutingState();
+  const waiterChips = useWaiterChips();
+  const waiterColorMap = useWaiterColorMap();
+  const { assignTable } = useWaiterRoutingActions();
+  const endWorkday = useWorkdayStore((state) => state.endWorkday);
+  const workdayHref = '/workday' as Href;
+  const rooms = useFloorTablesByRoom();
+  const quickSeatSuggestions = useQuickSeatSuggestions();
+  const floorMap = useFloorStore((state) => state.floorMap);
+  const { seatParty, clearTable, markClean, blockTable, unblockTable } = useFloorActions();
+  const { connectionState, syncError, lastSnapshotAt, floorId } = useFloorConnectionState();
+  const hostParties = useFloorSidebarParties();
+  const markPendingSeat = usePendingSeatStore((state) => state.markPendingSeat);
 
-  const tableRefs = useRef<Record<string, View | null>>({});
+  const [activeFilter, setActiveFilter] = useState('All Rooms');
+  const [selectedPartyId, setSelectedPartyId] = useState<string | null>(null);
+  const [popover, setPopover] = useState<{ tableId: string; layout: LayoutRectangle } | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [roomSizes, setRoomSizes] = useState<Record<string, { width: number; height: number }>>({});
 
-  const handleTablePress = useCallback((table: TableData, ref: View | null) => {
-    if (!ref) return;
-    ref.measureInWindow((x, y, width, height) => {
-      setPopover({ table, layout: { x, y, width, height } });
+  const handleRoomLayout = useCallback((roomId: string, e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setRoomSizes((prev) => {
+      if (prev[roomId]?.width === width && prev[roomId]?.height === height) return prev;
+      return { ...prev, [roomId]: { width, height } };
     });
   }, []);
 
-  const sidebarItems = sidebarTab === 'waitlist' ? waitlistData : reservationsData;
+  const tableRefs = useRef<Record<string, View | null>>({});
+  const liveTable = useTableDetails(popover?.tableId ?? null);
+  const filters = useMemo(
+    () => ['All Rooms', ...new Set(floorMap.rooms.map((room) => room.filterLabel))],
+    [floorMap.rooms],
+  );
+  const visibleRooms =
+    activeFilter === 'All Rooms'
+      ? rooms
+      : rooms.filter((room) => room.filterLabel === activeFilter);
+
+  const hasSnapshot = Boolean(lastSnapshotAt);
+  const connectionLabel = formatConnectionLabel(connectionState, hasSnapshot);
+  const connectionColor =
+    connectionLabel === 'Manual'
+      ? colors.status.dirty.text
+      : connectionLabel === 'Live'
+        ? colors.status.available.text
+        : colors.status.reserved.text;
+
+  const selectedParty = selectedPartyId
+    ? (hostParties.find((party) => party.id === selectedPartyId) ?? null)
+    : null;
+
+  const seatWarning = useMemo(() => {
+    if (!popover || !selectedParty || selectedParty.seatingPreference === 'none') {
+      return undefined;
+    }
+
+    const mapTable = floorMap.tables[popover.tableId];
+    if (!mapTable) {
+      return undefined;
+    }
+
+    const pref = selectedParty.seatingPreference;
+    const isMatch =
+      (pref === 'booth' && mapTable.type === 'booth') ||
+      (pref === 'bar' && (mapTable.type === 'bar' || mapTable.type === 'counter')) ||
+      (pref === 'patio' && mapTable.type === 'outdoor') ||
+      (pref === 'window' && mapTable.type === 'regular');
+
+    return isMatch ? undefined : `Guest prefers ${pref} seating`;
+  }, [floorMap.tables, popover, selectedParty]);
+
+  const popoverResolvedWaiter = useMemo(() => {
+    if (!popover || !liveTable) {
+      return null;
+    }
+
+    return resolveWaiterForTable(routing, popover.tableId, liveTable.section);
+  }, [liveTable, popover, routing]);
+
+  const editableWaiters = useMemo(() => {
+    if (!popover) {
+      return waiterChips.filter((waiter) => waiter.isActive);
+    }
+
+    const explicitWaiterId = routing?.tableAssignments[popover.tableId] ?? null;
+    return waiterChips.filter((waiter) => waiter.isActive || waiter.id === explicitWaiterId);
+  }, [popover, routing?.tableAssignments, waiterChips]);
+
+  const handleTablePress = (tableId: string, ref: View | null | undefined) => {
+    if (!ref) {
+      return;
+    }
+
+    ref.measureInWindow((x, y, width, height) => {
+      setPopover({ tableId, layout: { x, y, width, height } });
+    });
+  };
+
+  const handleSeat = () => {
+    if (!popover || !liveTable) {
+      return;
+    }
+
+    if (!selectedParty) {
+      Alert.alert('Select a Party', 'Choose a host party before seating from the floor plan.');
+      return;
+    }
+
+    const tableId = popover.tableId;
+    const waiterId = resolveWaiterIdForTable(routing, tableId, liveTable.section);
+    if (!waiterId) {
+      Alert.alert(
+        'Waiter Required',
+        'Assign a waiter to this table or set the next-up waiter before seating.',
+      );
+      return;
+    }
+
+    const result = seatParty(tableId, toTableParty(selectedParty), waiterId);
+
+    if (!result.ok) {
+      return;
+    }
+
+    if (selectedParty) {
+      markPendingSeat(result.commandId, {
+        entityId: selectedParty.id,
+        tableId,
+        source: selectedParty.source,
+      });
+      setSelectedPartyId(null);
+    }
+
+    setPopover(null);
+  };
+
+  const handleAssignTableWaiter = useCallback(
+    async (waiterId: string | null) => {
+      if (!popover) {
+        return;
+      }
+
+      try {
+        await assignTable(popover.tableId, waiterId);
+      } catch (error) {
+        Alert.alert(
+          'Unable to Save Waiter',
+          error instanceof Error ? error.message : 'Waiter routing could not be updated.',
+        );
+      }
+    },
+    [assignTable, popover],
+  );
+
+  const handleClear = () => {
+    if (!liveTable) {
+      return;
+    }
+
+    const didDispatch =
+      liveTable.status === 'occupied'
+        ? clearTable(liveTable.id).ok
+        : liveTable.status === 'dirty'
+          ? markClean(liveTable.id).ok
+          : false;
+
+    if (didDispatch) {
+      setPopover(null);
+    }
+  };
+
+  const handleBlock = () => {
+    if (!liveTable) {
+      return;
+    }
+
+    const didDispatch = liveTable.isBlocked
+      ? unblockTable(liveTable.id).ok
+      : blockTable(liveTable.id).ok;
+
+    if (didDispatch) {
+      setPopover(null);
+    }
+  };
+
+  const diagnosticsItems = [
+    { label: 'Location', value: currentLocation?.name ?? 'Not selected' },
+    { label: 'Floor', value: floorId || DEFAULT_FLOOR_ID },
+    { label: 'Signed In As', value: userSession?.user.email ?? 'Unknown' },
+    { label: 'Connection', value: connectionLabel },
+    { label: 'Snapshot Age', value: lastSnapshotAt ?? 'Never synced' },
+    { label: 'Routing', value: routing?.updatedAt ?? (isRoutingLoading ? 'Loading' : 'Unavailable') },
+    { label: 'Device ID', value: getOrCreateDeviceId() },
+    { label: 'App Version', value: getAppVersionLabel() },
+    { label: 'API Error', value: syncError ?? 'None' },
+  ];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Warm ambient background with subtle vignette */}
-      <View style={[styles.ambientBackground, { backgroundColor: colors.background }]}>
-        <View style={styles.vignetteTop} />
-        <View style={styles.vignetteBottom} />
-      </View>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.ambientBackground, { backgroundColor: colors.background }]} />
 
-      {/* Top Navigation */}
       <View style={styles.topNav}>
-        <Text style={[styles.logoText, { color: colors.text.primary }]}>SHIRE</Text>
-        <TouchableOpacity
-          style={[
-            styles.addButton,
-            {
-              backgroundColor: colors.surface.level1,
-              borderColor: colors.glass.border,
-            },
-          ]}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="add" size={22} color={colors.text.primary} />
-        </TouchableOpacity>
+        <View>
+          <Text style={[styles.logoText, { color: colors.text.primary }]}>SHIRE</Text>
+          {currentLocation && (
+            <Text style={[styles.locationText, { color: colors.text.muted }]}>
+              {currentLocation.name}
+            </Text>
+          )}
+        </View>
+        <View style={styles.topNavRight}>
+          <View
+            style={[
+              styles.connectionBadge,
+              {
+                backgroundColor: colors.surface.level1,
+                borderColor: colors.glass.border,
+              },
+            ]}
+          >
+            <View style={[styles.connectionDot, { backgroundColor: connectionColor }]} />
+            <Text style={[styles.connectionText, { color: colors.text.secondary }]}>
+              {connectionLabel}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[
+              styles.iconButton,
+              {
+                backgroundColor: colors.surface.level1,
+                borderColor: colors.glass.border,
+              },
+            ]}
+            activeOpacity={0.7}
+            onPress={() => router.push('/shift' as Href)}
+          >
+            <Ionicons name="people-outline" size={20} color={colors.text.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.iconButton,
+              {
+                backgroundColor: colors.surface.level1,
+                borderColor: colors.glass.border,
+              },
+            ]}
+            activeOpacity={0.7}
+            onPress={() => setShowDiagnostics(true)}
+          >
+            <Ionicons name="bug-outline" size={20} color={colors.text.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Quick-Seat Strip */}
+      {(syncError || connectionLabel !== 'Live' || routingError || isRoutingSaving) && (
+        <View style={styles.bannerRow}>
+          <GlassSurface intensity={35} borderRadius={borderRadius.xl} style={styles.bannerCard}>
+            <Ionicons
+              name={
+                syncError || routingError || connectionLabel === 'Manual'
+                  ? 'alert-circle-outline'
+                  : 'sync-outline'
+              }
+              size={18}
+              color={
+                syncError || routingError || connectionLabel === 'Manual'
+                  ? colors.status.dirty.text
+                  : colors.text.secondary
+              }
+            />
+            <Text
+              style={[
+                styles.bannerText,
+                {
+                  color:
+                    syncError || routingError || connectionLabel === 'Manual'
+                      ? colors.status.dirty.text
+                      : colors.text.secondary,
+                },
+              ]}
+            >
+              {syncError
+                ? syncError
+                : routingError
+                ? routingError
+                : isRoutingSaving
+                  ? 'Saving waiter routing changes to the backend.'
+                  : connectionLabel === 'Manual'
+                    ? 'Manual mode is active. Floor sync resumes automatically when the connection recovers.'
+                    : 'Syncing live floor and waiter routing.'}
+            </Text>
+          </GlassSurface>
+        </View>
+      )}
+
       <View style={styles.quickSeatStrip}>
-        <GlassSurface intensity={30} borderRadius={borderRadius['2xl']} style={styles.quickSeatContainer}>
+        <GlassSurface
+          intensity={30}
+          borderRadius={borderRadius['2xl']}
+          style={styles.quickSeatContainer}
+        >
           <Text style={[styles.quickSeatLabel, { color: colors.text.muted }]}>QUICK SEAT</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.quickSeatScroll}
           >
-            {quickSeatSuggestions.map((s) => (
-              <QuickSeatCard key={s.tableId} {...s} />
+            {quickSeatSuggestions.map((suggestion) => (
+              <QuickSeatCard
+                key={suggestion.tableId}
+                {...suggestion}
+                onPress={() => setPopover(null)}
+              />
             ))}
           </ScrollView>
         </GlassSurface>
       </View>
 
-      {/* Main Split Layout */}
       <View style={styles.splitLayout}>
-        {/* Left Sidebar */}
         <GlassSurface intensity={45} style={styles.sidebar}>
-          {/* Sidebar Toggle */}
           <View style={[styles.sidebarHeader, { borderBottomColor: colors.border.subtle }]}>
-            <View style={[styles.segmentedControl, { backgroundColor: colors.surface.level3 }]}>
-              <TouchableOpacity
-                style={[
-                  styles.segment,
-                  sidebarTab === 'waitlist' && [
-                    styles.segmentActive,
-                    { backgroundColor: isDark ? colors.surface.level1 : colors.white },
-                  ],
-                ]}
-                onPress={() => setSidebarTab('waitlist')}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    { color: colors.text.muted },
-                    sidebarTab === 'waitlist' && { color: colors.text.primary, fontWeight: '600' },
-                  ]}
-                >
-                  Waitlist ({waitlistData.length})
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.segment,
-                  sidebarTab === 'reservations' && [
-                    styles.segmentActive,
-                    { backgroundColor: isDark ? colors.surface.level1 : colors.white },
-                  ],
-                ]}
-                onPress={() => setSidebarTab('reservations')}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    { color: colors.text.muted },
-                    sidebarTab === 'reservations' && { color: colors.text.primary, fontWeight: '600' },
-                  ]}
-                >
-                  Reservations ({reservationsData.length})
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity>
-              <Ionicons name="ellipsis-horizontal" size={20} color={colors.text.secondary} />
-            </TouchableOpacity>
+            <Text style={[styles.sidebarTitle, { color: colors.text.primary }]}>
+              Host Queue ({hostParties.length})
+            </Text>
+            <Text style={[styles.sidebarSubtitle, { color: colors.text.muted }]}>
+              Select a waitlist party or reservation, then tap an open table to seat them.
+            </Text>
           </View>
 
-          {/* Sidebar Content */}
           <ScrollView style={styles.sidebarScroll} showsVerticalScrollIndicator={false}>
-            <Animated.View layout={Layout.springify()} key={sidebarTab}>
-              {sidebarItems.map((party, index) => (
-                <Animated.View key={`${sidebarTab}-${index}`} entering={FadeIn.delay(index * 40).duration(300)}>
-                  <WaitlistCard
-                    party={party}
-                    index={index}
-                    isSelected={sidebarTab === 'waitlist' && selectedPartyIndex === index}
-                    onPress={() => setSelectedPartyIndex(selectedPartyIndex === index ? null : index)}
-                  />
-                </Animated.View>
-              ))}
-            </Animated.View>
+            {hostParties.map((party, index) => (
+              <WaitlistCard
+                key={party.id}
+                party={party}
+                index={index}
+                isSelected={selectedPartyId === party.id}
+                onPress={() => setSelectedPartyId(selectedPartyId === party.id ? null : party.id)}
+              />
+            ))}
           </ScrollView>
         </GlassSurface>
 
-        {/* Right - Floor Plan */}
         <View style={styles.mainArea}>
-          {/* Filter Pills */}
           <View style={styles.filterRow}>
-            {FILTERS.map((filter, i) => (
+            {filters.map((filter) => (
               <FilterPill
                 key={filter}
                 label={filter}
-                isActive={activeFilter === i}
-                onPress={() => setActiveFilter(i)}
+                isActive={activeFilter === filter}
+                onPress={() => setActiveFilter(filter)}
               />
             ))}
           </View>
 
-          {/* Floor Plan Map */}
           <View style={styles.mapContainer}>
-            {/* Subtle linen-like texture background */}
             <View
               style={[
                 styles.floorTexture,
@@ -256,153 +443,205 @@ export default function FloorPlanScreen() {
               ]}
             />
 
-            {/* Main Dining Room */}
-            <View
-              style={[
-                styles.roomOutline,
-                {
-                  borderColor: colors.border.default,
-                  backgroundColor: colors.surface.level4,
-                },
-              ]}
-            >
-              <Text
+            {visibleRooms.map((room) => (
+              <Pressable
+                key={room.roomId}
+                onLayout={(e) => handleRoomLayout(room.roomId, e)}
                 style={[
-                  styles.roomLabel,
-                  { backgroundColor: colors.background, color: colors.text.muted },
+                  styles.roomOutline,
+                  room.variant === 'patio' && styles.roomPatio,
+                  room.layoutMode === 'freeform' && styles.roomFreeform,
+                  {
+                    flex: room.flex,
+                    borderColor: colors.border.default,
+                    backgroundColor:
+                      room.variant === 'patio'
+                        ? isDark
+                          ? 'rgba(255, 255, 255, 0.02)'
+                          : 'rgba(230, 225, 215, 0.22)'
+                        : colors.surface.level4,
+                  },
                 ]}
               >
-                MAIN DINING A
-              </Text>
-              {mainDiningTables.map((row, rowIdx) => (
-                <View key={rowIdx} style={styles.tableRow}>
-                  {row.map((table) => (
-                    <View
-                      key={table.id}
-                      ref={(ref) => { tableRefs.current[table.id] = ref; }}
-                      collapsable={false}
-                    >
-                      <Table
-                        id={table.id}
-                        status={table.status}
-                        shape={table.shape}
-                        capacity={table.capacity}
-                        onPress={() => handleTablePress(table, tableRefs.current[table.id])}
-                      />
+                <Text
+                  style={[
+                    styles.roomLabel,
+                    { backgroundColor: colors.background, color: colors.text.muted },
+                  ]}
+                >
+                  {room.label}
+                </Text>
+                {room.layoutMode === 'freeform' ? (
+                  // Freeform: absolute position each table
+                  room.tables.map((table) => {
+                    const size = roomSizes[room.roomId];
+                    const cw = size?.width ?? 600;
+                    const ch = size?.height ?? 400;
+                    return (
+                      <View
+                        key={table.id}
+                        ref={(ref) => {
+                          tableRefs.current[table.id] = ref;
+                        }}
+                        collapsable={false}
+                        style={{
+                          position: 'absolute',
+                          left: (table.x ?? 0.5) * cw - 32,
+                          top: (table.y ?? 0.5) * ch - 32,
+                          ...(table.rotation
+                            ? { transform: [{ rotate: `${table.rotation}deg` }] }
+                            : {}),
+                        }}
+                      >
+                        <Table
+                          id={table.label}
+                          status={table.status}
+                          shape={table.shape}
+                          capacity={table.capacity}
+                          onPress={() =>
+                            handleTablePress(table.id, tableRefs.current[table.id] ?? null)
+                          }
+                        />
+                      </View>
+                    );
+                  })
+                ) : (
+                  // Grid: row-based flexbox (existing behavior)
+                  room.rows.map((row, rowIdx) => (
+                    <View key={`${room.roomId}-${rowIdx}`} style={styles.tableRow}>
+                      {row.map((table) => (
+                        <View
+                          key={table.id}
+                          ref={(ref) => {
+                            tableRefs.current[table.id] = ref;
+                          }}
+                          collapsable={false}
+                        >
+                          <Table
+                            id={table.label}
+                            status={table.status}
+                            shape={table.shape}
+                            capacity={table.capacity}
+                            onPress={() =>
+                              handleTablePress(table.id, tableRefs.current[table.id] ?? null)
+                            }
+                          />
+                        </View>
+                      ))}
                     </View>
-                  ))}
-                </View>
-              ))}
-            </View>
-
-            {/* Patio */}
-            <View
-              style={[
-                styles.roomOutline,
-                styles.roomPatio,
-                {
-                  borderColor: colors.border.default,
-                  backgroundColor: isDark
-                    ? 'rgba(255, 255, 255, 0.02)'
-                    : 'rgba(230, 225, 215, 0.22)',
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.roomLabel,
-                  { backgroundColor: colors.background, color: colors.text.muted },
-                ]}
-              >
-                PATIO
-              </Text>
-              {patioTables.map((row, rowIdx) => (
-                <View key={rowIdx} style={styles.tableRow}>
-                  {row.map((table) => (
-                    <View
-                      key={table.id}
-                      ref={(ref) => { tableRefs.current[table.id] = ref; }}
-                      collapsable={false}
-                    >
-                      <Table
-                        id={table.id}
-                        status={table.status}
-                        shape={table.shape}
-                        capacity={table.capacity}
-                        onPress={() => handleTablePress(table, tableRefs.current[table.id])}
-                      />
-                    </View>
-                  ))}
-                </View>
-              ))}
-            </View>
+                  ))
+                )}
+              </Pressable>
+            ))}
           </View>
         </View>
       </View>
 
-      {/* Table Popover */}
-      {popover && (
+      {popover && liveTable && (
         <TablePopover
           visible
           onClose={() => setPopover(null)}
-          tableId={popover.table.id}
-          status={popover.table.status}
-          capacity={popover.table.capacity}
-          server={popover.table.server}
-          partyName={popover.table.partyName}
-          seatedTime={popover.table.seatedTime}
+          tableId={liveTable.id}
+          tableLabel={liveTable.label}
+          status={liveTable.status}
+          isBlocked={liveTable.isBlocked}
+          capacity={liveTable.capacity}
+          server={
+            liveTable.currentWaiterName ?? popoverResolvedWaiter?.name ?? liveTable.server
+          }
+          serverColor={
+            popoverResolvedWaiter?.id
+              ? waiterColorMap[popoverResolvedWaiter.id]
+              : liveTable.serverId
+                ? waiterColorMap[liveTable.serverId]
+                : undefined
+          }
+          partyName={liveTable.partyName}
+          seatedTime={liveTable.seatedTime}
           anchorLayout={popover.layout}
-          onSeat={() => setPopover(null)}
-          onClear={() => setPopover(null)}
-          onBlock={() => setPopover(null)}
+          onSeat={!selectedParty || liveTable.isBlocked ? undefined : handleSeat}
+          onClear={handleClear}
+          onBlock={handleBlock}
+          blockActionLabel={liveTable.isBlocked ? 'Unblock' : 'Block'}
+          servers={editableWaiters}
+          currentServerId={routing?.tableAssignments[liveTable.id] ?? undefined}
+          onChangeServer={(waiterId) => {
+            void handleAssignTableWaiter(waiterId);
+          }}
+          onClearServerAssignment={() => {
+            void handleAssignTableWaiter(null);
+          }}
+          seatWarning={seatWarning}
         />
       )}
-    </SafeAreaView>
+
+      <HostDiagnosticsModal
+        visible={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+        items={diagnosticsItems}
+        secondaryActionLabel="Edit Floor Map"
+        onSecondaryAction={() => {
+          setShowDiagnostics(false);
+          router.push('/floor-builder' as Href);
+        }}
+        actionLabel="End Workday"
+        onAction={() => {
+          setShowDiagnostics(false);
+          endWorkday();
+          router.replace(workdayHref);
+        }}
+      />
+    </View>
   );
 }
-
-// ── Styles ─────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-
   ambientBackground: {
     ...StyleSheet.absoluteFillObject,
   },
-  vignetteTop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 120,
-    backgroundColor: 'transparent',
-    borderBottomWidth: 0,
-    opacity: 0.5,
-  },
-  vignetteBottom: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 80,
-    opacity: 0.3,
-  },
-
   topNav: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing.md,
+    paddingTop: 48,
+    paddingBottom: spacing.sm,
   },
   logoText: {
     fontSize: 20,
     fontWeight: '800',
     letterSpacing: 3,
   },
-  addButton: {
+  locationText: {
+    ...textStyles.caption,
+    marginTop: spacing.xs,
+  },
+  topNavRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  connectionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.pill,
+    borderWidth: 1,
+  },
+  connectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  connectionText: {
+    ...textStyles.captionMedium,
+  },
+  iconButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -411,7 +650,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     ...shadows.subtle,
   },
-
+  bannerRow: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  bannerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  bannerText: {
+    ...textStyles.caption,
+    flex: 1,
+  },
   quickSeatStrip: {
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.md,
@@ -430,7 +683,6 @@ const styles = StyleSheet.create({
     paddingRight: spacing.lg,
     gap: spacing.md,
   },
-
   splitLayout: {
     flex: 1,
     flexDirection: 'row',
@@ -438,50 +690,35 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.lg,
     gap: spacing.lg,
   },
-
   sidebar: {
     width: 310,
     borderRadius: borderRadius['2xl'],
     overflow: 'hidden',
   },
   sidebarHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     padding: spacing.lg,
     borderBottomWidth: 1,
   },
-  segmentedControl: {
-    flexDirection: 'row',
-    borderRadius: borderRadius.md,
-    padding: 3,
+  sidebarTitle: {
+    ...textStyles.label,
   },
-  segment: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.sm + 1,
-  },
-  segmentActive: {
-    ...shadows.glass,
-  },
-  segmentText: {
-    ...textStyles.captionMedium,
+  sidebarSubtitle: {
+    ...textStyles.caption,
+    marginTop: spacing.xs,
   },
   sidebarScroll: {
     padding: spacing.md,
   },
-
   mainArea: {
     flex: 1,
-    flexDirection: 'column',
   },
   filterRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: spacing.md,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.sm,
+    flexWrap: 'wrap',
   },
-
   mapContainer: {
     flex: 1,
     flexDirection: 'row',
@@ -499,6 +736,10 @@ const styles = StyleSheet.create({
   },
   roomPatio: {
     flex: 0.4,
+  },
+  roomFreeform: {
+    position: 'relative',
+    minHeight: 300,
   },
   roomLabel: {
     position: 'absolute',

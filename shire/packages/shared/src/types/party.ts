@@ -1,4 +1,4 @@
-export type SeatingPreference = 'window' | 'bar' | 'booth' | 'none';
+export type SeatingPreference = 'window' | 'bar' | 'booth' | 'patio' | 'none';
 
 export interface Party {
   groupId: string;
