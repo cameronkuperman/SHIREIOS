@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
 import {
   ActivityIndicator,
   Alert,
@@ -71,6 +72,8 @@ function actionLabel(action: ReservationAction): string {
   switch (action) {
     case 'confirm':
       return 'Confirm';
+    case 'arrive':
+      return 'Arrive';
     case 'check_in':
       return 'Check In';
     case 'complete':
@@ -86,12 +89,83 @@ function actionLabel(action: ReservationAction): string {
   }
 }
 
+function extractReservationSaveErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const payload = error.response?.data;
+
+    if (typeof payload === 'string' && payload.trim()) {
+      return payload.trim();
+    }
+
+    if (payload && typeof payload === 'object') {
+      const record = payload as Record<string, unknown>;
+      const candidates = [record.message, record.error, record.detail];
+
+      for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim()) {
+          return candidate.trim();
+        }
+
+        if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+          const detailRecord = candidate as Record<string, unknown>;
+          const detailMessage =
+            typeof detailRecord.message === 'string' && detailRecord.message.trim()
+              ? detailRecord.message.trim()
+              : null;
+          const detailCode =
+            typeof detailRecord.code === 'string' && detailRecord.code.trim()
+              ? detailRecord.code.trim()
+              : null;
+
+          if (detailMessage && detailCode) {
+            return `${detailMessage} (${detailCode})`;
+          }
+
+          if (detailMessage) {
+            return detailMessage;
+          }
+        }
+
+        if (Array.isArray(candidate) && candidate.length > 0) {
+          const firstIssue = candidate.find(
+            (entry) => entry && typeof entry === 'object',
+          ) as Record<string, unknown> | undefined;
+
+          if (firstIssue) {
+            const loc = Array.isArray(firstIssue.loc)
+              ? firstIssue.loc.filter((part) => typeof part === 'string').join('.')
+              : null;
+            const msg =
+              typeof firstIssue.msg === 'string' && firstIssue.msg.trim()
+                ? firstIssue.msg.trim()
+                : null;
+
+            if (loc && msg) {
+              return `${loc}: ${msg}`;
+            }
+
+            if (msg) {
+              return msg;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return 'The reservation could not be saved.';
+}
+
 function availableActions(status: Reservation['status']): ReservationAction[] {
   switch (status) {
     case 'booked':
-      return ['confirm', 'check_in', 'cancel', 'mark_no_show'];
+      return ['confirm', 'arrive', 'cancel', 'mark_no_show'];
     case 'confirmed':
-      return ['check_in', 'cancel', 'mark_no_show'];
+      return ['arrive', 'cancel', 'mark_no_show'];
     case 'checked_in':
       return ['cancel', 'mark_no_show'];
     case 'seated':
@@ -188,6 +262,7 @@ export function ReservationEditor({
     () => availability?.slots.find((slot) => slot.timeSlot === timeSlot) ?? null,
     [availability?.slots, timeSlot],
   );
+  const isUsingFallbackTimeSlots = slotOptions.length === 0;
 
   const canSubmit =
     guestName.trim().length > 0 &&
@@ -216,10 +291,7 @@ export function ReservationEditor({
         pacingOverride,
       });
     } catch (error) {
-      Alert.alert(
-        'Unable to Save Reservation',
-        error instanceof Error ? error.message : 'The reservation could not be saved.',
-      );
+      Alert.alert('Unable to Save Reservation', extractReservationSaveErrorMessage(error));
     }
   };
 
@@ -398,6 +470,11 @@ export function ReservationEditor({
               slots={slotOptions}
               allowUnavailableSelection
             />
+            {isUsingFallbackTimeSlots && (
+              <Text style={[styles.helperText, { color: colors.text.muted }]}>
+                Live availability did not return any time slots, so standard service times are shown.
+              </Text>
+            )}
             {selectedSlot && !selectedSlot.available && (
               <View
                 style={[
@@ -547,6 +624,10 @@ const styles = StyleSheet.create({
   },
   policyLabel: {
     ...textStyles.tiny,
+  },
+  helperText: {
+    ...textStyles.caption,
+    marginTop: spacing.md,
   },
   inputWrapper: {
     flexDirection: 'row',

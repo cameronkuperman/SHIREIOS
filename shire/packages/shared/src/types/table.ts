@@ -112,6 +112,8 @@ export interface TableLiveState {
   currentWaiterId?: string | null;
   currentWaiterName?: string | null;
   currentWaitlistEntryId?: string | null;
+  currentReservationId?: string | null;
+  currentVisitId?: string | null;
   currentPartySize?: number | null;
   lastUpdateSource?: TableUpdateSource | null;
   emittedAt?: string | null;
@@ -123,6 +125,7 @@ export interface FloorSnapshot {
   generatedAt: string;
   sequence: number;
   tables: TableLiveState[];
+  routingSnapshot?: WaiterRoutingState | null;
 }
 
 interface BaseTableCommand {
@@ -261,6 +264,7 @@ export interface BackendLiveTable {
   sectionId?: string | null;
   sectionName?: string | null;
   currentVisitId?: string | null;
+  currentReservationId?: string | null;
   currentPartyName?: string | null;
   currentPartySize?: number | null;
   currentWaitlistEntryId?: string | null;
@@ -278,6 +282,7 @@ export interface BackendFloorSnapshotDto {
   sequence: number;
   tables?: BackendLiveTable[];
   tablesById?: Record<string, BackendLiveTable>;
+  routingSnapshot?: WaiterRoutingState | null;
 }
 
 export interface BackendFloorSnapshotMessage {

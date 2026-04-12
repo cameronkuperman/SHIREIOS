@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  Alert,
   View,
   Text,
   StyleSheet,
@@ -44,15 +43,13 @@ export default function SeatPartyScreen() {
     if (!selectedTable) return;
     const sectionId = floorMap.tables[selectedTable]?.section ?? null;
     const waiterId = resolveWaiterIdForTable(routing, selectedTable, sectionId);
-    if (!waiterId) {
-      Alert.alert(
-        'Waiter Required',
-        'Assign a waiter to this table or set the next-up waiter before seating.',
-      );
-      return;
-    }
 
-    const result = seatWalkIn(selectedTable, partyName, parseInt(partySize, 10) || 2, waiterId);
+    const result = seatWalkIn(
+      selectedTable,
+      partyName,
+      parseInt(partySize, 10) || 2,
+      waiterId ?? undefined,
+    );
     if (!result.ok) {
       return;
     }

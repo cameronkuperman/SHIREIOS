@@ -24,6 +24,7 @@ export type ReservationStatus =
 
 export type ReservationAction =
   | 'confirm'
+  | 'arrive'
   | 'check_in'
   | 'seat'
   | 'complete'
@@ -45,6 +46,7 @@ export interface Reservation {
   specialRequests: string;
   internalNotes: string;
   source: ReservationSource;
+  linkedVisitId?: string | null;
   assignedTableId: string | null;
   pacingOverrideApplied: boolean;
   createdAt: string; // ISO 8601

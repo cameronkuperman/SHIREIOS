@@ -23,6 +23,7 @@ import {
   updateReservation,
   runWaitlistAction,
   updateWaitlistEntry,
+  type ReservationActionInput,
   type CreateReservationInput,
   type CreateWaitlistInput,
   type ReservationAvailabilityInput,
@@ -315,10 +316,12 @@ export function useReservationMutations() {
     mutationFn: ({
       reservationId,
       action,
+      input,
     }: {
       reservationId: string;
       action: ReservationAction;
-    }) => runReservationAction(locationId!, reservationId, action),
+      input?: ReservationActionInput;
+    }) => runReservationAction(locationId!, reservationId, action, input),
     onSuccess: () => {
       if (locationId) {
         invalidateReservationQueries(queryClient, locationId);
@@ -347,6 +350,7 @@ export function useReservationAvailability(
         : ['reservations', 'availability', 'disabled'],
     queryFn: () => fetchReservationAvailability(locationId!, input!),
     enabled: !!locationId && !!input && isWorkdayActive,
+    retry: false,
     staleTime: 15_000,
   });
 
@@ -361,6 +365,7 @@ export function useReservationSettings(): ReservationSettings | null {
     queryKey: locationId ? queryKeys.reservations.settings(locationId) : ['reservations', 'settings'],
     queryFn: () => fetchReservationSettings(locationId!),
     enabled: !!locationId && isWorkdayActive,
+    retry: false,
     staleTime: 5 * 60_000,
   });
 

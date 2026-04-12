@@ -1,5 +1,6 @@
 import type { SeatingPreference } from "./party.ts";
 import type { FloorMap } from "./table.ts";
+import type { WaiterRoutingState } from "./routing.ts";
 
 export type Permission =
   | "host.view"
@@ -118,4 +119,5 @@ export interface HostBootstrap {
   location: Location;
   floorId: string;
   floorMap: FloorMap;
+  routingSnapshot?: WaiterRoutingState | null;
 }

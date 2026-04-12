@@ -58,21 +58,6 @@ function useStatusConfig(status: ReservationStatus): StatusConfig {
   }
 }
 
-function messageDeliveryLabel(status?: string | null): string | null {
-  switch (status) {
-    case 'queued':
-      return 'SMS queued';
-    case 'sent':
-      return 'SMS sent';
-    case 'failed':
-      return 'SMS failed';
-    case 'opted_out':
-      return 'SMS opted out';
-    default:
-      return null;
-  }
-}
-
 type ReservationCardProps = {
   reservation: Reservation;
   onPress?: () => void;
@@ -82,7 +67,6 @@ export function ReservationCard({ reservation, onPress }: ReservationCardProps) 
   const { colors } = useTheme();
   const statusConfig = useStatusConfig(reservation.status);
   const pref = reservation.seatingPreference as SeatingPref;
-  const smsLabel = messageDeliveryLabel(reservation.messageDelivery?.status);
   const sourceLabel = formatSource(reservation.source);
 
   return (
@@ -133,32 +117,6 @@ export function ReservationCard({ reservation, onPress }: ReservationCardProps) 
             <Ionicons name={seatingPrefIcon(pref)} size={12} color={colors.text.muted} />
             <Text style={[styles.prefText, { color: colors.text.muted }]}>
               {seatingPrefLabel(pref)}
-            </Text>
-          </View>
-        )}
-        {smsLabel && (
-          <View style={styles.metaItem}>
-            <Ionicons
-              name="chatbubble-ellipses-outline"
-              size={14}
-              color={
-                reservation.messageDelivery?.status === 'failed'
-                  ? colors.status.dirty.text
-                  : colors.text.muted
-              }
-            />
-            <Text
-              style={[
-                styles.metaText,
-                {
-                  color:
-                    reservation.messageDelivery?.status === 'failed'
-                      ? colors.status.dirty.text
-                      : colors.text.secondary,
-                },
-              ]}
-            >
-              {smsLabel}
             </Text>
           </View>
         )}

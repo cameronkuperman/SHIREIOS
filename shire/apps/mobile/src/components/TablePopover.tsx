@@ -142,7 +142,8 @@ export function TablePopover({
             )}
             {serverLabel && (
               <TouchableOpacity
-                activeOpacity={0.7}
+                activeOpacity={canEditServer ? 0.7 : 1}
+                disabled={!canEditServer}
                 onPress={() => {
                   if (canEditServer) {
                     setServerPickerOpen(!serverPickerOpen);

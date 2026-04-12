@@ -7,6 +7,8 @@ import type { FloorMapTable, FloorMapRoom } from '@shire/shared';
 import { useBuilderStore, fetchFloorMapLayout, saveFloorMapLayout } from '@/features/floor-builder';
 import { useFloorStore } from '@/features/floor';
 import { useAuth } from '@/features/auth';
+import { resolveFloorId } from '@/features/floor/floorId';
+import { normalizeFloorMap } from '@/features/floor/mapContract';
 import { BuilderCanvas } from '@/components/BuilderCanvas';
 import { BuilderToolbar } from '@/components/BuilderToolbar';
 import { BuilderPropertyPanel } from '@/components/BuilderPropertyPanel';
@@ -17,7 +19,7 @@ let nextTableCounter = 100;
 
 function generateTableId(): string {
   nextTableCounter += 1;
-  return `t${nextTableCounter}`;
+  return `draft-table-${nextTableCounter}`;
 }
 
 export default function FloorBuilderScreen() {
@@ -48,6 +50,7 @@ export default function FloorBuilderScreen() {
 
   const setFloorMap = useFloorStore((s) => s.setFloorMap);
   const currentFloorMap = useFloorStore((s) => s.floorMap);
+  const currentFloorId = resolveFloorId(currentFloorMap?.floorId, currentLocation?.floorId);
 
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   const [isSaving, setIsSaving] = useState(false);
@@ -59,9 +62,9 @@ export default function FloorBuilderScreen() {
     async function load() {
       try {
         if (currentLocation) {
-          const saved = await fetchFloorMapLayout(currentLocation.id, currentFloorMap.floorId);
+          const saved = await fetchFloorMapLayout(currentLocation.id, currentFloorId);
           if (!cancelled && saved) {
-            loadMap(saved);
+            loadMap(normalizeFloorMap(saved));
             setIsLoading(false);
             return;
           }
@@ -71,7 +74,7 @@ export default function FloorBuilderScreen() {
       }
       if (!cancelled) {
         // Convert existing grid map to freeform-ready
-        const map = structuredClone(currentFloorMap);
+        const map = structuredClone(normalizeFloorMap(currentFloorMap));
         // Assign x/y positions from grid layout if missing
         for (const room of map.rooms) {
           if (room.layoutMode !== 'freeform') {
@@ -97,7 +100,7 @@ export default function FloorBuilderScreen() {
     return () => {
       cancelled = true;
     };
-  }, [currentFloorMap, currentLocation, loadMap]);
+  }, [currentFloorId, currentFloorMap, currentLocation, loadMap]);
 
   const selectedTable = useMemo(() => {
     if (!draftMap || !selectedTableId) return null;
@@ -205,10 +208,11 @@ export default function FloorBuilderScreen() {
     setIsSaving(true);
     try {
       // Bump map version
-      const mapToSave = {
+      const mapToSave = normalizeFloorMap({
         ...draftMap,
+        floorId: resolveFloorId(draftMap.floorId, currentFloorId),
         mapVersion: `builder-${Date.now()}`,
-      };
+      });
 
       // Save to Supabase
       if (currentLocation) {
@@ -226,7 +230,7 @@ export default function FloorBuilderScreen() {
     } finally {
       setIsSaving(false);
     }
-  }, [draftMap, currentLocation, setFloorMap, markClean, router]);
+  }, [currentFloorId, draftMap, currentLocation, setFloorMap, markClean, router]);
 
   const handleBack = useCallback(() => {
     if (isDirty) {

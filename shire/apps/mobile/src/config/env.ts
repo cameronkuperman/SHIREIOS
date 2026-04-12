@@ -3,8 +3,19 @@
  * All EXPO_PUBLIC_* vars should be accessed through this module only.
  */
 
-const apiUrl =
-  process.env.EXPO_PUBLIC_API_URL ?? 'https://web-production-5c5b4.up.railway.app/api/v1';
+function normalizeApiUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '');
+
+  if (trimmed.endsWith('/api/v1')) {
+    return trimmed;
+  }
+
+  return `${trimmed}/api/v1`;
+}
+
+const apiUrl = normalizeApiUrl(
+  process.env.EXPO_PUBLIC_API_URL ?? 'https://web-production-5c5b4.up.railway.app/api/v1',
+);
 const wsUrl =
   process.env.EXPO_PUBLIC_WS_URL ?? 'wss://web-production-5c5b4.up.railway.app';
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';

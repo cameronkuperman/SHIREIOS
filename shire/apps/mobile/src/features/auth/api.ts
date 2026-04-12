@@ -1,5 +1,7 @@
+import axios from 'axios';
 import type { HostBootstrap, Location, UserSession } from '@shire/shared';
 import { apiClient } from '@/services/api/client';
+import { resolveFloorId } from '@/features/floor/floorId';
 
 const LOG_TAG = '[AuthAPI]';
 
@@ -28,8 +30,53 @@ function isLocation(value: unknown): value is Location {
 function normalizeLocation(location: Location): Location {
   return {
     ...location,
+    floorId: resolveFloorId(location?.floorId),
     permissions: location.permissions ?? [],
   };
+}
+
+function extractErrorMessage(payload: unknown): string | null {
+  if (typeof payload === 'string' && payload.trim()) {
+    return payload.trim();
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const candidates = [record.message, record.error, record.detail];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+function formatRequestError(action: string, error: unknown): Error {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    const responseMessage = extractErrorMessage(error.response?.data);
+
+    if (status) {
+      return new Error(
+        `${action} failed (${status})${responseMessage ? `: ${responseMessage}` : ''}`,
+      );
+    }
+
+    return new Error(
+      `${action} failed${error.message ? `: ${error.message}` : ': network request failed'}`,
+    );
+  }
+
+  if (error instanceof Error) {
+    return new Error(`${action} failed: ${error.message}`);
+  }
+
+  return new Error(`${action} failed.`);
 }
 
 function unwrapCreateLocationResponse(response: CreateLocationResponse): Location {
@@ -49,9 +96,15 @@ function unwrapCreateLocationResponse(response: CreateLocationResponse): Locatio
  */
 export async function fetchCurrentSession(): Promise<UserSession> {
   console.log(LOG_TAG, 'fetchCurrentSession: starting');
-  const response = await apiClient.get<UserSession>('/me');
-  console.log(LOG_TAG, 'fetchCurrentSession: success');
-  return response.data;
+  try {
+    const response = await apiClient.get<UserSession>('/me');
+    console.log(LOG_TAG, 'fetchCurrentSession: success');
+    return response.data;
+  } catch (error) {
+    const formattedError = formatRequestError('fetchCurrentSession', error);
+    console.error(LOG_TAG, formattedError.message);
+    throw formattedError;
+  }
 }
 
 /**
@@ -59,25 +112,38 @@ export async function fetchCurrentSession(): Promise<UserSession> {
  */
 export async function fetchLocations(): Promise<Location[]> {
   console.log(LOG_TAG, 'fetchLocations: starting');
-  const response = await apiClient.get<Location[] | { locations: Location[] }>('/me/locations');
-  const rawLocations = Array.isArray(response.data) ? response.data : response.data.locations ?? [];
-  const locations = rawLocations.map(normalizeLocation);
+  try {
+    const response = await apiClient.get<Location[] | { locations: Location[] }>('/me/locations');
+    const rawLocations = Array.isArray(response.data) ? response.data : response.data.locations ?? [];
+    const locations = rawLocations.map(normalizeLocation);
 
-  console.log(
-    LOG_TAG,
-    'fetchLocations: returning',
-    locations.length,
-    'location(s):',
-    locations.map((l) => `${l.name} (${l.id})`).join(', '),
-  );
+    console.log(
+      LOG_TAG,
+      'fetchLocations: returning',
+      locations.length,
+      'location(s):',
+      locations.map((l) => `${l.name} (${l.id})`).join(', '),
+    );
 
-  return locations;
+    return locations;
+  } catch (error) {
+    const formattedError = formatRequestError('fetchLocations', error);
+    console.error(LOG_TAG, formattedError.message);
+    throw formattedError;
+  }
 }
 
 export async function fetchHostBootstrap(locationId: string): Promise<HostBootstrap> {
   console.log(LOG_TAG, 'fetchHostBootstrap: locationId=', locationId);
   const response = await apiClient.get<HostBootstrap>(`/locations/${locationId}/bootstrap`);
-  return response.data;
+  return {
+    ...response.data,
+    floorId: resolveFloorId(
+      response.data?.floorId,
+      response.data?.location?.floorId,
+      response.data?.floorMap?.floorId,
+    ),
+  };
 }
 
 /**

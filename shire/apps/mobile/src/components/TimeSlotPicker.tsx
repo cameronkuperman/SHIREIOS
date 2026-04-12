@@ -2,20 +2,7 @@ import React from 'react';
 import { Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { textStyles, spacing, borderRadius } from '@/theme';
 import { useTheme } from '@/theme';
-
-function generateSlots(): string[] {
-  const slots: string[] = [];
-  for (let hour = 11; hour <= 21; hour++) {
-    slots.push(`${hour.toString().padStart(2, '0')}:00`);
-    if (hour < 22) {
-      slots.push(`${hour.toString().padStart(2, '0')}:30`);
-    }
-  }
-  slots.push('22:00');
-  return slots;
-}
-
-const TIME_SLOTS = generateSlots();
+import { resolveTimeSlotOptions, type TimeSlotOption } from './reservationTimeSlots';
 
 function formatSlotLabel(slot: string): string {
   const parts = slot.split(':').map(Number);
@@ -25,13 +12,6 @@ function formatSlotLabel(slot: string): string {
   const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${hour12}:${m.toString().padStart(2, '0')} ${period}`;
 }
-
-export type TimeSlotOption = {
-  value: string;
-  label?: string;
-  disabled?: boolean;
-  reason?: string | null;
-};
 
 type TimeSlotPickerProps = {
   value: string | null;
@@ -47,7 +27,7 @@ export function TimeSlotPicker({
   allowUnavailableSelection = false,
 }: TimeSlotPickerProps) {
   const { colors } = useTheme();
-  const options: TimeSlotOption[] = slots ?? TIME_SLOTS.map((slot) => ({ value: slot }));
+  const options = resolveTimeSlotOptions(slots, value);
 
   return (
     <ScrollView

@@ -12,6 +12,7 @@ import {
   adaptReservationSettings,
   adaptWaitlistEntry,
   type ReservationAvailabilityDto,
+  type ReservationListResponseDto,
   type ReservationDto,
   type ReservationSettingsDto,
   type WaitlistEntryDto,
@@ -68,6 +69,131 @@ export type ReservationAvailabilityInput = {
   channel: Reservation['source'];
 };
 
+export type ReservationActionInput = {
+  commandId?: string;
+  tableId?: string;
+  waiterId?: string;
+};
+
+type BackendReservationSource = 'host' | 'phone' | 'public_web' | 'public_app';
+type BackendCreateReservationPayload = {
+  guestName: string;
+  guestPhone: string;
+  partySize: number;
+  serviceDate: string;
+  reservationTime: string;
+  seatingPreference: Reservation['seatingPreference'];
+  specialRequests?: string;
+  notesInternal?: string;
+  overridePacing?: boolean;
+  channel: BackendReservationSource;
+  source: BackendReservationSource;
+};
+type BackendUpdateReservationPayload = {
+  partySize?: number;
+  serviceDate?: string;
+  reservationTime?: string;
+  seatingPreference?: Reservation['seatingPreference'];
+  specialRequests?: string;
+  notesInternal?: string;
+  overridePacing?: boolean;
+};
+
+function toBackendReservationSource(source: Reservation['source']): BackendReservationSource {
+  switch (source) {
+    case 'phone':
+      return 'phone';
+    case 'web':
+      return 'public_web';
+    case 'manual':
+      return 'host';
+    // Current mobile-only source options all need to collapse into a backend-supported channel.
+    case 'walk_in':
+    case 'yelp':
+    case 'google':
+    case 'opentable':
+    case 'resy':
+    case 'sevenrooms':
+    case 'import':
+      return 'public_web';
+    default:
+      return 'host';
+  }
+}
+
+function toBackendServiceDate(dateValue: string): string {
+  return dateValue.trim().slice(0, 10);
+}
+
+function toBackendReservationTime(timeValue: string): string {
+  const trimmed = timeValue.trim();
+
+  if (/^\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^\d{2}:\d{2}$/.test(trimmed)) {
+    return `${trimmed}:00`;
+  }
+
+  const meridiemMatch = trimmed.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+  if (meridiemMatch) {
+    const [, hoursRaw, minutes, meridiem] = meridiemMatch;
+    let hours = Number(hoursRaw);
+    const normalizedMeridiem = (meridiem ?? '').toUpperCase();
+
+    if (Number.isFinite(hours) && normalizedMeridiem) {
+      if (normalizedMeridiem === 'AM') {
+        hours = hours % 12;
+      } else {
+        hours = (hours % 12) + 12;
+      }
+
+      return `${hours.toString().padStart(2, '0')}:${minutes}:00`;
+    }
+  }
+
+  return trimmed;
+}
+
+function toCreateReservationPayload(
+  input: CreateReservationInput,
+): BackendCreateReservationPayload {
+  const backendSource = toBackendReservationSource(input.source);
+
+  return {
+    guestName: input.guestName.trim(),
+    guestPhone: input.guestPhone.trim(),
+    partySize: input.partySize,
+    serviceDate: toBackendServiceDate(input.date),
+    reservationTime: toBackendReservationTime(input.timeSlot),
+    seatingPreference: input.seatingPreference,
+    specialRequests: input.specialRequests?.trim() || undefined,
+    notesInternal: input.internalNotes?.trim() || undefined,
+    overridePacing: input.pacingOverride ?? false,
+    channel: backendSource,
+    source: backendSource,
+  };
+}
+
+function toUpdateReservationPayload(
+  input: UpdateReservationInput,
+): BackendUpdateReservationPayload {
+  return {
+    ...(input.partySize != null ? { partySize: input.partySize } : {}),
+    ...(input.date ? { serviceDate: toBackendServiceDate(input.date) } : {}),
+    ...(input.timeSlot ? { reservationTime: toBackendReservationTime(input.timeSlot) } : {}),
+    ...(input.seatingPreference ? { seatingPreference: input.seatingPreference } : {}),
+    ...(input.specialRequests != null
+      ? { specialRequests: input.specialRequests.trim() || undefined }
+      : {}),
+    ...(input.internalNotes != null
+      ? { notesInternal: input.internalNotes.trim() || undefined }
+      : {}),
+    ...(input.pacingOverride != null ? { overridePacing: input.pacingOverride } : {}),
+  };
+}
+
 export async function fetchWaitlist(locationId: string): Promise<WaitlistEntry[]> {
   const response = await apiClient.get<WaitlistEntryDto[]>(`/locations/${locationId}/waitlist`);
   return response.data.map(adaptWaitlistEntry);
@@ -111,30 +237,34 @@ export async function fetchReservations(
   locationId: string,
   filters: ReservationListFilters = {},
 ): Promise<Reservation[]> {
-  const response = await apiClient.get<ReservationDto[]>(`/locations/${locationId}/reservations`, {
-    params: {
-      ...(filters.date ? { date: filters.date } : {}),
-      ...(filters.status && filters.status !== 'all' ? { status: filters.status } : {}),
-      ...(filters.search?.trim() ? { search: filters.search.trim() } : {}),
+  const response = await apiClient.get<ReservationListResponseDto>(
+    `/locations/${locationId}/reservations`,
+    {
+      params: {
+        ...(filters.date ? { date: filters.date } : {}),
+        ...(filters.status && filters.status !== 'all' ? { status: filters.status } : {}),
+        ...(filters.search?.trim() ? { search: filters.search.trim() } : {}),
+      },
     },
-  });
-  return response.data.map(adaptReservation);
+  );
+  return response.data.reservations.map(adaptReservation);
 }
 
 export async function fetchReservation(
   locationId: string,
   reservationId: string,
 ): Promise<Reservation> {
-  const response = await apiClient.get<ReservationDto[] | ReservationDto>(
+  const response = await apiClient.get<ReservationListResponseDto | ReservationDto>(
     `/locations/${locationId}/reservations`,
     {
       params: { reservationId },
     },
   );
 
-  const payload = Array.isArray(response.data)
-    ? response.data.find((reservation) => reservation.id === reservationId) ?? null
-    : response.data;
+  const payload =
+    'reservations' in response.data
+      ? response.data.reservations.find((reservation) => reservation.id === reservationId) ?? null
+      : response.data;
 
   if (!payload) {
     throw new Error('Reservation not found.');
@@ -149,7 +279,7 @@ export async function createReservation(
 ): Promise<Reservation> {
   const response = await apiClient.post<ReservationDto>(
     `/locations/${locationId}/reservations`,
-    input,
+    toCreateReservationPayload(input),
   );
   return adaptReservation(response.data);
 }
@@ -161,7 +291,7 @@ export async function updateReservation(
 ): Promise<Reservation> {
   const response = await apiClient.patch<ReservationDto>(
     `/locations/${locationId}/reservations/${reservationId}`,
-    input,
+    toUpdateReservationPayload(input),
   );
   return adaptReservation(response.data);
 }
@@ -170,9 +300,11 @@ export async function runReservationAction(
   locationId: string,
   reservationId: string,
   action: ReservationAction,
+  input?: ReservationActionInput,
 ): Promise<Reservation> {
   const response = await apiClient.post<ReservationDto>(
     `/locations/${locationId}/reservations/${reservationId}/actions/${action}`,
+    input,
   );
   return adaptReservation(response.data);
 }
@@ -185,9 +317,9 @@ export async function fetchReservationAvailability(
     `/locations/${locationId}/availability`,
     {
       params: {
-        date: input.date,
-        partySize: input.partySize,
-        channel: input.channel,
+        service_date: toBackendServiceDate(input.date),
+        party_size: input.partySize,
+        channel: toBackendReservationSource(input.channel),
       },
     },
   );

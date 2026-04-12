@@ -1,4 +1,5 @@
 import type {
+  BusinessRuleError,
   FloorMap,
   FloorSnapshot,
   FloorStreamMessage,
@@ -83,8 +84,38 @@ export interface TableDetailsViewModel extends FloorTableViewModel {
   currentWaiterName: string | null;
 }
 
+const COMMAND_REJECTED_MESSAGES: Partial<Record<BusinessRuleError['code'], string>> = {
+  TABLE_UNAVAILABLE: 'That table is no longer available.',
+  TABLE_OCCUPIED: 'That table is already occupied.',
+  TABLE_BLOCKED: 'That table is currently blocked.',
+  TABLE_CAPACITY_EXCEEDED: 'That party is too large for the selected table.',
+  PERMISSION_DENIED: 'You do not have permission to do that.',
+  STALE_COMMAND: 'That update was out of date. Try again with the latest floor state.',
+  NOT_FOUND: 'That item could not be found.',
+  VALIDATION_ERROR: 'That request could not be completed. Check the details and try again.',
+};
+
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+export function formatCommandRejectedMessage(
+  error?: BusinessRuleError | null,
+  reason?: string,
+): string {
+  if (error?.code && COMMAND_REJECTED_MESSAGES[error.code]) {
+    return COMMAND_REJECTED_MESSAGES[error.code]!;
+  }
+
+  if (error?.message?.trim()) {
+    return error.message.trim();
+  }
+
+  if (reason?.trim()) {
+    return reason.trim();
+  }
+
+  return 'Unable to complete the requested table action.';
 }
 
 function deriveDisplayStatus(
@@ -392,14 +423,15 @@ export function applyFloorStreamMessageState(
         return state;
       }
 
+      const canonicalRejectedTableId =
+        state.pendingCommands[message.commandId]?.tableId ?? message.tableId;
+
       return {
         ...rejectPendingCommandState(
           state,
           message.commandId,
-          message.tableId,
-          message.error?.message ??
-            message.reason ??
-            'Unable to complete the requested table action.',
+          canonicalRejectedTableId,
+          formatCommandRejectedMessage(message.error, message.reason),
         ),
         lastAppliedSequence: message.sequence,
       };

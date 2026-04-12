@@ -12,7 +12,8 @@ import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
 import { useWaiterRoutingStore } from '@/features/routing';
 import { queryKeys } from '@/services/api/queryKeys';
 import { useIsWorkdayActive } from '@/features/workday';
-import { fetchFloorSnapshot } from './api';
+import { fetchFloorSnapshot, FloorSnapshotUnavailableError } from './api';
+import { resolveFloorId } from './floorId';
 import { useFloorStore } from './store';
 import { FloorRealtimeTransport, setActiveFloorTransport } from './transport';
 
@@ -25,6 +26,13 @@ function resolveCanonicalSeatTable(
   tableId: string,
 ): TableLiveState | null {
   return tables.find((table) => table.tableId === tableId) ?? tables[0] ?? null;
+}
+
+function isReservationSeatConfirmed(
+  table: TableLiveState,
+  reservationId: string,
+): boolean {
+  return table.currentReservationId === reservationId && Boolean(table.currentVisitId);
 }
 
 function toErrorMessage(error: unknown): string {
@@ -65,10 +73,25 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
     let reconnectScheduled = false;
 
     const locationId = currentLocation.id;
-    const floorId = bootstrap.floorId;
+    const floorId = resolveFloorId(
+      bootstrap.floorId,
+      bootstrap.location?.floorId,
+      bootstrap.floorMap?.floorId,
+      currentLocation.floorId,
+    );
     const accessToken = session?.access_token ?? null;
 
+    const applyInlineRoutingSnapshot = (routingSnapshot: typeof bootstrap.routingSnapshot) => {
+      if (!routingSnapshot) {
+        return;
+      }
+
+      applyRouting(locationId, routingSnapshot);
+      queryClient.setQueryData(queryKeys.routing.location(locationId), routingSnapshot);
+    };
+
     setFloorMap(bootstrap.floorMap);
+    applyInlineRoutingSnapshot(bootstrap.routingSnapshot);
     resetSessionState();
 
     const clearReconnectTimer = () => {
@@ -93,7 +116,7 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
       );
     };
 
-    const loadSnapshot = async (): Promise<void> => {
+    const loadSnapshot = async (): Promise<boolean> => {
       try {
         const snapshot = await queryClient.fetchQuery({
           queryKey: queryKeys.floor.snapshot(locationId, floorId),
@@ -102,13 +125,21 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
         });
 
         if (!isDisposed) {
+          applyInlineRoutingSnapshot(snapshot.routingSnapshot);
           applySnapshot(snapshot);
           setSyncError(null);
         }
+        return true;
       } catch (error) {
         if (!isDisposed) {
-          setSyncError(toErrorMessage(error));
+          if (error instanceof FloorSnapshotUnavailableError) {
+            setConnectionState('disconnected');
+            setSyncError(error.message);
+          } else {
+            setSyncError(toErrorMessage(error));
+          }
         }
+        return false;
       }
     };
 
@@ -132,8 +163,15 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
     const connect = async () => {
       reconnectScheduled = false;
       setConnectionState(reconnectAttempt === 0 ? 'connecting' : 'reconnecting');
-      await loadSnapshot();
+      const didLoadSnapshot = await loadSnapshot();
       if (isDisposed) {
+        return;
+      }
+
+      if (!didLoadSnapshot) {
+        setActiveFloorTransport(null);
+        transport?.disconnect();
+        transport = null;
         return;
       }
 
@@ -172,6 +210,10 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
               return;
             }
 
+            if (message.type === 'floor.snapshot') {
+              applyInlineRoutingSnapshot(message.snapshot.routingSnapshot);
+            }
+
             if (message.type === 'table.updated' && message.commandId) {
               const pendingSeat = usePendingSeatStore.getState().pendingSeats[message.commandId];
               if (pendingSeat) {
@@ -185,18 +227,23 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
                     ),
                   );
                 } else {
-                  queryClient.setQueriesData(
-                    { queryKey: queryKeys.reservations.location(locationId) },
-                    (currentReservations: unknown) =>
-                      Array.isArray(currentReservations)
-                        ? markReservationSeated(
-                            currentReservations,
-                            pendingSeat.entityId,
-                            message.table.tableId,
-                            message.table.seatedAt ?? message.table.updatedAt,
-                          )
-                        : currentReservations,
-                  );
+                  if (isReservationSeatConfirmed(message.table, pendingSeat.entityId)) {
+                    queryClient.setQueriesData(
+                      { queryKey: queryKeys.reservations.location(locationId) },
+                      (currentReservations: unknown) =>
+                        Array.isArray(currentReservations)
+                          ? markReservationSeated(
+                              currentReservations,
+                              pendingSeat.entityId,
+                              message.table.tableId,
+                              message.table.seatedAt ?? message.table.updatedAt,
+                              message.table.currentVisitId,
+                            )
+                          : currentReservations,
+                    );
+                  } else {
+                    syncReservationQueries();
+                  }
                 }
               }
               confirmPendingSeat(message.commandId);
@@ -219,18 +266,23 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
                     ),
                   );
                 } else {
-                  queryClient.setQueriesData(
-                    { queryKey: queryKeys.reservations.location(locationId) },
-                    (currentReservations: unknown) =>
-                      Array.isArray(currentReservations)
-                        ? markReservationSeated(
-                            currentReservations,
-                            pendingSeat.entityId,
-                            canonicalTable.tableId,
-                            canonicalTable.seatedAt ?? canonicalTable.updatedAt,
-                          )
-                        : currentReservations,
-                  );
+                  if (isReservationSeatConfirmed(canonicalTable, pendingSeat.entityId)) {
+                    queryClient.setQueriesData(
+                      { queryKey: queryKeys.reservations.location(locationId) },
+                      (currentReservations: unknown) =>
+                        Array.isArray(currentReservations)
+                          ? markReservationSeated(
+                              currentReservations,
+                              pendingSeat.entityId,
+                              canonicalTable.tableId,
+                              canonicalTable.seatedAt ?? canonicalTable.updatedAt,
+                              canonicalTable.currentVisitId,
+                            )
+                          : currentReservations,
+                    );
+                  } else {
+                    syncReservationQueries();
+                  }
                 }
               }
 

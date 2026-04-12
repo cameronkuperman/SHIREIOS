@@ -12,6 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { GlassSurface } from '@/components/GlassSurface';
 import { useAuth } from '@/features/auth';
+import { resolveFloorId } from '@/features/floor/floorId';
 import { useIsWorkdayActive, useWorkdayStore } from '@/features/workday';
 import { queryKeys } from '@/services/api/queryKeys';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
@@ -24,6 +25,7 @@ export default function WorkdayScreen() {
   const startWorkday = useWorkdayStore((state) => state.startWorkday);
   const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
   const [isStarting, setIsStarting] = useState(false);
+  const floorId = resolveFloorId(currentLocation?.floorId);
 
   if (!isAuthenticated) {
     return <Redirect href="/(auth)" />;
@@ -79,13 +81,13 @@ export default function WorkdayScreen() {
           <View style={[styles.detailRow, { borderTopColor: colors.border.subtle }]}>
             <Text style={[styles.detailLabel, { color: colors.text.muted }]}>Signed in as</Text>
             <Text style={[styles.detailValue, { color: colors.text.primary }]}>
-              {userSession?.user.email ?? 'Unknown'}
+              {userSession?.user?.email ?? 'Unknown'}
             </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={[styles.detailLabel, { color: colors.text.muted }]}>Floor</Text>
             <Text style={[styles.detailValue, { color: colors.text.primary }]}>
-              {currentLocation.floorId}
+              {floorId}
             </Text>
           </View>
 
@@ -104,6 +106,27 @@ export default function WorkdayScreen() {
               </>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.mapBuilderButton,
+              {
+                borderColor: colors.border.default,
+                backgroundColor: colors.surface.level2,
+              },
+            ]}
+            activeOpacity={0.8}
+            onPress={() => router.push('/floor-builder')}
+          >
+            <Ionicons name="construct-outline" size={18} color={colors.text.primary} />
+            <Text style={[styles.mapBuilderButtonText, { color: colors.text.primary }]}>
+              Build / Edit Floor Map
+            </Text>
+          </TouchableOpacity>
+          <Text style={[styles.helperText, { color: colors.text.muted }]}>
+            Use this if the imported map is missing, outdated, or you want to lay out tables
+            yourself before service starts.
+          </Text>
         </GlassSurface>
 
         <View style={styles.actions}>
@@ -192,6 +215,21 @@ const styles = StyleSheet.create({
   startButtonText: {
     ...textStyles.label,
     color: '#FFFFFF',
+  },
+  mapBuilderButton: {
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  mapBuilderButtonText: {
+    ...textStyles.label,
+  },
+  helperText: {
+    ...textStyles.caption,
+    maxWidth: 420,
   },
   actions: {
     flexDirection: 'row',

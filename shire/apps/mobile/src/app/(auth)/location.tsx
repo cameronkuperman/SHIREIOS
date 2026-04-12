@@ -26,6 +26,7 @@ export default function LocationSelectScreen() {
     locations,
     locationsLoading,
     locationsError,
+    locationsErrorMessage,
     selectLocation,
     signOut,
     refetchLocations,
@@ -86,7 +87,7 @@ export default function LocationSelectScreen() {
 
   // Error state
   if (locationsError) {
-    console.error(LOG_TAG, 'Failed to load locations');
+    console.error(LOG_TAG, 'Failed to load locations', locationsErrorMessage);
     return (
       <SafeAreaView style={[styles.container, styles.centered, { backgroundColor: colors.background }]}>
         <Ionicons name="cloud-offline-outline" size={48} color={colors.text.muted} />
@@ -94,7 +95,7 @@ export default function LocationSelectScreen() {
           Unable to load locations
         </Text>
         <Text style={[styles.statusText, { color: colors.text.secondary }]}>
-          Check your connection and try again.
+          {locationsErrorMessage ?? 'Check your connection and try again.'}
         </Text>
         <TouchableOpacity
           style={[styles.actionButton, { backgroundColor: colors.accent }]}

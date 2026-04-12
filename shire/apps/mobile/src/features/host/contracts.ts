@@ -33,7 +33,13 @@ export interface WaitlistEntryDto {
 }
 
 type ReservationStatusDto = ReservationStatus | 'pending' | 'arrived' | 'cancelled';
-type ReservationSourceDto = ReservationSource | 'host' | null | undefined;
+type ReservationSourceDto =
+  | ReservationSource
+  | 'host'
+  | 'public_web'
+  | 'public_app'
+  | null
+  | undefined;
 
 export interface ReservationDto {
   id: string;
@@ -55,8 +61,10 @@ export interface ReservationDto {
   notes?: string | null;
   specialRequests?: string | null;
   internalNotes?: string | null;
+  notesInternal?: string | null;
   source?: ReservationSourceDto;
   channel?: ReservationSourceDto;
+  linkedVisitId?: string | null;
   assignedTableId?: string | null;
   pacingOverrideApplied?: boolean | null;
   createdAt: string;
@@ -68,6 +76,10 @@ export interface ReservationDto {
   canceledAt?: string | null;
   noShowAt?: string | null;
   messageDelivery?: MessageDeliveryDto | null;
+}
+
+export interface ReservationListResponseDto {
+  reservations: ReservationDto[];
 }
 
 export interface MessageDeliveryDto {
@@ -124,6 +136,9 @@ function normalizeReservationSource(source: ReservationSourceDto): ReservationSo
   switch (source) {
     case 'host':
       return 'manual';
+    case 'public_web':
+    case 'public_app':
+      return 'web';
     case 'manual':
     case 'phone':
     case 'web':
@@ -190,11 +205,13 @@ export function adaptWaitlistEntry(entry: WaitlistEntryDto): WaitlistEntry {
 }
 
 export function adaptReservation(entry: ReservationDto): Reservation {
-  const guestName = entry.guest?.name?.trim() || entry.guestName?.trim() || 'Guest';
-  const guestPhone = entry.guest?.phone?.trim() || entry.guestPhone?.trim() || '';
+  const guestName = entry.guestName?.trim() || entry.guest?.name?.trim() || 'Guest';
+  const guestPhone = entry.guestPhone?.trim() || entry.guest?.phone?.trim() || '';
   const serviceDate = entry.date ?? entry.serviceDate ?? '';
   const reservationTime = entry.timeSlot ?? entry.reservationTime ?? '';
   const guestId = entry.guest?.id ?? entry.guestId ?? null;
+  const notes = entry.notes ?? entry.specialRequests ?? '';
+  const internalNotes = entry.internalNotes ?? entry.notesInternal ?? '';
 
   return {
     id: entry.id,
@@ -213,10 +230,11 @@ export function adaptReservation(entry: ReservationDto): Reservation {
     timeSlot: reservationTime,
     seatingPreference: normalizeSeatingPreference(entry.seatingPreference),
     status: normalizeReservationStatus(entry.status),
-    notes: entry.notes ?? '',
+    notes,
     specialRequests: entry.specialRequests ?? '',
-    internalNotes: entry.internalNotes ?? '',
+    internalNotes,
     source: normalizeReservationSource(entry.source ?? entry.channel),
+    linkedVisitId: entry.linkedVisitId ?? null,
     assignedTableId: entry.assignedTableId ?? null,
     pacingOverrideApplied: Boolean(entry.pacingOverrideApplied),
     createdAt: entry.createdAt,
@@ -328,6 +346,7 @@ export function markReservationSeated(
   reservationId: string,
   tableId: string,
   seatedAt: string,
+  linkedVisitId?: string | null,
 ): Reservation[] {
   return reservations.map((reservation) =>
     reservation.id === reservationId
@@ -335,6 +354,7 @@ export function markReservationSeated(
           ...reservation,
           status: 'seated',
           assignedTableId: tableId,
+          linkedVisitId: linkedVisitId ?? reservation.linkedVisitId ?? null,
           seatedAt,
           updatedAt: seatedAt,
         }

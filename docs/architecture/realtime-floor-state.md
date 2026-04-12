@@ -38,9 +38,8 @@ Outbound commands:
 - `block_table`
 - `unblock_table`
 
-## Mock Server
+## Backend Contract
 
-- Workspace app: `shire/apps/mock-floor-server`
-- HTTP snapshot endpoint: `GET /api/floors/:floorId/snapshot`
-- Websocket endpoint: `ws://host:port/ws/floors/:floorId`
-- Includes deterministic scenario playback plus periodic AI-like state changes so the mobile flow can be built before the real backend is ready.
+- HTTP snapshot bootstrap comes from the host backend under `/api/v1/locations/{location_id}/floors/{floor_id}/snapshot`.
+- Websocket updates are expected from the backend floor stream for the active location and floor.
+- The mobile client now assumes a backend-authoritative flow rather than a local mock runtime.

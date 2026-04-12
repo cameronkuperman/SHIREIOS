@@ -1,3 +1,4 @@
+import axios from 'axios';
 import type {
   WaiterRoutingState,
   WaiterRoutingUpdatePayload,
@@ -36,8 +37,23 @@ export function toWaiterRoutingUpdatePayload(
 }
 
 export async function fetchWaiterRouting(locationId: string): Promise<WaiterRoutingState> {
-  const response = await apiClient.get<WaiterRoutingResponse>(`/locations/${locationId}/routing`);
-  return unwrapRoutingResponse(response.data);
+  try {
+    const response = await apiClient.get<WaiterRoutingResponse>(`/locations/${locationId}/routing`);
+    return unwrapRoutingResponse(response.data);
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      console.warn('[RoutingAPI] routing unavailable', JSON.stringify({ locationId }));
+      return normalizeWaiterRoutingState(null);
+    }
+
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const suffix = status ? ` (${status})` : '';
+      throw new Error(`Unable to load waiter routing${suffix}.`);
+    }
+
+    throw error instanceof Error ? error : new Error('Unable to load waiter routing.');
+  }
 }
 
 export async function updateWaiterRouting(

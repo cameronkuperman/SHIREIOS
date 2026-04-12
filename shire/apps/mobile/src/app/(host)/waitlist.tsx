@@ -378,12 +378,12 @@ export default function WaitlistScreen() {
               onPress={() =>
                 void runReservationAction({
                   reservationId: selectedReservation.id,
-                  action: 'check_in',
+                  action: 'arrive',
                 })
               }
             >
               <Ionicons name="walk-outline" size={18} color={colors.text.primary} />
-              <Text style={[styles.actionText, { color: colors.text.primary }]}>Check In</Text>
+              <Text style={[styles.actionText, { color: colors.text.primary }]}>Arrive</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity

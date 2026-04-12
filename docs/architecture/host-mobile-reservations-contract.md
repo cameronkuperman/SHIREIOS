@@ -19,13 +19,25 @@ are first-class peers to waitlist and floor operations.
 
 ## Mobile Query Expectations
 
-The reservation list route should support:
+Use the existing `/api/v1` routes.
+
+For reservation list, mobile calls:
+
+- `GET /api/v1/locations/{location_id}/reservations`
+
+Supported query params:
 
 - `date`
 - `status`
 - `search`
 
 `search` should match at least guest name and normalized phone.
+
+List responses should be wrapped as:
+
+```json
+{ "reservations": [...] }
+```
 
 The app currently uses a day-book pattern, so server-side filtering matters for:
 
@@ -35,23 +47,20 @@ The app currently uses a day-book pattern, so server-side filtering matters for:
 
 ## Reservation Payload Shape
 
-The mobile app expects each reservation to include:
+Mobile should prefer these fields on each reservation:
 
 - `id`
-- `guestId`
-- `guest.name`
-- `guest.phone`
 - `guestName`
 - `guestPhone`
 - `partySize`
-- `date` or `serviceDate`
-- `timeSlot` or `reservationTime`
+- `date`
+- `timeSlot`
 - `seatingPreference`
 - `status`
 - `source` or `channel`
 - `notes`
-- `specialRequests`
 - `internalNotes`
+- `linkedVisitId`
 - `assignedTableId`
 - `pacingOverrideApplied`
 - `createdAt`
@@ -63,7 +72,17 @@ The mobile app expects each reservation to include:
   - `completedAt`
   - `canceledAt`
   - `noShowAt`
-- optional `messageDelivery`
+
+The mobile app still safely reads these older fallback fields while backend
+payloads converge:
+
+- `guestId`
+- `guest.name`
+- `guest.phone`
+- `serviceDate`
+- `reservationTime`
+- `specialRequests`
+- `notesInternal`
 
 Status values the mobile app is aligned to:
 
@@ -89,7 +108,7 @@ Top-level fields:
 
 Each slot should include:
 
-- `timeSlot` or `reservationTime`
+- `timeSlot`
 - `available`
 - `reason`
 - `servicePeriodId`
@@ -99,25 +118,49 @@ Each slot should include:
 This allows host bookings to surface pacing failures while still offering a
 staff-only override path when the backend permits it.
 
+## Actions
+
+Reservation actions continue to use:
+
+- `POST /api/v1/locations/{location_id}/reservations/{reservation_id}/actions/{action}`
+
+Supported canonical statuses remain:
+
+- `booked`
+- `confirmed`
+- `checked_in`
+- `seated`
+- `completed`
+- `canceled`
+- `no_show`
+
+Mobile can now send:
+
+- `arrive`
+
+Backend may still return reservation status `checked_in` for that action.
+
 ## Floor Seating Handoff
 
-The mobile app now sends `seat_party` commands for both:
+For reservations, mobile should send the seat action over HTTP, not as the
+primary websocket write path.
 
-- `party.source = 'waitlist'`
-- `party.source = 'reservations'`
+The floor websocket remains the confirmation path after the reservation seat
+action succeeds.
 
-For reservation seating, backend behavior should mirror waitlist seating in
-terms of command correlation and canonical state updates.
+Required behavior for reservation seating:
 
-Required behavior:
-
+- accept an HTTP seat action payload with:
+  - `tableId`
+  - `waiterId` when routing requires it
+  - `commandId`
 - validate the reservation
 - validate the target table
 - validate waiter ownership rules when `waiterId` is supplied
 - create or link the visit
 - attach `reservation_id` to that visit
 - mark the reservation seated canonically
-- emit a success event with `commandId`
+- emit floor success state with `commandId`
 
 ## Realtime And Cache Synchronization
 
@@ -130,11 +173,19 @@ Minimum acceptable behavior:
   canonical reservation payload
 - successful reservation seating emits `table.updated` or `table.batch_updated`
   with `commandId`
+- floor updates include `currentReservationId` and `currentVisitId` when a
+  reservation has been seated
 
 Preferred behavior:
 
 - add a `reservation.updated` event with the full canonical reservation payload
 - include enough visit metadata in floor updates to confirm reservation linkage
+
+Mobile matches reservation seating confirmation by:
+
+- `commandId`
+- `table.currentReservationId`
+- `table.currentVisitId`
 
 ## Nice-To-Have Additions
 
@@ -145,3 +196,8 @@ workarounds:
 - date-range reservation listing for richer calendar density views
 - explicit seatable-state hints for reservations near service time
 - reservation settings mutation routes if manager controls move into mobile
+
+## Current Mobile Constraints
+
+The mobile app should not depend on `messageDelivery` yet. It is still not
+implemented backend-side and should be treated as absent.

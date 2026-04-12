@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Shire iPad Pro Simulator",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run ios:ipad-pro",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

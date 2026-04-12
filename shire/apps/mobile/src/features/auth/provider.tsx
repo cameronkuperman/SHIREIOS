@@ -30,6 +30,7 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   locationsLoading: boolean;
   locationsError: boolean;
+  locationsErrorMessage: string | null;
   signIn: (email: string, password: string) => Promise<SignInResult>;
   signOut: () => Promise<void>;
   selectLocation: (locationId: string) => void;
@@ -215,6 +216,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: !!session,
       locationsLoading: locationsQuery.isLoading,
       locationsError: locationsQuery.isError,
+      locationsErrorMessage:
+        locationsQuery.error instanceof Error ? locationsQuery.error.message : null,
       signIn: async (email, password) => {
         const { error } = await supabase.auth.signInWithPassword({
           email,
@@ -253,6 +256,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isWorkdayActive,
     isSessionHydrated,
     locationsQuery.data,
+    locationsQuery.error,
     locationsQuery.isError,
     locationsQuery.isLoading,
     queryClient,

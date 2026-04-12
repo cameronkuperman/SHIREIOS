@@ -13,6 +13,7 @@ import {
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
+  DEFAULT_FLOOR_MAP,
   DEFAULT_FLOOR_ID,
   useFloorActions,
   useFloorConnectionState,
@@ -30,14 +31,16 @@ import { Table } from '@/components/Table';
 import { TablePopover } from '@/components/TablePopover';
 import { WaitlistCard } from '@/components/WaitlistCard';
 import { getAppVersionLabel, getOrCreateDeviceId } from '@/lib/device';
-import { type HostSidebarParty, useFloorSidebarParties } from '@/features/host/hooks';
+import {
+  type HostSidebarParty,
+  useFloorSidebarParties,
+  useReservationMutations,
+} from '@/features/host/hooks';
 import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
 import {
   resolveWaiterForTable,
   resolveWaiterIdForTable,
-  useWaiterChips,
   useWaiterColorMap,
-  useWaiterRoutingActions,
   useWaiterRoutingState,
 } from '@/features/routing';
 import { useWorkdayStore } from '@/features/workday';
@@ -51,6 +54,10 @@ function toTableParty(party: HostSidebarParty): TableParty {
     size: party.size,
     source: party.source,
   };
+}
+
+function createReservationSeatCommandId(): string {
+  return `reservation-seat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function formatConnectionLabel(
@@ -77,9 +84,7 @@ export default function FloorPlanScreen() {
     isLoading: isRoutingLoading,
     isSaving: isRoutingSaving,
   } = useWaiterRoutingState();
-  const waiterChips = useWaiterChips();
   const waiterColorMap = useWaiterColorMap();
-  const { assignTable } = useWaiterRoutingActions();
   const endWorkday = useWorkdayStore((state) => state.endWorkday);
   const workdayHref = '/workday' as Href;
   const rooms = useFloorTablesByRoom();
@@ -88,6 +93,7 @@ export default function FloorPlanScreen() {
   const { seatParty, clearTable, markClean, blockTable, unblockTable } = useFloorActions();
   const { connectionState, syncError, lastSnapshotAt, floorId } = useFloorConnectionState();
   const hostParties = useFloorSidebarParties();
+  const { runReservationAction } = useReservationMutations();
   const markPendingSeat = usePendingSeatStore((state) => state.markPendingSeat);
 
   const [activeFilter, setActiveFilter] = useState('All Rooms');
@@ -114,6 +120,9 @@ export default function FloorPlanScreen() {
     activeFilter === 'All Rooms'
       ? rooms
       : rooms.filter((room) => room.filterLabel === activeFilter);
+  const isUsingStarterMap =
+    floorMap.floorId === DEFAULT_FLOOR_MAP.floorId &&
+    floorMap.mapVersion === DEFAULT_FLOOR_MAP.mapVersion;
 
   const hasSnapshot = Boolean(lastSnapshotAt);
   const connectionLabel = formatConnectionLabel(connectionState, hasSnapshot);
@@ -156,15 +165,6 @@ export default function FloorPlanScreen() {
     return resolveWaiterForTable(routing, popover.tableId, liveTable.section);
   }, [liveTable, popover, routing]);
 
-  const editableWaiters = useMemo(() => {
-    if (!popover) {
-      return waiterChips.filter((waiter) => waiter.isActive);
-    }
-
-    const explicitWaiterId = routing?.tableAssignments[popover.tableId] ?? null;
-    return waiterChips.filter((waiter) => waiter.isActive || waiter.id === explicitWaiterId);
-  }, [popover, routing?.tableAssignments, waiterChips]);
-
   const handleTablePress = (tableId: string, ref: View | null | undefined) => {
     if (!ref) {
       return;
@@ -175,7 +175,7 @@ export default function FloorPlanScreen() {
     });
   };
 
-  const handleSeat = () => {
+  const handleSeat = async () => {
     if (!popover || !liveTable) {
       return;
     }
@@ -187,49 +187,48 @@ export default function FloorPlanScreen() {
 
     const tableId = popover.tableId;
     const waiterId = resolveWaiterIdForTable(routing, tableId, liveTable.section);
-    if (!waiterId) {
-      Alert.alert(
-        'Waiter Required',
-        'Assign a waiter to this table or set the next-up waiter before seating.',
-      );
+
+    if (selectedParty.source === 'reservations') {
+      const commandId = createReservationSeatCommandId();
+
+      try {
+        await runReservationAction({
+          reservationId: selectedParty.id,
+          action: 'seat',
+          input: waiterId ? { commandId, tableId, waiterId } : { commandId, tableId },
+        });
+
+        markPendingSeat(commandId, {
+          entityId: selectedParty.id,
+          tableId,
+          source: selectedParty.source,
+        });
+        setSelectedPartyId(null);
+        setPopover(null);
+      } catch (error) {
+        Alert.alert(
+          'Unable to Seat Reservation',
+          error instanceof Error ? error.message : 'Reservation could not be seated.',
+        );
+      }
+
       return;
     }
 
-    const result = seatParty(tableId, toTableParty(selectedParty), waiterId);
+    const result = seatParty(tableId, toTableParty(selectedParty), waiterId ?? undefined);
 
     if (!result.ok) {
       return;
     }
 
-    if (selectedParty) {
-      markPendingSeat(result.commandId, {
-        entityId: selectedParty.id,
-        tableId,
-        source: selectedParty.source,
-      });
-      setSelectedPartyId(null);
-    }
-
+    markPendingSeat(result.commandId, {
+      entityId: selectedParty.id,
+      tableId,
+      source: selectedParty.source,
+    });
+    setSelectedPartyId(null);
     setPopover(null);
   };
-
-  const handleAssignTableWaiter = useCallback(
-    async (waiterId: string | null) => {
-      if (!popover) {
-        return;
-      }
-
-      try {
-        await assignTable(popover.tableId, waiterId);
-      } catch (error) {
-        Alert.alert(
-          'Unable to Save Waiter',
-          error instanceof Error ? error.message : 'Waiter routing could not be updated.',
-        );
-      }
-    },
-    [assignTable, popover],
-  );
 
   const handleClear = () => {
     if (!liveTable) {
@@ -265,7 +264,7 @@ export default function FloorPlanScreen() {
   const diagnosticsItems = [
     { label: 'Location', value: currentLocation?.name ?? 'Not selected' },
     { label: 'Floor', value: floorId || DEFAULT_FLOOR_ID },
-    { label: 'Signed In As', value: userSession?.user.email ?? 'Unknown' },
+    { label: 'Signed In As', value: userSession?.user?.email ?? 'Unknown' },
     { label: 'Connection', value: connectionLabel },
     { label: 'Snapshot Age', value: lastSnapshotAt ?? 'Never synced' },
     { label: 'Routing', value: routing?.updatedAt ?? (isRoutingLoading ? 'Loading' : 'Unavailable') },
@@ -278,19 +277,32 @@ export default function FloorPlanScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.ambientBackground, { backgroundColor: colors.background }]} />
 
-      <View style={styles.topNav}>
-        <View>
-          <Text style={[styles.logoText, { color: colors.text.primary }]}>SHIRE</Text>
+        <View style={styles.topNav}>
+          <View>
+            <Text style={[styles.logoText, { color: colors.text.primary }]}>SHIRE</Text>
           {currentLocation && (
             <Text style={[styles.locationText, { color: colors.text.muted }]}>
               {currentLocation.name}
             </Text>
           )}
-        </View>
-        <View style={styles.topNavRight}>
-          <View
-            style={[
-              styles.connectionBadge,
+          </View>
+          <View style={styles.topNavRight}>
+            <TouchableOpacity
+              style={[
+                styles.iconButton,
+                {
+                  backgroundColor: colors.surface.level1,
+                  borderColor: colors.glass.border,
+                },
+              ]}
+              activeOpacity={0.7}
+              onPress={() => router.push('/floor-builder' as Href)}
+            >
+              <Ionicons name="map-outline" size={20} color={colors.text.primary} />
+            </TouchableOpacity>
+            <View
+              style={[
+                styles.connectionBadge,
               {
                 backgroundColor: colors.surface.level1,
                 borderColor: colors.glass.border,
@@ -311,25 +323,39 @@ export default function FloorPlanScreen() {
               },
             ]}
             activeOpacity={0.7}
-            onPress={() => router.push('/shift' as Href)}
-          >
-            <Ionicons name="people-outline" size={20} color={colors.text.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.iconButton,
-              {
-                backgroundColor: colors.surface.level1,
-                borderColor: colors.glass.border,
-              },
-            ]}
-            activeOpacity={0.7}
             onPress={() => setShowDiagnostics(true)}
           >
             <Ionicons name="bug-outline" size={20} color={colors.text.primary} />
           </TouchableOpacity>
         </View>
       </View>
+
+      {isUsingStarterMap && (
+        <View style={styles.bannerRow}>
+          <GlassSurface intensity={35} borderRadius={borderRadius.xl} style={styles.bannerCard}>
+            <Ionicons name="construct-outline" size={18} color={colors.text.secondary} />
+            <Text style={[styles.bannerText, { color: colors.text.secondary }]}>
+              This location is still using the starter floor map. Open the builder to create a
+              restaurant-specific layout before service.
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.bannerAction,
+                {
+                  borderColor: colors.border.default,
+                  backgroundColor: colors.surface.level2,
+                },
+              ]}
+              activeOpacity={0.8}
+              onPress={() => router.push('/floor-builder' as Href)}
+            >
+              <Text style={[styles.bannerActionText, { color: colors.text.primary }]}>
+                Edit Map
+              </Text>
+            </TouchableOpacity>
+          </GlassSurface>
+        </View>
+      )}
 
       {(syncError || connectionLabel !== 'Live' || routingError || isRoutingSaving) && (
         <View style={styles.bannerRow}>
@@ -563,14 +589,6 @@ export default function FloorPlanScreen() {
           onClear={handleClear}
           onBlock={handleBlock}
           blockActionLabel={liveTable.isBlocked ? 'Unblock' : 'Block'}
-          servers={editableWaiters}
-          currentServerId={routing?.tableAssignments[liveTable.id] ?? undefined}
-          onChangeServer={(waiterId) => {
-            void handleAssignTableWaiter(waiterId);
-          }}
-          onClearServerAssignment={() => {
-            void handleAssignTableWaiter(null);
-          }}
           seatWarning={seatWarning}
         />
       )}
@@ -664,6 +682,15 @@ const styles = StyleSheet.create({
   bannerText: {
     ...textStyles.caption,
     flex: 1,
+  },
+  bannerAction: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  bannerActionText: {
+    ...textStyles.label,
   },
   quickSeatStrip: {
     paddingHorizontal: spacing.lg,

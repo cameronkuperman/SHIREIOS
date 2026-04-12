@@ -200,6 +200,75 @@ describe('floor state reducers', () => {
     expect(nextState.tablesById['5']?.displayStatus).toBe('available');
     expect(nextState.syncError).toBe('Cannot block this table.');
   });
+
+  it('maps stable rejection codes to friendlier host-facing copy', () => {
+    const state = createBaseState();
+    const optimisticState = {
+      ...state,
+      ...queuePendingCommandState(state, {
+        type: 'seat_party',
+        commandId: 'command-3',
+        floorId: DEFAULT_FLOOR_ID,
+        tableId: '2',
+        requestedAt: '2026-03-07T12:00:00.000Z',
+        party: {
+          id: 'waitlist-2',
+          name: 'Jordan',
+          size: 6,
+          source: 'waitlist',
+        },
+      }),
+    };
+
+    const nextState = {
+      ...optimisticState,
+      ...applyFloorStreamMessageState(optimisticState, {
+        type: 'command.rejected',
+        floorId: DEFAULT_FLOOR_ID,
+        sequence: 3,
+        commandId: 'command-3',
+        tableId: '2',
+        error: {
+          code: 'TABLE_CAPACITY_EXCEEDED',
+          message: 'Party exceeds capacity.',
+          retryable: false,
+        },
+        reason: 'Raw backend reason',
+      }),
+    };
+
+    expect(nextState.syncError).toBe('That party is too large for the selected table.');
+    expect(nextState.tablesById['2']?.displayStatus).toBe('available');
+  });
+
+  it('rolls back the pending local table even if backend rejection uses a different table id', () => {
+    const state = createBaseState();
+    const optimisticState = {
+      ...state,
+      ...queuePendingCommandState(state, {
+        type: 'block_table',
+        commandId: 'command-uuid-mismatch',
+        floorId: DEFAULT_FLOOR_ID,
+        tableId: '5',
+        requestedAt: '2026-03-07T12:00:00.000Z',
+      }),
+    };
+
+    const nextState = {
+      ...optimisticState,
+      ...applyFloorStreamMessageState(optimisticState, {
+        type: 'command.rejected',
+        floorId: DEFAULT_FLOOR_ID,
+        sequence: 4,
+        commandId: 'command-uuid-mismatch',
+        tableId: 'table-uuid-5',
+        reason: 'Backend still sent a UUID.',
+      }),
+    };
+
+    expect(nextState.tablesById['5']?.displayStatus).toBe('available');
+    expect(nextState.syncError).toBe('Backend still sent a UUID.');
+  });
 });
 
 describe('floor selectors', () => {

@@ -14,6 +14,7 @@ import type {
 import { zustandStorage } from '@/lib/storage';
 import { useWaiterRoutingStore } from '@/features/routing';
 import { DEFAULT_FLOOR_ID, DEFAULT_FLOOR_MAP } from './floorMap';
+import { normalizeFloorMap } from './mapContract';
 import {
   applyFloorSnapshotState,
   applyFloorStreamMessageState,
@@ -90,18 +91,20 @@ export const useFloorStore = create<FloorStoreState>()(
         set({ syncError });
       },
       setFloorMap: (floorMap) => {
+        const normalizedFloorMap = normalizeFloorMap(floorMap);
         set((state) => {
           const shouldResetTables =
-            state.floorMap.floorId !== floorMap.floorId || state.mapVersion !== floorMap.mapVersion;
+            state.floorMap.floorId !== normalizedFloorMap.floorId ||
+            state.mapVersion !== normalizedFloorMap.mapVersion;
           const nextTablesById =
             !shouldResetTables && Object.keys(state.tablesById).length > 0
               ? state.tablesById
-              : buildDefaultTablesById(floorMap);
+              : buildDefaultTablesById(normalizedFloorMap);
 
           return {
-            floorMap,
-            floorId: floorMap.floorId,
-            mapVersion: floorMap.mapVersion,
+            floorMap: normalizedFloorMap,
+            floorId: normalizedFloorMap.floorId,
+            mapVersion: normalizedFloorMap.mapVersion,
             tablesById: nextTablesById,
             lastSnapshotAt: shouldResetTables ? null : state.lastSnapshotAt,
             lastAppliedSequence: shouldResetTables ? 0 : state.lastAppliedSequence,
@@ -129,6 +132,33 @@ export const useFloorStore = create<FloorStoreState>()(
     {
       name: 'shire-floor-store',
       storage: createJSONStorage(() => zustandStorage),
+      merge: (persistedState, currentState) => {
+        if (!persistedState || typeof persistedState !== 'object') {
+          return currentState;
+        }
+
+        const nextState = persistedState as Partial<FloorStoreState> & {
+          floorMap?: unknown;
+          tablesById?: Record<string, TableLiveState>;
+        };
+        const floorMap = normalizeFloorMap(nextState.floorMap);
+        const tablesById =
+          nextState.tablesById && Object.keys(nextState.tablesById).length > 0
+            ? nextState.tablesById
+            : buildDefaultTablesById(floorMap);
+
+        return {
+          ...currentState,
+          ...nextState,
+          floorMap,
+          floorId: floorMap.floorId,
+          mapVersion: floorMap.mapVersion,
+          tablesById,
+          pendingCommands: {},
+          syncError: null,
+          connectionState: 'idle',
+        };
+      },
       partialize: (state) => ({
         floorId: state.floorId,
         floorMap: state.floorMap,

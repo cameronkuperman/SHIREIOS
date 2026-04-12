@@ -1,14 +1,11 @@
 import type { TableCommand, TableParty } from '@shire/shared';
 import { useFloorStore } from './store';
 import { getActiveFloorTransport } from './transport';
+import { createCommandId, createSeatPartyCommand, createSeatWalkInCommand } from './commands';
 
 export type DispatchResult =
   | { ok: true; commandId: string }
   | { ok: false; commandId: string };
-
-function createCommandId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 function dispatchTableCommand(command: TableCommand): DispatchResult {
   const transport = getActiveFloorTransport();
@@ -39,30 +36,9 @@ export function useFloorActions() {
 
   return {
     seatParty: (tableId: string, party: TableParty, waiterId?: string) =>
-      dispatchTableCommand({
-        type: 'seat_party',
-        commandId: createCommandId('seat-party'),
-        floorId,
-        tableId,
-        requestedAt: new Date().toISOString(),
-        party,
-        ...(waiterId ? { waiterId } : {}),
-      }),
+      dispatchTableCommand(createSeatPartyCommand(floorId, tableId, party, waiterId)),
     seatWalkIn: (tableId: string, name: string, size: number, waiterId?: string) =>
-      dispatchTableCommand({
-        type: 'seat_walk_in',
-        commandId: createCommandId('seat-walk-in'),
-        floorId,
-        tableId,
-        requestedAt: new Date().toISOString(),
-        party: {
-          id: createCommandId('walk-in-party'),
-          name: name.trim() || `Walk-in (${size})`,
-          size,
-          source: 'walk_in',
-        },
-        ...(waiterId ? { waiterId } : {}),
-      }),
+      dispatchTableCommand(createSeatWalkInCommand(floorId, tableId, name, size, waiterId)),
     clearTable: (tableId: string) =>
       dispatchTableCommand({
         type: 'clear_table',

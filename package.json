@@ -1,0 +1,18 @@
+{
+  "name": "shireios-root",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "start": "pnpm --dir shire start",
+    "start:tunnel": "pnpm --dir shire start:tunnel",
+    "dev": "pnpm --dir shire dev:host",
+    "dev:tunnel": "pnpm --dir shire dev:host:tunnel",
+    "dev:ios:sim": "pnpm --dir shire dev:ios:sim",
+    "dev:ios:ipad-mini": "pnpm --dir shire dev:ios:ipad-mini",
+    "dev:ios:ipad-pro": "pnpm --dir shire dev:ios:ipad-pro",
+    "ios:sim": "pnpm --dir shire ios:sim",
+    "ios:ipad-mini": "pnpm --dir shire ios:ipad-mini",
+    "ios:ipad-pro": "pnpm --dir shire ios:ipad-pro",
+    "typecheck": "pnpm --dir shire typecheck"
+  }
+}

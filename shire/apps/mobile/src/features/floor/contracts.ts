@@ -10,6 +10,7 @@ import type {
   WaiterRoutingState,
 } from '@shire/shared';
 import { adaptWaitlistEntry, type WaitlistEntryDto } from '@/features/host/contracts';
+import { resolveFloorId } from './floorId';
 import { normalizeWaiterRoutingState } from '@/features/routing/contracts';
 
 type LegacyFloorSnapshotDto = {
@@ -20,6 +21,7 @@ type LegacyFloorSnapshotDto = {
   snapshotAt?: string;
   tables?: TableLiveState[];
   tablesById?: Record<string, TableLiveState>;
+  routingSnapshot?: WaiterRoutingState | null;
 };
 
 type WaitlistUpdatedMessageDto = {
@@ -63,6 +65,11 @@ function isBackendLiveTable(value: unknown): value is BackendLiveTable {
   );
 }
 
+function resolveLiveTableId(table: BackendLiveTable): string {
+  const tableNumber = table.tableNumber?.trim();
+  return tableNumber || table.id;
+}
+
 function toSensedState(state: BackendLiveTable['state']): TableState {
   switch (state) {
     case 'occupied':
@@ -103,12 +110,19 @@ function toParty(table: BackendLiveTable): TableLiveState['party'] {
 
   const size = table.currentPartySize ?? 0;
   const name = table.currentPartyName?.trim() || (size > 0 ? `Party of ${size}` : 'Occupied');
+  const partyId =
+    table.currentWaitlistEntryId ?? table.currentReservationId ?? table.currentVisitId ?? `table-${table.id}-party`;
+  const source = table.currentWaitlistEntryId
+    ? 'waitlist'
+    : table.currentReservationId
+      ? 'reservations'
+      : 'manual';
 
   return {
-    id: table.currentWaitlistEntryId ?? table.currentVisitId ?? `table-${table.id}-party`,
+    id: partyId,
     name,
     size,
-    source: table.currentWaitlistEntryId ? 'waitlist' : 'manual',
+    source,
   };
 }
 
@@ -119,10 +133,11 @@ export function adaptBackendTable(
   emittedAt: string | null = null,
 ): TableLiveState {
   const sensedState = toSensedState(table.state);
+  const tableId = resolveLiveTableId(table);
 
   return {
-    tableId: table.id,
-    tableNumber: table.tableNumber,
+    tableId,
+    tableNumber: table.tableNumber?.trim() || tableId,
     displayStatus: toDisplayStatus(sensedState, table.isBlocked),
     sensedState,
     stateConfidence: table.stateConfidence ?? 0,
@@ -137,6 +152,8 @@ export function adaptBackendTable(
     currentWaiterId: table.currentWaiterId ?? null,
     currentWaiterName: table.currentWaiterName ?? null,
     currentWaitlistEntryId: table.currentWaitlistEntryId ?? null,
+    currentReservationId: table.currentReservationId ?? null,
+    currentVisitId: table.currentVisitId ?? null,
     currentPartySize: table.currentPartySize ?? null,
     lastUpdateSource: source,
     emittedAt,
@@ -169,14 +186,32 @@ function normalizeSnapshotTables(
 }
 
 export function adaptFloorSnapshot(
-  snapshot: LegacyFloorSnapshotDto | BackendFloorSnapshotDto,
+  snapshot: LegacyFloorSnapshotDto | BackendFloorSnapshotDto | unknown,
 ): FloorSnapshot {
+  const candidate = isRecord(snapshot) ? snapshot : {};
+  const floorId = resolveFloorId(
+    typeof candidate.floorId === 'string' ? candidate.floorId : undefined,
+  );
+  const mapVersion =
+    typeof candidate.mapVersion === 'string' && candidate.mapVersion.trim()
+      ? candidate.mapVersion
+      : 'unknown';
+  const sequence = typeof candidate.sequence === 'number' && Number.isFinite(candidate.sequence)
+    ? candidate.sequence
+    : 0;
+
   return {
-    floorId: snapshot.floorId,
-    mapVersion: snapshot.mapVersion,
-    generatedAt: snapshot.generatedAt ?? snapshot.snapshotAt ?? new Date().toISOString(),
-    sequence: snapshot.sequence,
-    tables: normalizeSnapshotTables(snapshot),
+    floorId,
+    mapVersion,
+    generatedAt:
+      (typeof candidate.generatedAt === 'string' && candidate.generatedAt) ||
+      (typeof candidate.snapshotAt === 'string' && candidate.snapshotAt) ||
+      new Date().toISOString(),
+    sequence,
+    tables: normalizeSnapshotTables(candidate as LegacyFloorSnapshotDto | BackendFloorSnapshotDto),
+    routingSnapshot: candidate.routingSnapshot
+      ? normalizeWaiterRoutingState(candidate.routingSnapshot as WaiterRoutingState)
+      : null,
   };
 }
 
@@ -208,6 +243,10 @@ export function adaptRealtimeMessage(value: unknown): FloorStreamMessage | null 
 
   switch (message.type) {
     case 'floor.snapshot':
+      if (!isRecord(message.snapshot)) {
+        return null;
+      }
+
       return {
         ...message,
         snapshot: adaptFloorSnapshot(message.snapshot),
