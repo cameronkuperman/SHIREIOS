@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
 import {
   ActivityIndicator,
   Alert,
@@ -17,35 +16,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { format, parseISO } from 'date-fns';
 import type { Reservation, ReservationAction, ReservationSource } from '@shire/shared';
 import type { CreateReservationInput } from '@/features/host/api';
+import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import { useReservationAvailability, useReservationSettings } from '@/features/host/hooks';
+import {
+  getReservationSourceLabel,
+  STAFF_RESERVATION_SOURCES,
+  toStaffReservationSource,
+} from '@/features/host/source';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
 import { CalendarGrid } from './CalendarGrid';
 import { GlassSurface } from './GlassSurface';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
 import { TimeSlotPicker } from './TimeSlotPicker';
-
-const SOURCE_OPTIONS: ReservationSource[] = [
-  'manual',
-  'phone',
-  'web',
-  'yelp',
-  'google',
-  'opentable',
-  'resy',
-  'sevenrooms',
-  'import',
-];
-
-function sourceLabel(source: ReservationSource): string {
-  switch (source) {
-    case 'opentable':
-      return 'OpenTable';
-    case 'sevenrooms':
-      return 'SevenRooms';
-    default:
-      return source.replace('_', ' ');
-  }
-}
 
 export type ReservationFormValues = CreateReservationInput;
 
@@ -89,77 +71,6 @@ function actionLabel(action: ReservationAction): string {
   }
 }
 
-function extractReservationSaveErrorMessage(error: unknown): string {
-  if (axios.isAxiosError(error)) {
-    const payload = error.response?.data;
-
-    if (typeof payload === 'string' && payload.trim()) {
-      return payload.trim();
-    }
-
-    if (payload && typeof payload === 'object') {
-      const record = payload as Record<string, unknown>;
-      const candidates = [record.message, record.error, record.detail];
-
-      for (const candidate of candidates) {
-        if (typeof candidate === 'string' && candidate.trim()) {
-          return candidate.trim();
-        }
-
-        if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
-          const detailRecord = candidate as Record<string, unknown>;
-          const detailMessage =
-            typeof detailRecord.message === 'string' && detailRecord.message.trim()
-              ? detailRecord.message.trim()
-              : null;
-          const detailCode =
-            typeof detailRecord.code === 'string' && detailRecord.code.trim()
-              ? detailRecord.code.trim()
-              : null;
-
-          if (detailMessage && detailCode) {
-            return `${detailMessage} (${detailCode})`;
-          }
-
-          if (detailMessage) {
-            return detailMessage;
-          }
-        }
-
-        if (Array.isArray(candidate) && candidate.length > 0) {
-          const firstIssue = candidate.find(
-            (entry) => entry && typeof entry === 'object',
-          ) as Record<string, unknown> | undefined;
-
-          if (firstIssue) {
-            const loc = Array.isArray(firstIssue.loc)
-              ? firstIssue.loc.filter((part) => typeof part === 'string').join('.')
-              : null;
-            const msg =
-              typeof firstIssue.msg === 'string' && firstIssue.msg.trim()
-                ? firstIssue.msg.trim()
-                : null;
-
-            if (loc && msg) {
-              return `${loc}: ${msg}`;
-            }
-
-            if (msg) {
-              return msg;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
-  }
-
-  return 'The reservation could not be saved.';
-}
-
 function availableActions(status: Reservation['status']): ReservationAction[] {
   switch (status) {
     case 'booked':
@@ -194,7 +105,7 @@ export function ReservationEditor({
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [timeSlot, setTimeSlot] = useState<string | null>(null);
   const [seatingPreference, setSeatingPreference] = useState<SeatingPref>('none');
-  const [source, setSource] = useState<ReservationSource>('manual');
+  const [source, setSource] = useState<ReservationSource>('host_dashboard');
   const [specialRequests, setSpecialRequests] = useState('');
   const [internalNotes, setInternalNotes] = useState('');
   const [pacingOverride, setPacingOverride] = useState(false);
@@ -209,7 +120,7 @@ export function ReservationEditor({
       setCurrentMonth(parseISO(`${dateValue}T12:00:00`));
       setTimeSlot(null);
       setSeatingPreference('none');
-      setSource('manual');
+      setSource('host_dashboard');
       setSpecialRequests('');
       setInternalNotes('');
       setPacingOverride(false);
@@ -262,6 +173,8 @@ export function ReservationEditor({
     () => availability?.slots.find((slot) => slot.timeSlot === timeSlot) ?? null,
     [availability?.slots, timeSlot],
   );
+  const editableSource = toStaffReservationSource(source);
+  const sourceLabel = getReservationSourceLabel(source) ?? 'Host';
   const isUsingFallbackTimeSlots = slotOptions.length === 0;
 
   const canSubmit =
@@ -291,7 +204,25 @@ export function ReservationEditor({
         pacingOverride,
       });
     } catch (error) {
-      Alert.alert('Unable to Save Reservation', extractReservationSaveErrorMessage(error));
+      Alert.alert(
+        'Unable to Save Reservation',
+        extractHostRequestErrorMessage(error, 'The reservation could not be saved.'),
+      );
+    }
+  };
+
+  const handleAction = async (action: ReservationAction) => {
+    if (!onRunAction) {
+      return;
+    }
+
+    try {
+      await onRunAction(action);
+    } catch (error) {
+      Alert.alert(
+        `Unable to ${actionLabel(action)}`,
+        extractHostRequestErrorMessage(error, 'The reservation could not be updated.'),
+      );
     }
   };
 
@@ -344,7 +275,9 @@ export function ReservationEditor({
                   <TouchableOpacity
                     key={action}
                     style={[styles.actionButton, { backgroundColor: colors.surface.level2 }]}
-                    onPress={() => onRunAction?.(action)}
+                    onPress={() => {
+                      void handleAction(action);
+                    }}
                   >
                     <Text style={[styles.actionText, { color: colors.text.primary }]}>
                       {actionLabel(action)}
@@ -415,34 +348,55 @@ export function ReservationEditor({
           </GlassSurface>
 
           <GlassSurface style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Channel</Text>
-            <View style={styles.optionRow}>
-              {SOURCE_OPTIONS.map((option) => {
-                const isSelected = source === option;
-                return (
-                  <TouchableOpacity
-                    key={option}
-                    style={[
-                      styles.optionChip,
-                      {
-                        backgroundColor: isSelected ? colors.accentLight : colors.surface.level2,
-                        borderColor: isSelected ? colors.accent : colors.glass.borderSubtle,
-                      },
-                    ]}
-                    onPress={() => setSource(option)}
-                  >
-                    <Text
+            <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Booking Origin</Text>
+            {mode === 'create' ? (
+              <View style={styles.optionRow}>
+                {STAFF_RESERVATION_SOURCES.map((option) => {
+                  const isSelected = editableSource === option;
+                  return (
+                    <TouchableOpacity
+                      key={option}
                       style={[
-                        styles.optionLabel,
-                        { color: isSelected ? colors.accent : colors.text.secondary },
+                        styles.optionChip,
+                        {
+                          backgroundColor: isSelected ? colors.accentLight : colors.surface.level2,
+                          borderColor: isSelected ? colors.accent : colors.glass.borderSubtle,
+                        },
                       ]}
+                      onPress={() => setSource(option)}
                     >
-                      {sourceLabel(option)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                      <Text
+                        style={[
+                          styles.optionLabel,
+                          { color: isSelected ? colors.accent : colors.text.secondary },
+                        ]}
+                      >
+                        {getReservationSourceLabel(option)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : (
+              <>
+                <View
+                  style={[
+                    styles.readOnlyChip,
+                    {
+                      backgroundColor: colors.surface.level2,
+                      borderColor: colors.glass.borderSubtle,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.optionLabel, { color: colors.text.secondary }]}>
+                    {sourceLabel}
+                  </Text>
+                </View>
+                <Text style={[styles.helperText, { color: colors.text.muted }]}>
+                  Booking origin comes from the backend for existing reservations.
+                </Text>
+              </>
+            )}
           </GlassSurface>
 
           <GlassSurface style={styles.section}>
@@ -650,6 +604,13 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   optionChip: {
+    borderRadius: borderRadius.pill,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  readOnlyChip: {
+    alignSelf: 'flex-start',
     borderRadius: borderRadius.pill,
     borderWidth: 1,
     paddingHorizontal: spacing.md,

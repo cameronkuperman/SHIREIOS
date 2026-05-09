@@ -187,6 +187,12 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
             reconnectAttempt = 0;
             setConnectionState('connected');
             setSyncError(null);
+            try {
+              const cursor = useFloorStore.getState().lastAppliedSequence;
+              nextTransport.sendSubscribe(cursor);
+            } catch (error) {
+              setSyncError(toErrorMessage(error));
+            }
             syncWaitlistQuery();
             syncReservationQueries();
           },
@@ -207,6 +213,20 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
           onMessage: (message) => {
             if (message.type === 'connection.ping') {
               nextTransport.sendPong(message.timestamp);
+              return;
+            }
+
+            if (message.type === 'cursor.expired') {
+              // Backend told us our cursor is too old to replay from.
+              // Refetch the snapshot but keep the socket open so the next
+              // live event continues to flow without a reconnect.
+              void loadSnapshot();
+              return;
+            }
+
+            if (message.type === 'command.ack') {
+              confirmPendingSeat(message.commandId);
+              applyStreamMessage(message);
               return;
             }
 

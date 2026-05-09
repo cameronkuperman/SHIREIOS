@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { textStyles, spacing, borderRadius, shadows } from '@/theme';
 import { useTheme } from '@/theme';
 import type { Reservation, ReservationStatus } from '@shire/shared';
+import { getReservationSourceLabel } from '@/features/host/source';
 import { seatingPrefIcon, seatingPrefLabel } from './SeatingPreferencePicker';
 import type { SeatingPref } from './SeatingPreferencePicker';
 
@@ -14,19 +15,6 @@ function formatTime(slot: string): string {
   const period = h >= 12 ? 'PM' : 'AM';
   const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${hour12}:${m.toString().padStart(2, '0')} ${period}`;
-}
-
-function formatSource(source?: Reservation['source']): string | null {
-  switch (source) {
-    case 'opentable':
-      return 'OpenTable';
-    case 'sevenrooms':
-      return 'SevenRooms';
-    case 'manual':
-      return 'Host';
-    default:
-      return source ? source.replace('_', ' ') : null;
-  }
 }
 
 type StatusConfig = {
@@ -61,13 +49,14 @@ function useStatusConfig(status: ReservationStatus): StatusConfig {
 type ReservationCardProps = {
   reservation: Reservation;
   onPress?: () => void;
+  isSelected?: boolean;
 };
 
-export function ReservationCard({ reservation, onPress }: ReservationCardProps) {
+export function ReservationCard({ reservation, onPress, isSelected }: ReservationCardProps) {
   const { colors } = useTheme();
   const statusConfig = useStatusConfig(reservation.status);
   const pref = reservation.seatingPreference as SeatingPref;
-  const sourceLabel = formatSource(reservation.source);
+  const sourceLabel = getReservationSourceLabel(reservation.source);
 
   return (
     <TouchableOpacity
@@ -78,6 +67,10 @@ export function ReservationCard({ reservation, onPress }: ReservationCardProps) 
         {
           backgroundColor: colors.surface.level1,
           borderColor: colors.glass.border,
+        },
+        isSelected && {
+          borderColor: colors.accent,
+          backgroundColor: colors.accentLight,
         },
       ]}
     >

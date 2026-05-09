@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -15,13 +16,16 @@ import { format } from 'date-fns';
 import { useRouter } from 'expo-router';
 import { AddPartyModal } from '@/components/AddPartyModal';
 import { CalendarGrid } from '@/components/CalendarGrid';
+import { HostPersonDetailSheet } from '@/components/HostPersonDetailSheet';
 import { ReservationCard } from '@/components/ReservationCard';
 import { WaitlistCard } from '@/components/WaitlistCard';
 import { useAuth } from '@/features/auth';
+import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import {
   useActiveWaitlistEntries,
   useReservationDayBook,
   useReservationMutations,
+  useWaitlist,
   useWaitlistMutations,
   waitlistToSidebarParty,
 } from '@/features/host/hooks';
@@ -29,6 +33,7 @@ import type { ReservationStatus } from '@shire/shared';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
 
 type QueueTab = 'waitlist' | 'reservations';
+type QueueDetailTarget = { source: QueueTab; id: string } | null;
 
 const RESERVATION_FILTERS: Array<{ key: ReservationStatus | 'all'; label: string }> = [
   { key: 'all', label: 'All' },
@@ -44,15 +49,25 @@ export default function WaitlistScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const { currentLocation } = useAuth();
+  const waitlistQuery = useWaitlist();
   const waitlistEntries = useActiveWaitlistEntries();
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const reservationBook = useReservationDayBook(selectedDate);
-  const { createWaitlistEntry, runWaitlistAction, isSaving: isWaitlistSaving } = useWaitlistMutations();
-  const { runReservationAction, isSaving: isReservationSaving } = useReservationMutations();
+  const {
+    createWaitlistEntry,
+    updateWaitlistEntry,
+    runWaitlistAction,
+    isSaving: isWaitlistSaving,
+  } = useWaitlistMutations();
+  const {
+    updateReservation,
+    runReservationAction,
+    isSaving: isReservationSaving,
+  } = useReservationMutations();
   const isSaving = isWaitlistSaving || isReservationSaving;
   const [activeTab, setActiveTab] = useState<QueueTab>('waitlist');
-  const [selectedPartyId, setSelectedPartyId] = useState<string | null>(null);
+  const [detailTarget, setDetailTarget] = useState<QueueDetailTarget>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [search, setSearch] = useState('');
@@ -62,7 +77,6 @@ export default function WaitlistScreen() {
     () => waitlistEntries.map(waitlistToSidebarParty),
     [waitlistEntries],
   );
-  const selectedEntry = waitlistEntries.find((entry) => entry.id === selectedPartyId) ?? null;
   const filteredReservations = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return reservationBook.filter((reservation) => {
@@ -80,8 +94,63 @@ export default function WaitlistScreen() {
       );
     });
   }, [reservationBook, search, statusFilter]);
+  const selectedEntry =
+    detailTarget?.source === 'waitlist'
+      ? waitlistEntries.find((entry) => entry.id === detailTarget.id) ?? null
+      : null;
   const selectedReservation =
-    filteredReservations.find((reservation) => reservation.id === selectedPartyId) ?? null;
+    detailTarget?.source === 'reservations'
+      ? filteredReservations.find((reservation) => reservation.id === detailTarget.id) ?? null
+      : null;
+  const waitlistErrorMessage = waitlistQuery.error
+    ? extractHostRequestErrorMessage(
+        waitlistQuery.error,
+        'The waitlist could not be loaded. Pull to refresh or try again shortly.',
+      )
+    : null;
+
+  useEffect(() => {
+    if (!detailTarget) {
+      return;
+    }
+
+    if (detailTarget.source === 'waitlist' && !selectedEntry) {
+      setDetailTarget(null);
+      return;
+    }
+
+    if (detailTarget.source === 'reservations' && !selectedReservation) {
+      setDetailTarget(null);
+    }
+  }, [detailTarget, selectedEntry, selectedReservation]);
+
+  const handleWaitlistAction = async (
+    waitlistEntryId: string,
+    action: Parameters<typeof runWaitlistAction>[0]['action'],
+  ) => {
+    try {
+      await runWaitlistAction({ waitlistEntryId, action });
+    } catch (error) {
+      Alert.alert(
+        'Unable to Update Waitlist',
+        extractHostRequestErrorMessage(error, 'The waitlist entry could not be updated.'),
+      );
+    }
+  };
+
+  const handleReservationAction = async (
+    reservationId: string,
+    action: Parameters<typeof runReservationAction>[0]['action'],
+  ) => {
+    try {
+      await runReservationAction({ reservationId, action });
+    } catch (error) {
+      Alert.alert(
+        'Unable to Update Reservation',
+        extractHostRequestErrorMessage(error, 'The reservation could not be updated.'),
+      );
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -126,6 +195,7 @@ export default function WaitlistScreen() {
             </TouchableOpacity>
           )}
           <TouchableOpacity
+            testID="queue-add-button"
             style={[styles.addBtn, { backgroundColor: colors.accent }]}
             activeOpacity={0.7}
             onPress={() => {
@@ -160,7 +230,7 @@ export default function WaitlistScreen() {
               ]}
               onPress={() => {
                 setActiveTab(tab);
-                setSelectedPartyId(null);
+                setDetailTarget(null);
               }}
             >
               <Text
@@ -197,6 +267,7 @@ export default function WaitlistScreen() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.filterScroll}
             contentContainerStyle={styles.filterRow}
           >
             {RESERVATION_FILTERS.map((filter) => {
@@ -255,8 +326,8 @@ export default function WaitlistScreen() {
                 <WaitlistCard
                   party={party}
                   index={index}
-                  isSelected={selectedPartyId === party.id}
-                  onPress={() => setSelectedPartyId(selectedPartyId === party.id ? null : party.id)}
+                  isSelected={detailTarget?.source === 'waitlist' && detailTarget.id === party.id}
+                  onPress={() => setDetailTarget({ source: 'waitlist', id: party.id })}
                 />
               </Animated.View>
             ))
@@ -264,16 +335,51 @@ export default function WaitlistScreen() {
               <Animated.View key={reservation.id} entering={FadeIn.delay(index * 30).duration(220)}>
                 <ReservationCard
                   reservation={reservation}
-                  onPress={() =>
-                    setSelectedPartyId(
-                      selectedPartyId === reservation.id ? null : reservation.id,
-                    )
+                  isSelected={
+                    detailTarget?.source === 'reservations' && detailTarget.id === reservation.id
                   }
+                  onPress={() => setDetailTarget({ source: 'reservations', id: reservation.id })}
                 />
               </Animated.View>
             ))}
 
-        {activeTab === 'waitlist' && waitlistCards.length === 0 && (
+        {activeTab === 'waitlist' && waitlistQuery.isLoading && waitlistCards.length === 0 && (
+          <View style={styles.emptyState}>
+            <ActivityIndicator color={colors.accent} />
+            <Text style={[styles.emptyText, { color: colors.text.muted }]}>
+              Loading waitlist…
+            </Text>
+          </View>
+        )}
+
+        {activeTab === 'waitlist' && waitlistErrorMessage && !waitlistQuery.isLoading && (
+          <View style={styles.emptyState}>
+            <Ionicons name="alert-circle-outline" size={42} color={colors.status.dirty.text} />
+            <Text style={[styles.emptyText, { color: colors.status.dirty.text }]}>
+              {waitlistErrorMessage}
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.retryButton,
+                {
+                  backgroundColor: colors.surface.level2,
+                  borderColor: colors.glass.border,
+                },
+              ]}
+              activeOpacity={0.7}
+              onPress={() => {
+                void waitlistQuery.refetch();
+              }}
+            >
+              <Text style={[styles.retryButtonText, { color: colors.text.primary }]}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {activeTab === 'waitlist' &&
+          !waitlistQuery.isLoading &&
+          !waitlistErrorMessage &&
+          waitlistCards.length === 0 && (
           <View style={styles.emptyState}>
             <Ionicons name="person-add-outline" size={42} color={colors.text.muted} />
             <Text style={[styles.emptyText, { color: colors.text.muted }]}>
@@ -292,140 +398,73 @@ export default function WaitlistScreen() {
         )}
       </ScrollView>
 
-      {activeTab === 'waitlist' && selectedEntry && (
-        <View
-          style={[
-            styles.actionBar,
-            {
-              backgroundColor: colors.surface.level1,
-              borderTopColor: colors.border.subtle,
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.surface.level3 }]}
-            onPress={() =>
-              void runWaitlistAction({ waitlistEntryId: selectedEntry.id, action: 'arrive' })
-            }
-            disabled={isSaving || selectedEntry.status === 'arrived'}
-          >
-            <Ionicons name="walk-outline" size={18} color={colors.text.primary} />
-            <Text style={[styles.actionText, { color: colors.text.primary }]}>Arrived</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.surface.level3 }]}
-            onPress={() =>
-              void runWaitlistAction({ waitlistEntryId: selectedEntry.id, action: 'mark_no_show' })
-            }
-            disabled={isSaving}
-          >
-            <Ionicons name="moon-outline" size={18} color={colors.text.primary} />
-            <Text style={[styles.actionText, { color: colors.text.primary }]}>No Show</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.status.dirty.fill }]}
-            onPress={() =>
-              void runWaitlistAction({ waitlistEntryId: selectedEntry.id, action: 'remove' })
-            }
-            disabled={isSaving}
-          >
-            <Ionicons name="trash-outline" size={18} color={colors.status.dirty.text} />
-            <Text style={[styles.actionText, { color: colors.status.dirty.text }]}>Remove</Text>
-          </TouchableOpacity>
-          {isSaving && <ActivityIndicator color={colors.accent} />}
-        </View>
-      )}
-
-      {activeTab === 'reservations' && selectedReservation && (
-        <View
-          style={[
-            styles.actionBar,
-            {
-              backgroundColor: colors.surface.level1,
-              borderTopColor: colors.border.subtle,
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.surface.level3 }]}
-            onPress={() =>
-              router.push({
-                pathname: '/reservation-modal/[id]',
-                params: { id: selectedReservation.id, date: selectedDate },
-              })
-            }
-          >
-            <Ionicons name="create-outline" size={18} color={colors.text.primary} />
-            <Text style={[styles.actionText, { color: colors.text.primary }]}>Open</Text>
-          </TouchableOpacity>
-          {selectedReservation.status === 'booked' && (
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: colors.surface.level3 }]}
-              onPress={() =>
-                void runReservationAction({
-                  reservationId: selectedReservation.id,
-                  action: 'confirm',
+      <HostPersonDetailSheet
+        visible={Boolean(selectedEntry || selectedReservation)}
+        waitlistEntry={selectedEntry}
+        reservation={selectedReservation}
+        isSaving={isSaving}
+        onClose={() => setDetailTarget(null)}
+        onSaveWaitlist={async (waitlistEntryId, input) => {
+          try {
+            await updateWaitlistEntry({ waitlistEntryId, input });
+          } catch (error) {
+            throw new Error(
+              extractHostRequestErrorMessage(
+                error,
+                'The waitlist entry could not be updated.',
+              ),
+            );
+          }
+        }}
+        onRunWaitlistAction={async (waitlistEntryId, action) => {
+          await handleWaitlistAction(waitlistEntryId, action);
+        }}
+        onSaveReservation={async (reservationId, input) => {
+          try {
+            await updateReservation({ reservationId, input });
+          } catch (error) {
+            throw new Error(
+              extractHostRequestErrorMessage(error, 'The reservation could not be updated.'),
+            );
+          }
+        }}
+        onRunReservationAction={async (reservationId, action) => {
+          await handleReservationAction(reservationId, action);
+        }}
+        onOpenReservation={
+          selectedReservation
+            ? () =>
+                router.push({
+                  pathname: '/reservation-modal/[id]',
+                  params: { id: selectedReservation.id, date: selectedDate },
                 })
-              }
-            >
-              <Ionicons name="checkmark-outline" size={18} color={colors.text.primary} />
-              <Text style={[styles.actionText, { color: colors.text.primary }]}>Confirm</Text>
-            </TouchableOpacity>
-          )}
-          {['booked', 'confirmed'].includes(selectedReservation.status) && (
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: colors.surface.level3 }]}
-              onPress={() =>
-                void runReservationAction({
-                  reservationId: selectedReservation.id,
-                  action: 'arrive',
-                })
-              }
-            >
-              <Ionicons name="walk-outline" size={18} color={colors.text.primary} />
-              <Text style={[styles.actionText, { color: colors.text.primary }]}>Arrive</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.surface.level3 }]}
-            onPress={() =>
-              void runReservationAction({
-                reservationId: selectedReservation.id,
-                action: 'mark_no_show',
-              })
-            }
-          >
-            <Ionicons name="moon-outline" size={18} color={colors.text.primary} />
-            <Text style={[styles.actionText, { color: colors.text.primary }]}>No Show</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.status.dirty.fill }]}
-            onPress={() =>
-              void runReservationAction({
-                reservationId: selectedReservation.id,
-                action: 'cancel',
-              })
-            }
-          >
-            <Ionicons name="close-outline" size={18} color={colors.status.dirty.text} />
-            <Text style={[styles.actionText, { color: colors.status.dirty.text }]}>Cancel</Text>
-          </TouchableOpacity>
-          {isSaving && <ActivityIndicator color={colors.accent} />}
-        </View>
-      )}
+            : undefined
+        }
+      />
 
       <AddPartyModal
         visible={showAddModal}
         onClose={() => setShowAddModal(false)}
         onAdd={async (data) => {
-          await createWaitlistEntry({
-            guestName: data.name,
-            guestPhone: data.phone,
-            partySize: data.size,
-            seatingPreference: data.seatingPreference,
-            notes: '',
-            source: 'manual',
-          });
+          try {
+            await createWaitlistEntry({
+              guestName: data.name,
+              guestPhone: data.phone,
+              partySize: data.size,
+              seatingPreference: data.seatingPreference,
+              notes: '',
+              source: 'manual',
+            });
+          } catch (error) {
+            Alert.alert(
+              'Unable to Add Party',
+              extractHostRequestErrorMessage(
+                error,
+                'The party could not be added to the waitlist.',
+              ),
+            );
+            throw error;
+          }
         }}
       />
     </SafeAreaView>
@@ -510,10 +549,14 @@ const styles = StyleSheet.create({
     flex: 1,
     ...textStyles.body,
   },
+  filterScroll: {
+    flexGrow: 0,
+  },
   filterRow: {
     paddingHorizontal: spacing['2xl'],
     gap: spacing.sm,
     paddingBottom: spacing.md,
+    alignItems: 'center',
   },
   filterChip: {
     borderRadius: borderRadius.pill,
@@ -546,24 +589,14 @@ const styles = StyleSheet.create({
   emptyText: {
     ...textStyles.body,
   },
-  actionBar: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  actionButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+  retryButton: {
+    marginTop: spacing.sm,
     borderRadius: borderRadius.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
+    borderWidth: 1,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
   },
-  actionText: {
+  retryButtonText: {
     ...textStyles.captionMedium,
   },
 });

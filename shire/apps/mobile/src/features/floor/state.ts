@@ -308,6 +308,22 @@ export function applyFloorSnapshotState(
   };
 }
 
+export function acknowledgePendingCommandState(
+  state: FloorStoreData,
+  commandId: string,
+): Partial<FloorStoreData> {
+  if (!state.pendingCommands[commandId]) {
+    return state;
+  }
+
+  const nextPendingCommands = { ...state.pendingCommands };
+  delete nextPendingCommands[commandId];
+
+  return {
+    pendingCommands: nextPendingCommands,
+  };
+}
+
 export function rejectPendingCommandState(
   state: FloorStoreData,
   commandId: string,
@@ -435,7 +451,25 @@ export function applyFloorStreamMessageState(
         ),
         lastAppliedSequence: message.sequence,
       };
+    case 'command.ack': {
+      if (message.floorId && message.floorId !== state.floorId) {
+        return state;
+      }
+      return acknowledgePendingCommandState(state, message.commandId);
+    }
+    case 'cursor.expired':
+      // Provider triggers a snapshot refetch; reducer is a no-op so the
+      // current optimistic + canonical state stays visible until the
+      // fresh snapshot arrives.
+      return state;
     case 'waitlist.updated':
+      if (message.floorId !== state.floorId || message.sequence <= state.lastAppliedSequence) {
+        return state;
+      }
+
+      return {
+        lastAppliedSequence: message.sequence,
+      };
     case 'connection.ping':
     case 'connection.pong':
       return state;

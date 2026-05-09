@@ -200,6 +200,11 @@ export interface CommandRejectedMessage {
 
 export interface WaitlistUpdatedMessage {
   type: "waitlist.updated";
+  floorId: string;
+  sequence: number;
+  commandId?: string | null;
+  source?: TableUpdateSource;
+  emittedAt?: string;
   entry: WaitlistEntry;
 }
 
@@ -220,11 +225,28 @@ export interface FloorPongMessage {
   timestamp: string;
 }
 
+export interface CursorExpiredMessage {
+  type: "cursor.expired";
+  floorId?: string;
+  reason?: string;
+  emittedAt?: string;
+}
+
+export interface CommandAckMessage {
+  type: "command.ack";
+  commandId: string;
+  floorId?: string;
+  sequence?: number;
+  emittedAt?: string;
+}
+
 export type FloorStreamMessage =
   | FloorSnapshotMessage
   | TableUpdatedMessage
   | TableBatchUpdatedMessage
   | CommandRejectedMessage
+  | CommandAckMessage
+  | CursorExpiredMessage
   | WaitlistUpdatedMessage
   | RoutingUpdatedMessage
   | FloorPingMessage
@@ -233,6 +255,7 @@ export type FloorStreamMessage =
 export interface SubscribeFloorMessage {
   type: "subscribe";
   floorId: string;
+  sinceSequence?: number;
 }
 
 export interface CommandMessage {
@@ -326,6 +349,8 @@ export type BackendFloorStreamMessage =
   | BackendTableBatchUpdatedMessage
   | BackendRoutingUpdatedMessage
   | CommandRejectedMessage
+  | CommandAckMessage
+  | CursorExpiredMessage
   | WaitlistUpdatedMessage
   | FloorPingMessage
   | FloorPongMessage;

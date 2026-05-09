@@ -8,6 +8,7 @@ import type {
   ReservationStatus,
   WaitlistEntry,
 } from '@shire/shared';
+import { toStaffReservationSource } from './source';
 
 export interface WaitlistEntryDto {
   id: string;
@@ -35,6 +36,11 @@ export interface WaitlistEntryDto {
 type ReservationStatusDto = ReservationStatus | 'pending' | 'arrived' | 'cancelled';
 type ReservationSourceDto =
   | ReservationSource
+  | 'host_dashboard'
+  | 'staff_phone'
+  | 'website_widget'
+  | 'app_native'
+  | 'google_business_profile'
   | 'host'
   | 'public_web'
   | 'public_app'
@@ -134,24 +140,32 @@ function normalizeReservationStatus(status: ReservationStatusDto): ReservationSt
 
 function normalizeReservationSource(source: ReservationSourceDto): ReservationSource {
   switch (source) {
+    case 'host_dashboard':
     case 'host':
-      return 'manual';
-    case 'public_web':
-    case 'public_app':
-      return 'web';
     case 'manual':
+      return 'host_dashboard';
+    case 'staff_phone':
     case 'phone':
+      return 'staff_phone';
+    case 'website_widget':
+    case 'public_web':
     case 'web':
+      return 'website_widget';
+    case 'app_native':
+    case 'public_app':
+      return 'app_native';
+    case 'google_business_profile':
+    case 'google':
+      return 'google_business_profile';
     case 'walk_in':
     case 'yelp':
-    case 'google':
     case 'opentable':
     case 'resy':
     case 'sevenrooms':
     case 'import':
       return source;
     default:
-      return 'manual';
+      return toStaffReservationSource(source);
   }
 }
 
@@ -299,6 +313,12 @@ export function upsertWaitlistEntry(
   return nextEntries.sort(
     (left, right) => new Date(left.joinedAt).getTime() - new Date(right.joinedAt).getTime(),
   );
+}
+
+export function selectActiveWaitlistEntries(entries: WaitlistEntry[]): WaitlistEntry[] {
+  return entries
+    .filter((entry) => !['removed', 'no_show', 'seated'].includes(entry.status))
+    .sort((left, right) => new Date(left.joinedAt).getTime() - new Date(right.joinedAt).getTime());
 }
 
 function compareReservations(left: Reservation, right: Reservation): number {

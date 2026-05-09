@@ -17,6 +17,7 @@ import {
   type ReservationSettingsDto,
   type WaitlistEntryDto,
 } from './contracts';
+import { toStaffReservationSource } from './source';
 
 export type WaitlistAction = 'arrive' | 'remove' | 'mark_no_show' | 'seat';
 export type ReservationListFilters = {
@@ -75,7 +76,16 @@ export type ReservationActionInput = {
   waiterId?: string;
 };
 
-type BackendReservationSource = 'host' | 'phone' | 'public_web' | 'public_app';
+type BackendReservationSource =
+  | 'host_dashboard'
+  | 'staff_phone'
+  | 'website_widget'
+  | 'app_native'
+  | 'google_business_profile'
+  | 'host'
+  | 'phone'
+  | 'public_web'
+  | 'public_app';
 type BackendCreateReservationPayload = {
   guestName: string;
   guestPhone: string;
@@ -101,23 +111,33 @@ type BackendUpdateReservationPayload = {
 
 function toBackendReservationSource(source: Reservation['source']): BackendReservationSource {
   switch (source) {
+    case 'host_dashboard':
+      return 'host_dashboard';
+    case 'staff_phone':
+      return 'staff_phone';
+    case 'website_widget':
+      return 'website_widget';
+    case 'app_native':
+      return 'app_native';
+    case 'google_business_profile':
+      return 'google_business_profile';
     case 'phone':
-      return 'phone';
+      return 'staff_phone';
     case 'web':
-      return 'public_web';
+      return 'website_widget';
     case 'manual':
-      return 'host';
-    // Current mobile-only source options all need to collapse into a backend-supported channel.
+      return 'host_dashboard';
+    case 'google':
+      return 'google_business_profile';
     case 'walk_in':
     case 'yelp':
-    case 'google':
     case 'opentable':
     case 'resy':
     case 'sevenrooms':
     case 'import':
-      return 'public_web';
+      return 'website_widget';
     default:
-      return 'host';
+      return toStaffReservationSource(source);
   }
 }
 
@@ -229,6 +249,7 @@ export async function runWaitlistAction(
 ): Promise<WaitlistEntry> {
   const response = await apiClient.post<WaitlistEntryDto>(
     `/locations/${locationId}/waitlist/${waitlistEntryId}/actions/${action}`,
+    {},
   );
   return adaptWaitlistEntry(response.data);
 }
@@ -304,7 +325,7 @@ export async function runReservationAction(
 ): Promise<Reservation> {
   const response = await apiClient.post<ReservationDto>(
     `/locations/${locationId}/reservations/${reservationId}/actions/${action}`,
-    input,
+    input ?? {},
   );
   return adaptReservation(response.data);
 }

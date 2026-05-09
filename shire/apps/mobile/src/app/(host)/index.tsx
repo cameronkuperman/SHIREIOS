@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   LayoutChangeEvent,
@@ -26,6 +26,7 @@ import { useAuth } from '@/features/auth';
 import { HostDiagnosticsModal } from '@/components/HostDiagnosticsModal';
 import { FilterPill } from '@/components/FilterPill';
 import { GlassSurface } from '@/components/GlassSurface';
+import { HostPersonDetailSheet } from '@/components/HostPersonDetailSheet';
 import { QuickSeatCard } from '@/components/QuickSeatCard';
 import { Table } from '@/components/Table';
 import { TablePopover } from '@/components/TablePopover';
@@ -33,10 +34,14 @@ import { WaitlistCard } from '@/components/WaitlistCard';
 import { getAppVersionLabel, getOrCreateDeviceId } from '@/lib/device';
 import {
   type HostSidebarParty,
+  useActiveWaitlistEntries,
   useFloorSidebarParties,
+  useReservationDayBook,
   useReservationMutations,
+  useWaitlistMutations,
 } from '@/features/host/hooks';
 import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
+import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import {
   resolveWaiterForTable,
   resolveWaiterIdForTable,
@@ -92,12 +97,23 @@ export default function FloorPlanScreen() {
   const floorMap = useFloorStore((state) => state.floorMap);
   const { seatParty, clearTable, markClean, blockTable, unblockTable } = useFloorActions();
   const { connectionState, syncError, lastSnapshotAt, floorId } = useFloorConnectionState();
+  const activeWaitlistEntries = useActiveWaitlistEntries();
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const reservationBook = useReservationDayBook(today);
   const hostParties = useFloorSidebarParties();
-  const { runReservationAction } = useReservationMutations();
+  const {
+    updateReservation,
+    runReservationAction,
+  } = useReservationMutations();
+  const { updateWaitlistEntry, runWaitlistAction } = useWaitlistMutations();
   const markPendingSeat = usePendingSeatStore((state) => state.markPendingSeat);
 
   const [activeFilter, setActiveFilter] = useState('All Rooms');
   const [selectedPartyId, setSelectedPartyId] = useState<string | null>(null);
+  const [detailTarget, setDetailTarget] = useState<{
+    source: HostSidebarParty['source'];
+    id: string;
+  } | null>(null);
   const [popover, setPopover] = useState<{ tableId: string; layout: LayoutRectangle } | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [roomSizes, setRoomSizes] = useState<Record<string, { width: number; height: number }>>({});
@@ -136,6 +152,29 @@ export default function FloorPlanScreen() {
   const selectedParty = selectedPartyId
     ? (hostParties.find((party) => party.id === selectedPartyId) ?? null)
     : null;
+  const selectedWaitlistEntry =
+    detailTarget?.source === 'waitlist'
+      ? activeWaitlistEntries.find((entry) => entry.id === detailTarget.id) ?? null
+      : null;
+  const selectedReservation =
+    detailTarget?.source === 'reservations'
+      ? reservationBook.find((reservation) => reservation.id === detailTarget.id) ?? null
+      : null;
+
+  useEffect(() => {
+    if (!detailTarget) {
+      return;
+    }
+
+    if (detailTarget.source === 'waitlist' && !selectedWaitlistEntry) {
+      setDetailTarget(null);
+      return;
+    }
+
+    if (detailTarget.source === 'reservations' && !selectedReservation) {
+      setDetailTarget(null);
+    }
+  }, [detailTarget, selectedReservation, selectedWaitlistEntry]);
 
   const seatWarning = useMemo(() => {
     if (!popover || !selectedParty || selectedParty.seatingPreference === 'none') {
@@ -428,7 +467,7 @@ export default function FloorPlanScreen() {
               Host Queue ({hostParties.length})
             </Text>
             <Text style={[styles.sidebarSubtitle, { color: colors.text.muted }]}>
-              Select a waitlist party or reservation, then tap an open table to seat them.
+              Tap a guest for details, then select them for seating when you are ready.
             </Text>
           </View>
 
@@ -439,7 +478,7 @@ export default function FloorPlanScreen() {
                 party={party}
                 index={index}
                 isSelected={selectedPartyId === party.id}
-                onPress={() => setSelectedPartyId(selectedPartyId === party.id ? null : party.id)}
+                onPress={() => setDetailTarget({ source: party.source, id: party.id })}
               />
             ))}
           </ScrollView>
@@ -592,6 +631,70 @@ export default function FloorPlanScreen() {
           seatWarning={seatWarning}
         />
       )}
+
+      <HostPersonDetailSheet
+        visible={Boolean(selectedWaitlistEntry || selectedReservation)}
+        waitlistEntry={selectedWaitlistEntry}
+        reservation={selectedReservation}
+        onClose={() => setDetailTarget(null)}
+        onSelectForSeating={() => {
+          const nextId = detailTarget?.id ?? null;
+          setSelectedPartyId((current) => (current === nextId ? null : nextId));
+          setDetailTarget(null);
+        }}
+        isSelectedForSeating={selectedPartyId === detailTarget?.id}
+        onSaveWaitlist={async (waitlistEntryId, input) => {
+          try {
+            await updateWaitlistEntry({ waitlistEntryId, input });
+          } catch (error) {
+            throw new Error(
+              extractHostRequestErrorMessage(
+                error,
+                'The waitlist entry could not be updated.',
+              ),
+            );
+          }
+        }}
+        onRunWaitlistAction={async (waitlistEntryId, action) => {
+          try {
+            await runWaitlistAction({ waitlistEntryId, action });
+          } catch (error) {
+            throw new Error(
+              extractHostRequestErrorMessage(
+                error,
+                'The waitlist entry could not be updated.',
+              ),
+            );
+          }
+        }}
+        onSaveReservation={async (reservationId, input) => {
+          try {
+            await updateReservation({ reservationId, input });
+          } catch (error) {
+            throw new Error(
+              extractHostRequestErrorMessage(error, 'The reservation could not be updated.'),
+            );
+          }
+        }}
+        onRunReservationAction={async (reservationId, action) => {
+          try {
+            await runReservationAction({ reservationId, action });
+          } catch (error) {
+            throw new Error(
+              extractHostRequestErrorMessage(error, 'The reservation could not be updated.'),
+            );
+          }
+        }}
+        onOpenReservation={
+          selectedReservation
+            ? () =>
+                router.push({
+                  pathname: '/reservation-modal/[id]',
+                  params: { id: selectedReservation.id, date: selectedReservation.date },
+                })
+            : undefined
+        }
+      />
 
       <HostDiagnosticsModal
         visible={showDiagnostics}

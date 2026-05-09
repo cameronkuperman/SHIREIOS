@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
+import { AppState } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   Reservation,
@@ -32,10 +33,15 @@ import {
   type UpdateWaitlistInput,
   type WaitlistAction,
 } from './api';
-import { upsertReservation } from './contracts';
+import {
+  selectActiveWaitlistEntries,
+  upsertReservation,
+  upsertWaitlistEntry,
+} from './contracts';
 import { usePendingSeatStore } from './pendingSeatStore';
+import { getReservationSourceLabel } from './source';
 
-const FALLBACK_WAITLIST_REFETCH_MS = 30_000;
+const FALLBACK_WAITLIST_REFETCH_MS = 15_000;
 const FALLBACK_RESERVATIONS_REFETCH_MS = 60_000;
 
 export type HostSidebarStatus = 'Waiting' | 'Arrived' | 'Booked' | 'Confirmed' | 'Checked In';
@@ -44,6 +50,7 @@ export type HostSidebarSource = 'waitlist' | 'reservations';
 export interface HostSidebarParty {
   id: string;
   source: HostSidebarSource;
+  sourceLabel: string;
   name: string;
   phone: string;
   size: number;
@@ -52,10 +59,6 @@ export interface HostSidebarParty {
   joinedAt: string | null;
   waitLabel: string;
   notes: string;
-}
-
-function isWaitlistVisibleOnHost(entry: WaitlistEntry): boolean {
-  return !['removed', 'no_show', 'seated'].includes(entry.status);
 }
 
 function isReservationVisibleOnHost(reservation: Reservation): boolean {
@@ -82,6 +85,7 @@ export function waitlistToSidebarParty(entry: WaitlistEntry): HostSidebarParty {
   return {
     id: entry.id,
     source: 'waitlist',
+    sourceLabel: 'Waitlist',
     name: entry.guest.name,
     phone: entry.guest.phone,
     size: entry.partySize,
@@ -119,6 +123,7 @@ export function reservationToSidebarParty(reservation: Reservation): HostSidebar
   return {
     id: reservation.id,
     source: 'reservations',
+    sourceLabel: getReservationSourceLabel(reservation.source) ?? 'Reservation',
     name: reservation.guestName,
     phone: reservation.guestPhone,
     size: reservation.partySize,
@@ -134,8 +139,9 @@ export function useWaitlist() {
   const locationId = useLocationId();
   const isWorkdayActive = useIsWorkdayActive(locationId);
   const pendingSeats = usePendingSeatStore((state) => state.pendingSeats);
+  const queryClient = useQueryClient();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: locationId ? queryKeys.waitlist.list(locationId) : ['waitlist', 'disabled'],
     queryFn: () => fetchWaitlist(locationId!),
     enabled: !!locationId && isWorkdayActive,
@@ -147,6 +153,26 @@ export function useWaitlist() {
       return entries.filter((entry) => !pendingWaitlistIds.has(entry.id));
     },
   });
+
+  useEffect(() => {
+    if (!locationId || !isWorkdayActive) {
+      return;
+    }
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') {
+        return;
+      }
+
+      void queryClient.invalidateQueries({ queryKey: queryKeys.waitlist.list(locationId) });
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [isWorkdayActive, locationId, queryClient]);
+
+  return query;
 }
 
 function invalidateWaitlistQuery(
@@ -167,10 +193,22 @@ export function useWaitlistMutations() {
   const locationId = useLocationId();
   const queryClient = useQueryClient();
 
+  const patchWaitlistEntry = (entry: WaitlistEntry) => {
+    if (!locationId) {
+      return;
+    }
+
+    queryClient.setQueryData<WaitlistEntry[]>(
+      queryKeys.waitlist.list(locationId),
+      (currentEntries) => upsertWaitlistEntry(currentEntries ?? [], entry),
+    );
+  };
+
   const createMutation = useMutation({
     mutationFn: (input: CreateWaitlistInput) => createWaitlistEntry(locationId!, input),
-    onSuccess: () => {
+    onSuccess: (entry) => {
       if (locationId) {
+        patchWaitlistEntry(entry);
         invalidateWaitlistQuery(queryClient, locationId);
       }
     },
@@ -184,8 +222,9 @@ export function useWaitlistMutations() {
       waitlistEntryId: string;
       input: UpdateWaitlistInput;
     }) => updateWaitlistEntry(locationId!, waitlistEntryId, input),
-    onSuccess: () => {
+    onSuccess: (entry) => {
       if (locationId) {
+        patchWaitlistEntry(entry);
         invalidateWaitlistQuery(queryClient, locationId);
       }
     },
@@ -199,8 +238,9 @@ export function useWaitlistMutations() {
       waitlistEntryId: string;
       action: WaitlistAction;
     }) => runWaitlistAction(locationId!, waitlistEntryId, action),
-    onSuccess: () => {
+    onSuccess: (entry) => {
       if (locationId) {
+        patchWaitlistEntry(entry);
         invalidateWaitlistQuery(queryClient, locationId);
       }
     },
@@ -375,13 +415,7 @@ export function useReservationSettings(): ReservationSettings | null {
 export function useActiveWaitlistEntries(): WaitlistEntry[] {
   const waitlistQuery = useWaitlist();
 
-  return useMemo(
-    () =>
-      (waitlistQuery.data ?? [])
-        .filter(isWaitlistVisibleOnHost)
-        .sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime()),
-    [waitlistQuery.data],
-  );
+  return useMemo(() => selectActiveWaitlistEntries(waitlistQuery.data ?? []), [waitlistQuery.data]);
 }
 
 export function useFloorSidebarParties() {

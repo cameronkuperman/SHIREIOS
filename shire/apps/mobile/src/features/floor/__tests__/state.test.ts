@@ -269,6 +269,115 @@ describe('floor state reducers', () => {
     expect(nextState.tablesById['5']?.displayStatus).toBe('available');
     expect(nextState.syncError).toBe('Backend still sent a UUID.');
   });
+
+  it('clears the pending command without mutating tables on command.ack', () => {
+    const state = createBaseState();
+    const optimisticState = {
+      ...state,
+      ...queuePendingCommandState(state, {
+        type: 'mark_clean',
+        commandId: 'command-ack-1',
+        floorId: DEFAULT_FLOOR_ID,
+        tableId: '4',
+        requestedAt: '2026-03-07T12:00:00.000Z',
+      }),
+    };
+
+    const optimisticTable = optimisticState.tablesById['4'];
+
+    const nextState = {
+      ...optimisticState,
+      ...applyFloorStreamMessageState(optimisticState, {
+        type: 'command.ack',
+        commandId: 'command-ack-1',
+        floorId: DEFAULT_FLOOR_ID,
+      }),
+    };
+
+    expect(Object.keys(nextState.pendingCommands)).not.toContain('command-ack-1');
+    expect(nextState.tablesById['4']).toEqual(optimisticTable);
+  });
+
+  it('ignores command.ack for a different floor', () => {
+    const state = createBaseState();
+    const optimisticState = {
+      ...state,
+      ...queuePendingCommandState(state, {
+        type: 'mark_clean',
+        commandId: 'command-ack-2',
+        floorId: DEFAULT_FLOOR_ID,
+        tableId: '4',
+        requestedAt: '2026-03-07T12:00:00.000Z',
+      }),
+    };
+
+    const nextState = {
+      ...optimisticState,
+      ...applyFloorStreamMessageState(optimisticState, {
+        type: 'command.ack',
+        commandId: 'command-ack-2',
+        floorId: 'other-floor',
+      }),
+    };
+
+    expect(Object.keys(nextState.pendingCommands)).toContain('command-ack-2');
+  });
+
+  it('treats cursor.expired as a no-op at the reducer level', () => {
+    const state = createBaseState();
+
+    const nextState = {
+      ...state,
+      ...applyFloorStreamMessageState(state, {
+        type: 'cursor.expired',
+        floorId: DEFAULT_FLOOR_ID,
+        reason: 'too far behind',
+      }),
+    };
+
+    expect(nextState.tablesById).toEqual(state.tablesById);
+    expect(nextState.lastAppliedSequence).toBe(state.lastAppliedSequence);
+    expect(nextState.pendingCommands).toEqual(state.pendingCommands);
+    expect(nextState.syncError).toBe(state.syncError);
+  });
+
+  it('advances floor sequence on waitlist updates without mutating table state', () => {
+    const state = createBaseState();
+    const previousTable = state.tablesById['2'];
+
+    const nextState = {
+      ...state,
+      ...applyFloorStreamMessageState(state, {
+        type: 'waitlist.updated',
+        floorId: DEFAULT_FLOOR_ID,
+        sequence: 7,
+        commandId: 'waitlist-seat-7',
+        source: 'host',
+        emittedAt: '2026-04-13T12:34:56.000Z',
+        entry: {
+          id: 'waitlist-2',
+          guest: { id: 'guest-2', name: 'Jordan', phone: '555-0102' },
+          partySize: 2,
+          seatingPreference: 'none',
+          status: 'seated',
+          notes: '',
+          source: 'manual',
+          joinedAt: '2026-04-13T12:20:00.000Z',
+          quotedWaitMinutes: 10,
+          arrivedAt: '2026-04-13T12:25:00.000Z',
+          seatedAt: '2026-04-13T12:34:56.000Z',
+          removedAt: null,
+          noShowAt: null,
+          assignedTableId: '2',
+          createdAt: '2026-04-13T12:20:00.000Z',
+          updatedAt: '2026-04-13T12:34:56.000Z',
+        },
+      }),
+    };
+
+    expect(nextState.lastAppliedSequence).toBe(7);
+    expect(nextState.tablesById['2']).toEqual(previousTable);
+  });
 });
 
 describe('floor selectors', () => {

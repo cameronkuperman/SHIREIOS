@@ -40,7 +40,6 @@ export function WaitlistCard({ party, index, onPress, isSelected }: WaitlistCard
       ? formatRelativeWait(party.joinedAt, now)
       : party.waitLabel;
   const showPref = party.seatingPreference !== 'none';
-  const sourceLabel = party.source === 'reservations' ? 'Reservation' : 'Waitlist';
 
   return (
     <TouchableOpacity
@@ -63,7 +62,7 @@ export function WaitlistCard({ party, index, onPress, isSelected }: WaitlistCard
           <Text style={[styles.name, { color: colors.text.primary }]}>
             {index + 1}. {party.name}
           </Text>
-          <Text style={[styles.sourcePill, { color: colors.text.muted }]}>{sourceLabel}</Text>
+          <Text style={[styles.sourcePill, { color: colors.text.muted }]}>{party.sourceLabel}</Text>
         </View>
         <View style={styles.detailsRow}>
           <Text style={[styles.details, { color: colors.text.secondary }]}>

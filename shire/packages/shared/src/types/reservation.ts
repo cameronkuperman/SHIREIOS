@@ -2,6 +2,11 @@ import type { MessageDelivery, Guest } from './host.ts';
 import type { SeatingPreference } from './party.ts';
 
 export type ReservationSource =
+  | 'host_dashboard'
+  | 'staff_phone'
+  | 'website_widget'
+  | 'app_native'
+  | 'google_business_profile'
   | 'manual'
   | 'phone'
   | 'web'

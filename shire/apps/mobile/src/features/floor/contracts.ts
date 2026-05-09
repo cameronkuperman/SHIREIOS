@@ -26,6 +26,11 @@ type LegacyFloorSnapshotDto = {
 
 type WaitlistUpdatedMessageDto = {
   type: 'waitlist.updated';
+  floorId?: string;
+  sequence?: number;
+  commandId?: string | null;
+  source?: TableUpdateSource;
+  emittedAt?: string;
   entry: WaitlistEntryDto;
 };
 
@@ -290,6 +295,17 @@ export function adaptRealtimeMessage(value: unknown): FloorStreamMessage | null 
     case 'waitlist.updated':
       return {
         type: 'waitlist.updated',
+        floorId:
+          typeof message.floorId === 'string' && message.floorId.trim()
+            ? message.floorId
+            : resolveFloorId(),
+        sequence:
+          typeof message.sequence === 'number' && Number.isFinite(message.sequence)
+            ? message.sequence
+            : 0,
+        commandId: message.commandId ?? null,
+        source: message.source,
+        emittedAt: message.emittedAt,
         entry: adaptWaitlistEntry(message.entry),
       };
     case 'routing.updated':
@@ -306,6 +322,28 @@ export function adaptRealtimeMessage(value: unknown): FloorStreamMessage | null 
           message.reason ??
           message.error?.message ??
           'Unable to complete the requested table action.',
+      };
+    case 'command.ack': {
+      if (typeof message.commandId !== 'string' || !message.commandId.trim()) {
+        return null;
+      }
+      return {
+        type: 'command.ack',
+        commandId: message.commandId,
+        floorId: typeof message.floorId === 'string' ? message.floorId : undefined,
+        sequence:
+          typeof message.sequence === 'number' && Number.isFinite(message.sequence)
+            ? message.sequence
+            : undefined,
+        emittedAt: typeof message.emittedAt === 'string' ? message.emittedAt : undefined,
+      };
+    }
+    case 'cursor.expired':
+      return {
+        type: 'cursor.expired',
+        floorId: typeof message.floorId === 'string' ? message.floorId : undefined,
+        reason: typeof message.reason === 'string' ? message.reason : undefined,
+        emittedAt: typeof message.emittedAt === 'string' ? message.emittedAt : undefined,
       };
     default:
       return message;

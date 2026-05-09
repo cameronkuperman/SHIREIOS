@@ -155,6 +155,47 @@ describe('floor backend contracts', () => {
     expect(table.tableNumber).toBe('table-uuid-9');
   });
 
+  it('adapts rich waitlist realtime updates with metadata and a normalized entry payload', () => {
+    const message = adaptRealtimeMessage({
+      type: 'waitlist.updated',
+      floorId: 'floor-1',
+      sequence: 44,
+      commandId: 'waitlist-seat-123',
+      source: 'host',
+      emittedAt: '2026-04-13T12:34:56.000Z',
+      entry: {
+        id: 'waitlist-1',
+        guest: {
+          id: 'guest-1',
+          name: 'Jordan',
+          phone: '555-0100',
+        },
+        partySize: 4,
+        seatingPreference: 'booth',
+        status: 'waiting',
+        notes: null,
+        source: 'manual',
+        joinedAt: '2026-04-13T12:30:00.000Z',
+        quotedWaitMinutes: 20,
+        createdAt: '2026-04-13T12:30:00.000Z',
+        updatedAt: '2026-04-13T12:34:56.000Z',
+      },
+    });
+
+    expect(message?.type).toBe('waitlist.updated');
+    if (!message || message.type !== 'waitlist.updated') {
+      return;
+    }
+
+    expect(message.floorId).toBe('floor-1');
+    expect(message.sequence).toBe(44);
+    expect(message.commandId).toBe('waitlist-seat-123');
+    expect(message.source).toBe('host');
+    expect(message.emittedAt).toBe('2026-04-13T12:34:56.000Z');
+    expect(message.entry.notes).toBe('');
+    expect(message.entry.id).toBe('waitlist-1');
+  });
+
   it('drops malformed floor.snapshot websocket messages instead of throwing', () => {
     expect(
       adaptRealtimeMessage({

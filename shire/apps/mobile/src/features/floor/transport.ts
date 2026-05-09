@@ -106,6 +106,14 @@ export class FloorRealtimeTransport {
     });
   }
 
+  sendSubscribe(sinceSequence: number): void {
+    this.send({
+      type: 'subscribe',
+      floorId: this.floorId,
+      ...(Number.isFinite(sinceSequence) && sinceSequence > 0 ? { sinceSequence } : {}),
+    });
+  }
+
   private send(message: FloorClientMessage): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error('Floor socket is not connected');
