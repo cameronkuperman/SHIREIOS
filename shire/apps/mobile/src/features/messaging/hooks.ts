@@ -25,6 +25,10 @@ import {
 import { sortMessages } from './contracts';
 import { selectTotalUnreadFromConversations } from './unreadSelectors';
 
+export type SendMessageMutationInput = SendMessageRequest & {
+  retryMessageId?: string;
+};
+
 function useLocationId(): string | null {
   const { currentLocation } = useAuth();
   return currentLocation?.id ?? null;
@@ -126,7 +130,10 @@ export function useSendMessage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: SendMessageRequest) => sendMessage(locationId!, input),
+    mutationFn: (input: SendMessageMutationInput) => {
+      const { retryMessageId: _retryMessageId, ...request } = input;
+      return sendMessage(locationId!, request);
+    },
     onMutate: async (input) => {
       if (!locationId || !input.conversationId) {
         return { optimisticId: null };
@@ -162,12 +169,15 @@ export function useSendMessage() {
           current
             ? {
                 ...current,
-                messages: appendMessage(current.messages, optimisticMessage),
+                messages: appendMessage(
+                  current.messages.filter((message) => message.id !== input.retryMessageId),
+                  optimisticMessage,
+                ),
               }
             : current,
       );
 
-      return { optimisticId };
+      return { optimisticId, retryMessageId: input.retryMessageId };
     },
     onSuccess: (response, _input, context) => {
       if (!locationId) {
@@ -181,10 +191,16 @@ export function useSendMessage() {
 
       queryClient.setQueryData<{ conversation: Conversation; messages: Message[] }>(
         queryKeys.messaging.conversation(locationId, response.conversation.id),
+        // A retry has two client-only rows to clean up: the old failed bubble and
+        // the new queued optimistic bubble created for the retry attempt.
         (current) => ({
           conversation: response.conversation,
           messages: appendMessage(
-            (current?.messages ?? []).filter((message) => message.id !== context?.optimisticId),
+            (current?.messages ?? []).filter(
+              (message) =>
+                message.id !== context?.optimisticId &&
+                message.id !== context?.retryMessageId,
+            ),
             response.message,
           ),
         }),

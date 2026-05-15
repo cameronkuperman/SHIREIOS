@@ -3,9 +3,13 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { Message, SendMessageRequest } from '@shire/shared';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
 
+type RetryMessageRequest = SendMessageRequest & {
+  retryMessageId: string;
+};
+
 type MessageBubbleProps = {
   message: Message;
-  onRetry?: (payload: SendMessageRequest) => void;
+  onRetry?: (payload: RetryMessageRequest) => void;
 };
 
 function statusNeedsRetry(status: Message['status']): boolean {
@@ -42,6 +46,7 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
             <TouchableOpacity
               onPress={() =>
                 onRetry({
+                  retryMessageId: message.id,
                   conversationId: message.conversationId,
                   reservationId: message.reservationId ?? undefined,
                   waitlistId: message.waitlistId ?? undefined,
