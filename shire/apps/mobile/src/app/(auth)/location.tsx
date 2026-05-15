@@ -44,11 +44,6 @@ export default function LocationSelectScreen() {
     return <Redirect href="/(auth)" />;
   }
 
-  if (currentLocation && locations.length <= 1) {
-    console.log(LOG_TAG, 'Single location auto-selected:', currentLocation.name);
-    return <Redirect href={nextHref} />;
-  }
-
   const handleCreateLocation = async () => {
     const name = newLocationName.trim();
     if (!name) return;
@@ -222,13 +217,18 @@ export default function LocationSelectScreen() {
                 },
               ]}
             >
-              <View>
+              <View style={styles.locationInfo}>
                 <Text style={[styles.locationName, { color: colors.text.primary }]}>
                   {location.name}
                 </Text>
                 <Text style={[styles.locationMeta, { color: colors.text.secondary }]}>
                   {location.timezone}
                 </Text>
+                {!location.floorId && (
+                  <Text style={[styles.locationMeta, { color: colors.status.dirty.text }]}>
+                    Floor plan not set up
+                  </Text>
+                )}
               </View>
               {currentLocation?.id === location.id && (
                 <Ionicons name="checkmark-circle" size={24} color={colors.accent} />
@@ -285,6 +285,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  locationInfo: {
+    flex: 1,
+    gap: spacing.xs,
   },
   locationName: {
     ...textStyles.label,

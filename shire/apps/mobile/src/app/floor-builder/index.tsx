@@ -223,7 +223,7 @@ export default function FloorBuilderScreen() {
       setFloorMap(mapToSave);
       markClean();
       Alert.alert('Saved', 'Floor map layout saved successfully.', [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: () => leaveBuilder() },
       ]);
     } catch (err) {
       Alert.alert('Save Failed', err instanceof Error ? err.message : 'Unknown error');
@@ -232,16 +232,24 @@ export default function FloorBuilderScreen() {
     }
   }, [currentFloorId, draftMap, currentLocation, setFloorMap, markClean, router]);
 
+  const leaveBuilder = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/workday');
+    }
+  }, [router]);
+
   const handleBack = useCallback(() => {
     if (isDirty) {
       Alert.alert('Unsaved Changes', 'Discard changes to the floor map?', [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: () => router.back() },
+        { text: 'Discard', style: 'destructive', onPress: () => leaveBuilder() },
       ]);
     } else {
-      router.back();
+      leaveBuilder();
     }
-  }, [isDirty, router]);
+  }, [isDirty, leaveBuilder]);
 
   if (isLoading || !draftMap) {
     return (

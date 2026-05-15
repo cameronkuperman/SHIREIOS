@@ -39,6 +39,8 @@ export default function WorkdayScreen() {
     return <Redirect href="/(host)" />;
   }
 
+  const hasFloorMap = !!currentLocation.floorId;
+
   const handleStartWorkday = async () => {
     if (isStarting) {
       return;
@@ -87,15 +89,19 @@ export default function WorkdayScreen() {
           <View style={styles.detailRow}>
             <Text style={[styles.detailLabel, { color: colors.text.muted }]}>Floor</Text>
             <Text style={[styles.detailValue, { color: colors.text.primary }]}>
-              {floorId}
+              {hasFloorMap ? floorId : 'Not set up yet'}
             </Text>
           </View>
 
           <TouchableOpacity
-            style={[styles.startButton, { backgroundColor: colors.accent }]}
+            style={[
+              styles.startButton,
+              { backgroundColor: colors.accent },
+              !hasFloorMap && styles.disabledButton,
+            ]}
             activeOpacity={0.8}
             onPress={() => void handleStartWorkday()}
-            disabled={isStarting}
+            disabled={isStarting || !hasFloorMap}
           >
             {isStarting ? (
               <ActivityIndicator color={colors.white} />
@@ -124,8 +130,9 @@ export default function WorkdayScreen() {
             </Text>
           </TouchableOpacity>
           <Text style={[styles.helperText, { color: colors.text.muted }]}>
-            Use this if the imported map is missing, outdated, or you want to lay out tables
-            yourself before service starts.
+            {hasFloorMap
+              ? 'Use this if the imported map is missing, outdated, or you want to lay out tables yourself before service starts.'
+              : 'This location has no floor plan yet. Build one before starting the workday.'}
           </Text>
         </GlassSurface>
 
@@ -215,6 +222,9 @@ const styles = StyleSheet.create({
   startButtonText: {
     ...textStyles.label,
     color: '#FFFFFF',
+  },
+  disabledButton: {
+    opacity: 0.4,
   },
   mapBuilderButton: {
     borderRadius: borderRadius.lg,

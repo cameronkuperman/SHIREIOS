@@ -2,6 +2,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { Redirect, type Href } from 'expo-router';
 import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useAuth } from '@/features/auth';
+import { useTotalUnread } from '@/features/messaging/hooks';
 import { useIsWorkdayActive } from '@/features/workday';
 import { useTheme } from '@/theme';
 
@@ -9,6 +10,7 @@ export default function HostLayout() {
   const { colors } = useTheme();
   const { isInitializing, isAuthenticated, currentLocation } = useAuth();
   const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
+  const totalUnread = useTotalUnread();
   const workdayHref = '/workday' as Href;
 
   if (isInitializing) {
@@ -67,6 +69,14 @@ export default function HostLayout() {
       <NativeTabs.Trigger name="seat">
         <Label>Seat Party</Label>
         <Icon sf="plus.circle.fill" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="reservations">
+        <Label>Reservations</Label>
+        <Icon sf="calendar" />
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="inbox">
+        <Label>{totalUnread > 0 ? `Inbox (${totalUnread})` : 'Inbox'}</Label>
+        <Icon sf="bubble.left.and.bubble.right.fill" />
       </NativeTabs.Trigger>
     </NativeTabs>
   );

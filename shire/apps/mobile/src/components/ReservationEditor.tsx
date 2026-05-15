@@ -40,6 +40,9 @@ type ReservationEditorProps = {
   onSave: (values: ReservationFormValues) => Promise<void>;
   onRunAction?: (action: ReservationAction) => Promise<void>;
   onOpenFloor?: () => void;
+  onArchive?: () => Promise<void>;
+  onRestore?: () => Promise<void>;
+  onMessageGuest?: () => void;
 };
 
 function formatDisplayDate(date: string): string {
@@ -95,6 +98,9 @@ export function ReservationEditor({
   onSave,
   onRunAction,
   onOpenFloor,
+  onArchive,
+  onRestore,
+  onMessageGuest,
 }: ReservationEditorProps) {
   const { colors } = useTheme();
   const settings = useReservationSettings();
@@ -227,6 +233,10 @@ export function ReservationEditor({
   };
 
   const statusActions = reservation ? availableActions(reservation.status) : [];
+  const canArchive =
+    reservation != null &&
+    reservation.archivedAt == null &&
+    ['completed', 'canceled', 'no_show'].includes(reservation.status);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -240,13 +250,17 @@ export function ReservationEditor({
           </TouchableOpacity>
           <View style={styles.headerText}>
             <Text style={[styles.title, { color: colors.text.primary }]}>
-              {mode === 'create' ? 'New Reservation' : reservation?.guestName ?? 'Reservation'}
+              {mode === 'create' ? 'New Reservation' : (reservation?.guestName ?? 'Reservation')}
             </Text>
             <Text style={[styles.subtitle, { color: colors.text.muted }]}>
               {formatDisplayDate(selectedDate)}
             </Text>
           </View>
-          {isSaving ? <ActivityIndicator color={colors.accent} /> : <View style={styles.headerSpacer} />}
+          {isSaving ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <View style={styles.headerSpacer} />
+          )}
         </View>
 
         <ScrollView
@@ -290,6 +304,16 @@ export function ReservationEditor({
                     onPress={onOpenFloor}
                   >
                     <Text style={[styles.actionText, { color: colors.accent }]}>Open Floor</Text>
+                  </TouchableOpacity>
+                )}
+                {reservation && onMessageGuest && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: colors.surface.level2 }]}
+                    onPress={onMessageGuest}
+                  >
+                    <Text style={[styles.actionText, { color: colors.text.primary }]}>
+                      Message Guest
+                    </Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -348,7 +372,9 @@ export function ReservationEditor({
           </GlassSurface>
 
           <GlassSurface style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Booking Origin</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
+              Booking Origin
+            </Text>
             {mode === 'create' ? (
               <View style={styles.optionRow}>
                 {STAFF_RESERVATION_SOURCES.map((option) => {
@@ -426,14 +452,18 @@ export function ReservationEditor({
             />
             {isUsingFallbackTimeSlots && (
               <Text style={[styles.helperText, { color: colors.text.muted }]}>
-                Live availability did not return any time slots, so standard service times are shown.
+                Live availability did not return any time slots, so standard service times are
+                shown.
               </Text>
             )}
             {selectedSlot && !selectedSlot.available && (
               <View
                 style={[
                   styles.availabilityCallout,
-                  { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+                  {
+                    backgroundColor: colors.surface.level2,
+                    borderColor: colors.glass.borderSubtle,
+                  },
                 ]}
               >
                 <Text style={[styles.calloutText, { color: colors.text.secondary }]}>
@@ -504,6 +534,28 @@ export function ReservationEditor({
             { backgroundColor: colors.surface.level1, borderTopColor: colors.border.subtle },
           ]}
         >
+          {reservation?.archivedAt && onRestore && (
+            <TouchableOpacity
+              style={[styles.secondaryFooterButton, { borderColor: colors.glass.border }]}
+              onPress={() => void onRestore()}
+              disabled={isSaving}
+            >
+              <Text style={[styles.secondaryFooterText, { color: colors.text.primary }]}>
+                Restore
+              </Text>
+            </TouchableOpacity>
+          )}
+          {canArchive && onArchive && (
+            <TouchableOpacity
+              style={[styles.secondaryFooterButton, { borderColor: colors.glass.border }]}
+              onPress={() => void onArchive()}
+              disabled={isSaving}
+            >
+              <Text style={[styles.secondaryFooterText, { color: colors.text.primary }]}>
+                Archive
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[
               styles.saveButton,
@@ -635,6 +687,17 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     borderTopWidth: 1,
+    gap: spacing.sm,
+  },
+  secondaryFooterButton: {
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryFooterText: {
+    ...textStyles.label,
   },
   saveButton: {
     borderRadius: borderRadius.lg,

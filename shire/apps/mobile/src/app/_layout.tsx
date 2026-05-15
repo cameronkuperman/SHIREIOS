@@ -33,6 +33,10 @@ export default function RootLayout() {
                     name="reservation-modal"
                     options={{ headerShown: false, presentation: 'fullScreenModal' }}
                   />
+                  <Stack.Screen
+                    name="settings"
+                    options={{ headerShown: false, presentation: 'fullScreenModal' }}
+                  />
                   <Stack.Screen name="workday" options={{ headerShown: false }} />
                   <Stack.Screen name="shift" options={{ headerShown: false }} />
                   <Stack.Screen

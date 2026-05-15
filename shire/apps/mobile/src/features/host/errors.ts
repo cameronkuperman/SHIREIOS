@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { isAxiosError } from 'axios';
 
 function extractPayloadMessage(payload: unknown): string | null {
   if (typeof payload === 'string' && payload.trim()) {
@@ -38,9 +38,9 @@ function extractPayloadMessage(payload: unknown): string | null {
     }
 
     if (Array.isArray(candidate) && candidate.length > 0) {
-      const firstIssue = candidate.find(
-        (entry) => entry && typeof entry === 'object',
-      ) as Record<string, unknown> | undefined;
+      const firstIssue = candidate.find((entry) => entry && typeof entry === 'object') as
+        | Record<string, unknown>
+        | undefined;
 
       if (firstIssue) {
         const loc = Array.isArray(firstIssue.loc)
@@ -65,11 +65,8 @@ function extractPayloadMessage(payload: unknown): string | null {
   return null;
 }
 
-export function extractHostRequestErrorMessage(
-  error: unknown,
-  fallback: string,
-): string {
-  if (axios.isAxiosError(error)) {
+export function extractHostRequestErrorMessage(error: unknown, fallback: string): string {
+  if (isAxiosError(error)) {
     const payloadMessage = extractPayloadMessage(error.response?.data);
     if (payloadMessage) {
       return payloadMessage;
@@ -81,4 +78,25 @@ export function extractHostRequestErrorMessage(
   }
 
   return fallback;
+}
+
+export function mapHostErrorCode(code: string | null | undefined): string | null {
+  switch (code) {
+    case 'NOT_FOUND':
+      return 'That record no longer exists.';
+    case 'VALIDATION_ERROR':
+      return 'Check the required fields and try again.';
+    case 'PERMISSION_DENIED':
+      return 'Your account does not have permission for this action.';
+    case 'INVALID_STATUS':
+      return 'That item is not in a valid state for this action.';
+    case 'OPTED_OUT':
+      return 'This guest has opted out of SMS messages.';
+    case 'PROVIDER_REJECTED':
+      return 'The message provider rejected this SMS.';
+    case 'RATE_LIMITED':
+      return 'Too many requests. Try again shortly.';
+    default:
+      return null;
+  }
 }

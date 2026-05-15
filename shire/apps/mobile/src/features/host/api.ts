@@ -2,6 +2,7 @@ import type {
   Reservation,
   ReservationAction,
   ReservationAvailability,
+  ReservationDensityResponse,
   ReservationSettings,
   WaitlistEntry,
 } from '@shire/shared';
@@ -9,11 +10,13 @@ import { apiClient } from '@/services/api/client';
 import {
   adaptReservation,
   adaptReservationAvailability,
+  adaptReservationDensity,
   adaptReservationSettings,
   adaptWaitlistEntry,
   type ReservationAvailabilityDto,
   type ReservationListResponseDto,
   type ReservationDto,
+  type ReservationDensityResponseDto,
   type ReservationSettingsDto,
   type WaitlistEntryDto,
 } from './contracts';
@@ -24,6 +27,7 @@ export type ReservationListFilters = {
   date?: string;
   status?: Reservation['status'] | 'all';
   search?: string;
+  includeArchived?: boolean;
 };
 
 export type CreateWaitlistInput = Pick<
@@ -74,6 +78,10 @@ export type ReservationActionInput = {
   commandId?: string;
   tableId?: string;
   waiterId?: string;
+};
+
+export type ArchiveReservationInput = {
+  reason?: string;
 };
 
 type BackendReservationSource =
@@ -265,6 +273,7 @@ export async function fetchReservations(
         ...(filters.date ? { date: filters.date } : {}),
         ...(filters.status && filters.status !== 'all' ? { status: filters.status } : {}),
         ...(filters.search?.trim() ? { search: filters.search.trim() } : {}),
+        ...(filters.includeArchived ? { includeArchived: true } : {}),
       },
     },
   );
@@ -284,7 +293,7 @@ export async function fetchReservation(
 
   const payload =
     'reservations' in response.data
-      ? response.data.reservations.find((reservation) => reservation.id === reservationId) ?? null
+      ? (response.data.reservations.find((reservation) => reservation.id === reservationId) ?? null)
       : response.data;
 
   if (!payload) {
@@ -328,6 +337,46 @@ export async function runReservationAction(
     input ?? {},
   );
   return adaptReservation(response.data);
+}
+
+export async function archiveReservation(
+  locationId: string,
+  reservationId: string,
+  input: ArchiveReservationInput = {},
+): Promise<Reservation> {
+  const response = await apiClient.post<ReservationDto>(
+    `/locations/${locationId}/reservations/${reservationId}/archive`,
+    input,
+  );
+  return adaptReservation(response.data);
+}
+
+export async function restoreReservation(
+  locationId: string,
+  reservationId: string,
+): Promise<Reservation> {
+  const response = await apiClient.post<ReservationDto>(
+    `/locations/${locationId}/reservations/${reservationId}/restore`,
+    {},
+  );
+  return adaptReservation(response.data);
+}
+
+export async function fetchReservationDensity(
+  locationId: string,
+  input: { dateFrom: string; dateTo: string; includeArchived?: boolean },
+): Promise<ReservationDensityResponse> {
+  const response = await apiClient.get<ReservationDensityResponseDto>(
+    `/locations/${locationId}/reservations/density`,
+    {
+      params: {
+        dateFrom: input.dateFrom,
+        dateTo: input.dateTo,
+        includeArchived: input.includeArchived ?? false,
+      },
+    },
+  );
+  return adaptReservationDensity(response.data);
 }
 
 export async function fetchReservationAvailability(

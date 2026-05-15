@@ -5,6 +5,7 @@ import type {
   Reservation,
   ReservationAction,
   ReservationAvailability,
+  ReservationDensityResponse,
   ReservationSettings,
   SeatingPreference,
   WaitlistEntry,
@@ -16,15 +17,19 @@ import { queryKeys } from '@/services/api/queryKeys';
 import {
   createReservation,
   createWaitlistEntry,
+  archiveReservation,
   fetchReservationAvailability,
+  fetchReservationDensity,
   fetchReservationSettings,
   fetchReservations,
+  restoreReservation,
   runReservationAction,
   fetchWaitlist,
   updateReservation,
   runWaitlistAction,
   updateWaitlistEntry,
   type ReservationActionInput,
+  type ArchiveReservationInput,
   type CreateReservationInput,
   type CreateWaitlistInput,
   type ReservationAvailabilityInput,
@@ -33,11 +38,7 @@ import {
   type UpdateWaitlistInput,
   type WaitlistAction,
 } from './api';
-import {
-  selectActiveWaitlistEntries,
-  upsertReservation,
-  upsertWaitlistEntry,
-} from './contracts';
+import { selectActiveWaitlistEntries, upsertReservation, upsertWaitlistEntry } from './contracts';
 import { usePendingSeatStore } from './pendingSeatStore';
 import { getReservationSourceLabel } from './source';
 
@@ -279,9 +280,34 @@ export function useReservationDayBook(date: string) {
 
   return useMemo(
     () =>
-      (reservationsQuery.data ?? []).sort((left, right) => left.timeSlot.localeCompare(right.timeSlot)),
+      (reservationsQuery.data ?? []).sort((left, right) =>
+        left.timeSlot.localeCompare(right.timeSlot),
+      ),
     [reservationsQuery.data],
   );
+}
+
+export function useReservationDensity(
+  input: {
+    dateFrom: string;
+    dateTo: string;
+    includeArchived?: boolean;
+  } | null,
+) {
+  const locationId = useLocationId();
+  const isWorkdayActive = useIsWorkdayActive(locationId);
+  const includeArchived = input?.includeArchived ?? false;
+
+  return useQuery<ReservationDensityResponse>({
+    queryKey:
+      locationId && input
+        ? queryKeys.reservations.density(locationId, input.dateFrom, input.dateTo, includeArchived)
+        : ['reservations', 'density', 'disabled'],
+    queryFn: () => fetchReservationDensity(locationId!, { ...input!, includeArchived }),
+    enabled: !!locationId && !!input && isWorkdayActive,
+    retry: false,
+    staleTime: 60_000,
+  });
 }
 
 export function useReservationDetail(reservationId: string | null, date?: string) {
@@ -294,7 +320,9 @@ export function useReservationDetail(reservationId: string | null, date?: string
       return null;
     }
 
-    const currentDayReservation = reservationBook.find((reservation) => reservation.id === reservationId);
+    const currentDayReservation = reservationBook.find(
+      (reservation) => reservation.id === reservationId,
+    );
     if (currentDayReservation) {
       return currentDayReservation;
     }
@@ -369,11 +397,43 @@ export function useReservationMutations() {
     },
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: ({
+      reservationId,
+      input,
+    }: {
+      reservationId: string;
+      input?: ArchiveReservationInput;
+    }) => archiveReservation(locationId!, reservationId, input ?? {}),
+    onSuccess: () => {
+      if (locationId) {
+        invalidateReservationQueries(queryClient, locationId);
+      }
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: ({ reservationId }: { reservationId: string }) =>
+      restoreReservation(locationId!, reservationId),
+    onSuccess: () => {
+      if (locationId) {
+        invalidateReservationQueries(queryClient, locationId);
+      }
+    },
+  });
+
   return {
     createReservation: createMutation.mutateAsync,
     updateReservation: updateMutation.mutateAsync,
     runReservationAction: actionMutation.mutateAsync,
-    isSaving: createMutation.isPending || updateMutation.isPending || actionMutation.isPending,
+    archiveReservation: archiveMutation.mutateAsync,
+    restoreReservation: restoreMutation.mutateAsync,
+    isSaving:
+      createMutation.isPending ||
+      updateMutation.isPending ||
+      actionMutation.isPending ||
+      archiveMutation.isPending ||
+      restoreMutation.isPending,
   };
 }
 
@@ -402,7 +462,9 @@ export function useReservationSettings(): ReservationSettings | null {
   const isWorkdayActive = useIsWorkdayActive(locationId);
 
   const query = useQuery({
-    queryKey: locationId ? queryKeys.reservations.settings(locationId) : ['reservations', 'settings'],
+    queryKey: locationId
+      ? queryKeys.reservations.settings(locationId)
+      : ['reservations', 'settings'],
     queryFn: () => fetchReservationSettings(locationId!),
     enabled: !!locationId && isWorkdayActive,
     retry: false,

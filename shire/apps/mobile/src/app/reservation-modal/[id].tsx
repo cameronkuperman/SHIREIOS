@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, SafeAreaView, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { ReservationEditor } from '@/components/ReservationEditor';
 import { useReservationDetail, useReservationMutations } from '@/features/host/hooks';
 import { textStyles, useTheme } from '@/theme';
@@ -12,7 +12,13 @@ export default function ReservationDetailModal() {
   const reservationId = typeof params.id === 'string' ? params.id : null;
   const date = typeof params.date === 'string' ? params.date : undefined;
   const reservation = useReservationDetail(reservationId, date);
-  const { updateReservation, runReservationAction, isSaving } = useReservationMutations();
+  const {
+    updateReservation,
+    runReservationAction,
+    archiveReservation,
+    restoreReservation,
+    isSaving,
+  } = useReservationMutations();
 
   if (!reservationId) {
     return (
@@ -50,6 +56,15 @@ export default function ReservationDetailModal() {
         await runReservationAction({ reservationId: reservation.id, action });
       }}
       onOpenFloor={() => router.replace('/(host)')}
+      onMessageGuest={() => router.push('/(host)/inbox/new' as Href)}
+      onArchive={async () => {
+        await archiveReservation({ reservationId: reservation.id });
+        router.back();
+      }}
+      onRestore={async () => {
+        await restoreReservation({ reservationId: reservation.id });
+        router.back();
+      }}
     />
   );
 }

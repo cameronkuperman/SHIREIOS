@@ -23,14 +23,18 @@ function isLocation(value: unknown): value is Location {
     typeof value.organizationId === 'string' &&
     typeof value.name === 'string' &&
     typeof value.timezone === 'string' &&
-    typeof value.floorId === 'string'
+    (value.floorId === null ||
+      value.floorId === undefined ||
+      typeof value.floorId === 'string')
   );
 }
 
 function normalizeLocation(location: Location): Location {
+  const rawFloorId = location?.floorId;
+  const trimmed = typeof rawFloorId === 'string' ? rawFloorId.trim() : '';
   return {
     ...location,
-    floorId: resolveFloorId(location?.floorId),
+    floorId: trimmed.length > 0 ? trimmed : null,
     permissions: location.permissions ?? [],
   };
 }

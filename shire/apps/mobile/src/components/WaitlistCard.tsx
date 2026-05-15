@@ -19,9 +19,20 @@ type WaitlistCardProps = {
   index: number;
   onPress?: () => void;
   isSelected?: boolean;
+  onNotify?: () => void;
+  onNotifyMore?: () => void;
+  isNotifying?: boolean;
 };
 
-export function WaitlistCard({ party, index, onPress, isSelected }: WaitlistCardProps) {
+export function WaitlistCard({
+  party,
+  index,
+  onPress,
+  isSelected,
+  onNotify,
+  onNotifyMore,
+  isNotifying = false,
+}: WaitlistCardProps) {
   const { colors } = useTheme();
   const [now, setNow] = useState(Date.now());
 
@@ -84,6 +95,26 @@ export function WaitlistCard({ party, index, onPress, isSelected }: WaitlistCard
       </View>
       <View style={styles.statusContainer}>
         <Text style={[styles.status, { color: statusColor }]}>{party.status}</Text>
+        {party.source === 'waitlist' && onNotify && (
+          <View style={styles.notifyRow}>
+            <TouchableOpacity
+              style={[styles.notifyButton, { backgroundColor: colors.accentLight }]}
+              onPress={onNotify}
+              disabled={isNotifying}
+            >
+              <Text style={[styles.notifyText, { color: colors.accent }]}>Notify</Text>
+            </TouchableOpacity>
+            {onNotifyMore && (
+              <TouchableOpacity
+                style={[styles.moreButton, { backgroundColor: colors.surface.level2 }]}
+                onPress={onNotifyMore}
+                disabled={isNotifying}
+              >
+                <Ionicons name="ellipsis-horizontal" size={15} color={colors.text.secondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -138,8 +169,30 @@ const styles = StyleSheet.create({
   },
   statusContainer: {
     paddingLeft: spacing.md,
+    alignItems: 'flex-end',
   },
   status: {
     ...textStyles.captionMedium,
+  },
+  notifyRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  notifyButton: {
+    borderRadius: borderRadius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+  },
+  notifyText: {
+    ...textStyles.tiny,
+    fontWeight: '700',
+  },
+  moreButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

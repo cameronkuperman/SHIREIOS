@@ -3,6 +3,7 @@ import type {
   Reservation,
   ReservationAvailability,
   ReservationAvailabilitySlot,
+  ReservationDensityResponse,
   ReservationSettings,
   ReservationSource,
   ReservationStatus,
@@ -81,6 +82,9 @@ export interface ReservationDto {
   completedAt?: string | null;
   canceledAt?: string | null;
   noShowAt?: string | null;
+  archivedAt?: string | null;
+  archivedByUserId?: string | null;
+  archiveReason?: string | null;
   messageDelivery?: MessageDeliveryDto | null;
 }
 
@@ -123,6 +127,28 @@ export interface ReservationSettingsDto {
   sameDayCutoffMinutes?: number | null;
   defaultChannel?: ReservationSourceDto;
   updatedAt?: string | null;
+}
+
+export interface ReservationDensityDayDto {
+  date: string;
+  reservationCount?: number | null;
+  coversTotal?: number | null;
+  hasBlackout?: boolean | null;
+  status?: {
+    booked?: number | null;
+    confirmed?: number | null;
+    checkedIn?: number | null;
+    seated?: number | null;
+    completed?: number | null;
+    canceled?: number | null;
+    noShow?: number | null;
+  } | null;
+}
+
+export interface ReservationDensityResponseDto {
+  dateFrom: string;
+  dateTo: string;
+  days: ReservationDensityDayDto[];
 }
 
 function normalizeReservationStatus(status: ReservationStatusDto): ReservationStatus {
@@ -259,6 +285,9 @@ export function adaptReservation(entry: ReservationDto): Reservation {
     completedAt: entry.completedAt ?? null,
     canceledAt: entry.canceledAt ?? null,
     noShowAt: entry.noShowAt ?? null,
+    archivedAt: entry.archivedAt ?? null,
+    archivedByUserId: entry.archivedByUserId ?? null,
+    archiveReason: entry.archiveReason ?? null,
     messageDelivery: adaptMessageDelivery(entry.messageDelivery),
   };
 }
@@ -300,6 +329,30 @@ export function adaptReservationSettings(settings: ReservationSettingsDto): Rese
   };
 }
 
+export function adaptReservationDensity(
+  density: ReservationDensityResponseDto,
+): ReservationDensityResponse {
+  return {
+    dateFrom: density.dateFrom,
+    dateTo: density.dateTo,
+    days: density.days.map((day) => ({
+      date: day.date,
+      reservationCount: day.reservationCount ?? 0,
+      coversTotal: day.coversTotal ?? 0,
+      hasBlackout: Boolean(day.hasBlackout),
+      status: {
+        booked: day.status?.booked ?? 0,
+        confirmed: day.status?.confirmed ?? 0,
+        checkedIn: day.status?.checkedIn ?? 0,
+        seated: day.status?.seated ?? 0,
+        completed: day.status?.completed ?? 0,
+        canceled: day.status?.canceled ?? 0,
+        noShow: day.status?.noShow ?? 0,
+      },
+    })),
+  };
+}
+
 export function upsertWaitlistEntry(
   entries: WaitlistEntry[],
   nextEntry: WaitlistEntry,
@@ -331,7 +384,9 @@ export function upsertReservation(
   reservations: Reservation[],
   nextReservation: Reservation,
 ): Reservation[] {
-  const existingIndex = reservations.findIndex((reservation) => reservation.id === nextReservation.id);
+  const existingIndex = reservations.findIndex(
+    (reservation) => reservation.id === nextReservation.id,
+  );
   const nextReservations =
     existingIndex === -1
       ? [...reservations, nextReservation]

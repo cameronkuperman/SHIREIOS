@@ -1,40 +1,40 @@
-import type { MessageDelivery, Guest } from './host.ts';
-import type { SeatingPreference } from './party.ts';
+import type { MessageDelivery, Guest } from "./host.ts";
+import type { SeatingPreference } from "./party.ts";
 
 export type ReservationSource =
-  | 'host_dashboard'
-  | 'staff_phone'
-  | 'website_widget'
-  | 'app_native'
-  | 'google_business_profile'
-  | 'manual'
-  | 'phone'
-  | 'web'
-  | 'walk_in'
-  | 'yelp'
-  | 'google'
-  | 'opentable'
-  | 'resy'
-  | 'sevenrooms'
-  | 'import';
+  | "host_dashboard"
+  | "staff_phone"
+  | "website_widget"
+  | "app_native"
+  | "google_business_profile"
+  | "manual"
+  | "phone"
+  | "web"
+  | "walk_in"
+  | "yelp"
+  | "google"
+  | "opentable"
+  | "resy"
+  | "sevenrooms"
+  | "import";
 
 export type ReservationStatus =
-  | 'booked'
-  | 'confirmed'
-  | 'checked_in'
-  | 'seated'
-  | 'completed'
-  | 'canceled'
-  | 'no_show';
+  | "booked"
+  | "confirmed"
+  | "checked_in"
+  | "seated"
+  | "completed"
+  | "canceled"
+  | "no_show";
 
 export type ReservationAction =
-  | 'confirm'
-  | 'arrive'
-  | 'check_in'
-  | 'seat'
-  | 'complete'
-  | 'cancel'
-  | 'mark_no_show';
+  | "confirm"
+  | "arrive"
+  | "check_in"
+  | "seat"
+  | "complete"
+  | "cancel"
+  | "mark_no_show";
 
 export interface Reservation {
   id: string;
@@ -62,7 +62,14 @@ export interface Reservation {
   completedAt: string | null;
   canceledAt: string | null;
   noShowAt: string | null;
+  archivedAt: string | null;
+  archivedByUserId: string | null;
+  archiveReason: string | null;
   messageDelivery?: MessageDelivery | null;
+}
+
+export interface ArchiveReservationRequest {
+  reason?: string;
 }
 
 export interface ReservationAvailabilitySlot {
@@ -90,4 +97,26 @@ export interface ReservationSettings {
   sameDayCutoffMinutes: number | null;
   defaultChannel: ReservationSource;
   updatedAt: string | null;
+}
+
+export interface ReservationDensityDay {
+  date: string;
+  reservationCount: number;
+  coversTotal: number;
+  hasBlackout: boolean;
+  status: {
+    booked: number;
+    confirmed: number;
+    checkedIn: number;
+    seated: number;
+    completed: number;
+    canceled: number;
+    noShow: number;
+  };
+}
+
+export interface ReservationDensityResponse {
+  dateFrom: string;
+  dateTo: string;
+  days: ReservationDensityDay[];
 }

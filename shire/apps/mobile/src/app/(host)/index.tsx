@@ -65,10 +65,7 @@ function createReservationSeatCommandId(): string {
   return `reservation-seat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function formatConnectionLabel(
-  connectionState: string,
-  hasSnapshot: boolean,
-) {
+function formatConnectionLabel(connectionState: string, hasSnapshot: boolean) {
   if (connectionState === 'error' || connectionState === 'disconnected') {
     return 'Manual';
   }
@@ -101,10 +98,7 @@ export default function FloorPlanScreen() {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const reservationBook = useReservationDayBook(today);
   const hostParties = useFloorSidebarParties();
-  const {
-    updateReservation,
-    runReservationAction,
-  } = useReservationMutations();
+  const { updateReservation, runReservationAction } = useReservationMutations();
   const { updateWaitlistEntry, runWaitlistAction } = useWaitlistMutations();
   const markPendingSeat = usePendingSeatStore((state) => state.markPendingSeat);
 
@@ -154,11 +148,11 @@ export default function FloorPlanScreen() {
     : null;
   const selectedWaitlistEntry =
     detailTarget?.source === 'waitlist'
-      ? activeWaitlistEntries.find((entry) => entry.id === detailTarget.id) ?? null
+      ? (activeWaitlistEntries.find((entry) => entry.id === detailTarget.id) ?? null)
       : null;
   const selectedReservation =
     detailTarget?.source === 'reservations'
-      ? reservationBook.find((reservation) => reservation.id === detailTarget.id) ?? null
+      ? (reservationBook.find((reservation) => reservation.id === detailTarget.id) ?? null)
       : null;
 
   useEffect(() => {
@@ -306,7 +300,10 @@ export default function FloorPlanScreen() {
     { label: 'Signed In As', value: userSession?.user?.email ?? 'Unknown' },
     { label: 'Connection', value: connectionLabel },
     { label: 'Snapshot Age', value: lastSnapshotAt ?? 'Never synced' },
-    { label: 'Routing', value: routing?.updatedAt ?? (isRoutingLoading ? 'Loading' : 'Unavailable') },
+    {
+      label: 'Routing',
+      value: routing?.updatedAt ?? (isRoutingLoading ? 'Loading' : 'Unavailable'),
+    },
     { label: 'Device ID', value: getOrCreateDeviceId() },
     { label: 'App Version', value: getAppVersionLabel() },
     { label: 'API Error', value: syncError ?? 'None' },
@@ -316,32 +313,32 @@ export default function FloorPlanScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.ambientBackground, { backgroundColor: colors.background }]} />
 
-        <View style={styles.topNav}>
-          <View>
-            <Text style={[styles.logoText, { color: colors.text.primary }]}>SHIRE</Text>
+      <View style={styles.topNav}>
+        <View>
+          <Text style={[styles.logoText, { color: colors.text.primary }]}>SHIRE</Text>
           {currentLocation && (
             <Text style={[styles.locationText, { color: colors.text.muted }]}>
               {currentLocation.name}
             </Text>
           )}
-          </View>
-          <View style={styles.topNavRight}>
-            <TouchableOpacity
-              style={[
-                styles.iconButton,
-                {
-                  backgroundColor: colors.surface.level1,
-                  borderColor: colors.glass.border,
-                },
-              ]}
-              activeOpacity={0.7}
-              onPress={() => router.push('/floor-builder' as Href)}
-            >
-              <Ionicons name="map-outline" size={20} color={colors.text.primary} />
-            </TouchableOpacity>
-            <View
-              style={[
-                styles.connectionBadge,
+        </View>
+        <View style={styles.topNavRight}>
+          <TouchableOpacity
+            style={[
+              styles.iconButton,
+              {
+                backgroundColor: colors.surface.level1,
+                borderColor: colors.glass.border,
+              },
+            ]}
+            activeOpacity={0.7}
+            onPress={() => router.push('/floor-builder' as Href)}
+          >
+            <Ionicons name="map-outline" size={20} color={colors.text.primary} />
+          </TouchableOpacity>
+          <View
+            style={[
+              styles.connectionBadge,
               {
                 backgroundColor: colors.surface.level1,
                 borderColor: colors.glass.border,
@@ -365,6 +362,19 @@ export default function FloorPlanScreen() {
             onPress={() => setShowDiagnostics(true)}
           >
             <Ionicons name="bug-outline" size={20} color={colors.text.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.iconButton,
+              {
+                backgroundColor: colors.surface.level1,
+                borderColor: colors.glass.border,
+              },
+            ]}
+            activeOpacity={0.7}
+            onPress={() => router.push('/settings' as Href)}
+          >
+            <Ionicons name="settings-outline" size={20} color={colors.text.primary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -426,12 +436,12 @@ export default function FloorPlanScreen() {
               {syncError
                 ? syncError
                 : routingError
-                ? routingError
-                : isRoutingSaving
-                  ? 'Saving waiter routing changes to the backend.'
-                  : connectionLabel === 'Manual'
-                    ? 'Manual mode is active. Floor sync resumes automatically when the connection recovers.'
-                    : 'Syncing live floor and waiter routing.'}
+                  ? routingError
+                  : isRoutingSaving
+                    ? 'Saving waiter routing changes to the backend.'
+                    : connectionLabel === 'Manual'
+                      ? 'Manual mode is active. Floor sync resumes automatically when the connection recovers.'
+                      : 'Syncing live floor and waiter routing.'}
             </Text>
           </GlassSurface>
         </View>
@@ -536,51 +546,27 @@ export default function FloorPlanScreen() {
                 >
                   {room.label}
                 </Text>
-                {room.layoutMode === 'freeform' ? (
-                  // Freeform: absolute position each table
-                  room.tables.map((table) => {
-                    const size = roomSizes[room.roomId];
-                    const cw = size?.width ?? 600;
-                    const ch = size?.height ?? 400;
-                    return (
-                      <View
-                        key={table.id}
-                        ref={(ref) => {
-                          tableRefs.current[table.id] = ref;
-                        }}
-                        collapsable={false}
-                        style={{
-                          position: 'absolute',
-                          left: (table.x ?? 0.5) * cw - 32,
-                          top: (table.y ?? 0.5) * ch - 32,
-                          ...(table.rotation
-                            ? { transform: [{ rotate: `${table.rotation}deg` }] }
-                            : {}),
-                        }}
-                      >
-                        <Table
-                          id={table.label}
-                          status={table.status}
-                          shape={table.shape}
-                          capacity={table.capacity}
-                          onPress={() =>
-                            handleTablePress(table.id, tableRefs.current[table.id] ?? null)
-                          }
-                        />
-                      </View>
-                    );
-                  })
-                ) : (
-                  // Grid: row-based flexbox (existing behavior)
-                  room.rows.map((row, rowIdx) => (
-                    <View key={`${room.roomId}-${rowIdx}`} style={styles.tableRow}>
-                      {row.map((table) => (
+                {room.layoutMode === 'freeform'
+                  ? // Freeform: absolute position each table
+                    room.tables.map((table) => {
+                      const size = roomSizes[room.roomId];
+                      const cw = size?.width ?? 600;
+                      const ch = size?.height ?? 400;
+                      return (
                         <View
                           key={table.id}
                           ref={(ref) => {
                             tableRefs.current[table.id] = ref;
                           }}
                           collapsable={false}
+                          style={{
+                            position: 'absolute',
+                            left: (table.x ?? 0.5) * cw - 32,
+                            top: (table.y ?? 0.5) * ch - 32,
+                            ...(table.rotation
+                              ? { transform: [{ rotate: `${table.rotation}deg` }] }
+                              : {}),
+                          }}
                         >
                           <Table
                             id={table.label}
@@ -592,10 +578,32 @@ export default function FloorPlanScreen() {
                             }
                           />
                         </View>
-                      ))}
-                    </View>
-                  ))
-                )}
+                      );
+                    })
+                  : // Grid: row-based flexbox (existing behavior)
+                    room.rows.map((row, rowIdx) => (
+                      <View key={`${room.roomId}-${rowIdx}`} style={styles.tableRow}>
+                        {row.map((table) => (
+                          <View
+                            key={table.id}
+                            ref={(ref) => {
+                              tableRefs.current[table.id] = ref;
+                            }}
+                            collapsable={false}
+                          >
+                            <Table
+                              id={table.label}
+                              status={table.status}
+                              shape={table.shape}
+                              capacity={table.capacity}
+                              onPress={() =>
+                                handleTablePress(table.id, tableRefs.current[table.id] ?? null)
+                              }
+                            />
+                          </View>
+                        ))}
+                      </View>
+                    ))}
               </Pressable>
             ))}
           </View>
@@ -611,9 +619,7 @@ export default function FloorPlanScreen() {
           status={liveTable.status}
           isBlocked={liveTable.isBlocked}
           capacity={liveTable.capacity}
-          server={
-            liveTable.currentWaiterName ?? popoverResolvedWaiter?.name ?? liveTable.server
-          }
+          server={liveTable.currentWaiterName ?? popoverResolvedWaiter?.name ?? liveTable.server}
           serverColor={
             popoverResolvedWaiter?.id
               ? waiterColorMap[popoverResolvedWaiter.id]
@@ -648,10 +654,7 @@ export default function FloorPlanScreen() {
             await updateWaitlistEntry({ waitlistEntryId, input });
           } catch (error) {
             throw new Error(
-              extractHostRequestErrorMessage(
-                error,
-                'The waitlist entry could not be updated.',
-              ),
+              extractHostRequestErrorMessage(error, 'The waitlist entry could not be updated.'),
             );
           }
         }}
@@ -660,10 +663,7 @@ export default function FloorPlanScreen() {
             await runWaitlistAction({ waitlistEntryId, action });
           } catch (error) {
             throw new Error(
-              extractHostRequestErrorMessage(
-                error,
-                'The waitlist entry could not be updated.',
-              ),
+              extractHostRequestErrorMessage(error, 'The waitlist entry could not be updated.'),
             );
           }
         }}

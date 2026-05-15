@@ -23,7 +23,8 @@ export const queryKeys = {
   },
   reservations: {
     all: ['reservations'] as const,
-    location: (locationId: string) => [...queryKeys.reservations.all, 'location', locationId] as const,
+    location: (locationId: string) =>
+      [...queryKeys.reservations.all, 'location', locationId] as const,
     list: (locationId: string, filters?: Record<string, unknown>) =>
       [...queryKeys.reservations.location(locationId), 'list', filters ?? {}] as const,
     detail: (locationId: string, id: string) =>
@@ -32,6 +33,30 @@ export const queryKeys = {
       [...queryKeys.reservations.location(locationId), 'availability', params] as const,
     settings: (locationId: string) =>
       [...queryKeys.reservations.location(locationId), 'settings'] as const,
+    density: (locationId: string, dateFrom: string, dateTo: string, includeArchived: boolean) =>
+      [
+        ...queryKeys.reservations.location(locationId),
+        'density',
+        dateFrom,
+        dateTo,
+        { includeArchived },
+      ] as const,
+  },
+  messaging: {
+    all: ['messaging'] as const,
+    conversations: (locationId: string, filters?: { search?: string; includeArchived?: boolean }) =>
+      [...queryKeys.messaging.all, 'conversations', locationId, filters ?? {}] as const,
+    conversation: (locationId: string, conversationId: string) =>
+      [...queryKeys.messaging.all, 'conversation', locationId, conversationId] as const,
+    templates: (locationId: string) =>
+      [...queryKeys.messaging.all, 'templates', locationId] as const,
+  },
+  blackouts: {
+    all: ['blackouts'] as const,
+    list: (locationId: string, includeArchived: boolean) =>
+      [...queryKeys.blackouts.all, locationId, { includeArchived }] as const,
+    detail: (locationId: string, blackoutId: string) =>
+      [...queryKeys.blackouts.all, locationId, blackoutId] as const,
   },
   waitlist: {
     all: ['waitlist'] as const,

@@ -20,7 +20,7 @@ export interface Location {
   organizationId: string;
   name: string;
   timezone: string;
-  floorId: string;
+  floorId: string | null;
   permissions: Permission[];
   isDefault?: boolean;
 }

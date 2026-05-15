@@ -1,11 +1,11 @@
 import { ActivityIndicator, View } from 'react-native';
-import { Redirect, Stack } from 'expo-router';
+import { Stack } from 'expo-router';
 import { useAuth } from '@/features/auth';
 import { useTheme } from '@/theme';
 
 export default function AuthLayout() {
   const { colors } = useTheme();
-  const { isInitializing, isAuthenticated, currentLocation } = useAuth();
+  const { isInitializing } = useAuth();
 
   if (isInitializing) {
     return (
@@ -20,10 +20,6 @@ export default function AuthLayout() {
         <ActivityIndicator color={colors.accent} />
       </View>
     );
-  }
-
-  if (isAuthenticated && currentLocation) {
-    return <Redirect href="/(host)" />;
   }
 
   return (

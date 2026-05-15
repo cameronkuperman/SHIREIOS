@@ -19,6 +19,7 @@ import { CalendarGrid } from '@/components/CalendarGrid';
 import { HostPersonDetailSheet } from '@/components/HostPersonDetailSheet';
 import { ReservationCard } from '@/components/ReservationCard';
 import { WaitlistCard } from '@/components/WaitlistCard';
+import { WaitlistNotifySheet } from '@/components/WaitlistNotifySheet';
 import { useAuth } from '@/features/auth';
 import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import {
@@ -29,13 +30,14 @@ import {
   useWaitlistMutations,
   waitlistToSidebarParty,
 } from '@/features/host/hooks';
+import { useTemplates, useWaitlistNotify } from '@/features/messaging/hooks';
 import type { ReservationStatus } from '@shire/shared';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
 
 type QueueTab = 'waitlist' | 'reservations';
 type QueueDetailTarget = { source: QueueTab; id: string } | null;
 
-const RESERVATION_FILTERS: Array<{ key: ReservationStatus | 'all'; label: string }> = [
+const RESERVATION_FILTERS: { key: ReservationStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'booked', label: 'Booked' },
   { key: 'confirmed', label: 'Confirmed' },
@@ -51,6 +53,8 @@ export default function WaitlistScreen() {
   const { currentLocation } = useAuth();
   const waitlistQuery = useWaitlist();
   const waitlistEntries = useActiveWaitlistEntries();
+  const templatesQuery = useTemplates();
+  const waitlistNotify = useWaitlistNotify();
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const reservationBook = useReservationDayBook(selectedDate);
@@ -72,6 +76,7 @@ export default function WaitlistScreen() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ReservationStatus | 'all'>('all');
+  const [notifyEntryId, setNotifyEntryId] = useState<string | null>(null);
 
   const waitlistCards = useMemo(
     () => waitlistEntries.map(waitlistToSidebarParty),
@@ -96,11 +101,11 @@ export default function WaitlistScreen() {
   }, [reservationBook, search, statusFilter]);
   const selectedEntry =
     detailTarget?.source === 'waitlist'
-      ? waitlistEntries.find((entry) => entry.id === detailTarget.id) ?? null
+      ? (waitlistEntries.find((entry) => entry.id === detailTarget.id) ?? null)
       : null;
   const selectedReservation =
     detailTarget?.source === 'reservations'
-      ? filteredReservations.find((reservation) => reservation.id === detailTarget.id) ?? null
+      ? (filteredReservations.find((reservation) => reservation.id === detailTarget.id) ?? null)
       : null;
   const waitlistErrorMessage = waitlistQuery.error
     ? extractHostRequestErrorMessage(
@@ -328,6 +333,18 @@ export default function WaitlistScreen() {
                   index={index}
                   isSelected={detailTarget?.source === 'waitlist' && detailTarget.id === party.id}
                   onPress={() => setDetailTarget({ source: 'waitlist', id: party.id })}
+                  isNotifying={waitlistNotify.isPending}
+                  onNotify={async () => {
+                    try {
+                      await waitlistNotify.mutateAsync({ entryId: party.id });
+                    } catch (error) {
+                      Alert.alert(
+                        'Unable to Notify',
+                        extractHostRequestErrorMessage(error, 'The guest could not be notified.'),
+                      );
+                    }
+                  }}
+                  onNotifyMore={() => setNotifyEntryId(party.id)}
                 />
               </Animated.View>
             ))
@@ -346,9 +363,7 @@ export default function WaitlistScreen() {
         {activeTab === 'waitlist' && waitlistQuery.isLoading && waitlistCards.length === 0 && (
           <View style={styles.emptyState}>
             <ActivityIndicator color={colors.accent} />
-            <Text style={[styles.emptyText, { color: colors.text.muted }]}>
-              Loading waitlist…
-            </Text>
+            <Text style={[styles.emptyText, { color: colors.text.muted }]}>Loading waitlist…</Text>
           </View>
         )}
 
@@ -380,13 +395,13 @@ export default function WaitlistScreen() {
           !waitlistQuery.isLoading &&
           !waitlistErrorMessage &&
           waitlistCards.length === 0 && (
-          <View style={styles.emptyState}>
-            <Ionicons name="person-add-outline" size={42} color={colors.text.muted} />
-            <Text style={[styles.emptyText, { color: colors.text.muted }]}>
-              No active waitlist entries
-            </Text>
-          </View>
-        )}
+            <View style={styles.emptyState}>
+              <Ionicons name="person-add-outline" size={42} color={colors.text.muted} />
+              <Text style={[styles.emptyText, { color: colors.text.muted }]}>
+                No active waitlist entries
+              </Text>
+            </View>
+          )}
 
         {activeTab === 'reservations' && filteredReservations.length === 0 && (
           <View style={styles.emptyState}>
@@ -409,10 +424,7 @@ export default function WaitlistScreen() {
             await updateWaitlistEntry({ waitlistEntryId, input });
           } catch (error) {
             throw new Error(
-              extractHostRequestErrorMessage(
-                error,
-                'The waitlist entry could not be updated.',
-              ),
+              extractHostRequestErrorMessage(error, 'The waitlist entry could not be updated.'),
             );
           }
         }}
@@ -464,6 +476,31 @@ export default function WaitlistScreen() {
               ),
             );
             throw error;
+          }
+        }}
+      />
+      <WaitlistNotifySheet
+        visible={Boolean(notifyEntryId)}
+        templates={templatesQuery.data ?? []}
+        partyName={
+          waitlistEntries.find((entry) => entry.id === notifyEntryId)?.guest.name ?? 'Guest'
+        }
+        partySize={waitlistEntries.find((entry) => entry.id === notifyEntryId)?.partySize ?? 2}
+        isSending={waitlistNotify.isPending}
+        onClose={() => setNotifyEntryId(null)}
+        onSend={async (input) => {
+          if (!notifyEntryId) {
+            return;
+          }
+
+          try {
+            await waitlistNotify.mutateAsync({ entryId: notifyEntryId, input });
+            setNotifyEntryId(null);
+          } catch (error) {
+            Alert.alert(
+              'Unable to Notify',
+              extractHostRequestErrorMessage(error, 'The guest could not be notified.'),
+            );
           }
         }}
       />

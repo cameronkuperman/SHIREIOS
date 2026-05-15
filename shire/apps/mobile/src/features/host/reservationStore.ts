@@ -20,6 +20,9 @@ type ReservationStore = {
       | 'completedAt'
       | 'canceledAt'
       | 'noShowAt'
+      | 'archivedAt'
+      | 'archivedByUserId'
+      | 'archiveReason'
     >,
   ) => void;
   updateReservation: (id: string, updates: Partial<Reservation>) => void;
@@ -76,26 +79,109 @@ function makeReservation(
     completedAt: status === 'completed' ? now.toISOString() : null,
     canceledAt: status === 'canceled' ? now.toISOString() : null,
     noShowAt: status === 'no_show' ? now.toISOString() : null,
+    archivedAt: null,
+    archivedByUserId: null,
+    archiveReason: null,
     messageDelivery: null,
   };
 }
 
 const MOCK_RESERVATIONS: Reservation[] = [
-  makeReservation('res-1', 'Williams', '555-0101', 4, today, '18:30', 'confirmed', 'window', 'Anniversary dinner'),
+  makeReservation(
+    'res-1',
+    'Williams',
+    '555-0101',
+    4,
+    today,
+    '18:30',
+    'confirmed',
+    'window',
+    'Anniversary dinner',
+  ),
   makeReservation('res-2', 'Thompson', '555-0102', 2, today, '19:00', 'confirmed', 'bar', ''),
-  makeReservation('res-3', 'Garcia', '555-0103', 6, today, '19:30', 'booked', 'booth', 'May be late 10 min'),
-  makeReservation('res-4', 'Chen', '555-0104', 8, d(1), '18:00', 'confirmed', 'booth', 'Birthday party'),
+  makeReservation(
+    'res-3',
+    'Garcia',
+    '555-0103',
+    6,
+    today,
+    '19:30',
+    'booked',
+    'booth',
+    'May be late 10 min',
+  ),
+  makeReservation(
+    'res-4',
+    'Chen',
+    '555-0104',
+    8,
+    d(1),
+    '18:00',
+    'confirmed',
+    'booth',
+    'Birthday party',
+  ),
   makeReservation('res-5', 'Patel', '555-0105', 3, d(1), '19:30', 'confirmed', 'patio', ''),
-  makeReservation('res-6', 'Johnson', '555-0106', 2, d(2), '12:00', 'confirmed', 'window', 'Business lunch'),
+  makeReservation(
+    'res-6',
+    'Johnson',
+    '555-0106',
+    2,
+    d(2),
+    '12:00',
+    'confirmed',
+    'window',
+    'Business lunch',
+  ),
   makeReservation('res-7', 'Kim', '555-0107', 4, d(3), '19:00', 'booked', 'none', ''),
   makeReservation('res-8', 'Anderson', '555-0108', 5, d(3), '20:00', 'confirmed', 'booth', ''),
-  makeReservation('res-9', 'Martinez', '555-0109', 2, d(5), '18:30', 'confirmed', 'patio', 'Shellfish allergy'),
-  makeReservation('res-10', 'Brown', '555-0110', 10, d(7), '19:00', 'confirmed', 'booth', 'Large party'),
+  makeReservation(
+    'res-9',
+    'Martinez',
+    '555-0109',
+    2,
+    d(5),
+    '18:30',
+    'confirmed',
+    'patio',
+    'Shellfish allergy',
+  ),
+  makeReservation(
+    'res-10',
+    'Brown',
+    '555-0110',
+    10,
+    d(7),
+    '19:00',
+    'confirmed',
+    'booth',
+    'Large party',
+  ),
   makeReservation('res-11', 'Lee', '555-0111', 4, d(7), '20:30', 'booked', 'window', ''),
   makeReservation('res-12', 'Taylor', '555-0112', 2, d(10), '12:30', 'confirmed', 'bar', ''),
-  makeReservation('res-13', 'Davis', '555-0113', 6, d(14), '19:00', 'confirmed', 'patio', 'Outdoor preferred'),
+  makeReservation(
+    'res-13',
+    'Davis',
+    '555-0113',
+    6,
+    d(14),
+    '19:00',
+    'confirmed',
+    'patio',
+    'Outdoor preferred',
+  ),
   makeReservation('res-14', 'Wilson', '555-0114', 4, d(14), '19:30', 'booked', 'window', ''),
-  makeReservation('res-15', 'Moore', '555-0115', 3, d(18), '18:00', 'confirmed', 'none', 'Regular guest'),
+  makeReservation(
+    'res-15',
+    'Moore',
+    '555-0115',
+    3,
+    d(18),
+    '18:00',
+    'confirmed',
+    'none',
+    'Regular guest',
+  ),
 ];
 
 export const useReservationStore = create<ReservationStore>((set, get) => ({
@@ -117,6 +203,9 @@ export const useReservationStore = create<ReservationStore>((set, get) => ({
       completedAt: null,
       canceledAt: null,
       noShowAt: null,
+      archivedAt: null,
+      archivedByUserId: null,
+      archiveReason: null,
     };
     set((state) => ({ reservations: [...state.reservations, newRes] }));
   },
