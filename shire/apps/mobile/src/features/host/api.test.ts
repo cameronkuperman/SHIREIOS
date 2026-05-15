@@ -35,7 +35,7 @@ describe('reservation API request normalization', () => {
     jest.resetAllMocks();
   });
 
-  it('sends host_dashboard when creating a host reservation from mobile', async () => {
+  it('sends host when creating a host reservation from mobile', async () => {
     mockedApiClient.post.mockResolvedValue({
       data: reservationDto,
     });
@@ -59,14 +59,14 @@ describe('reservation API request normalization', () => {
       expect.objectContaining({
         serviceDate: '2026-04-08',
         reservationTime: '18:30:00',
-        channel: 'host_dashboard',
-        source: 'host_dashboard',
+        channel: 'host',
+        source: 'host',
         overridePacing: false,
       }),
     );
   });
 
-  it('sends staff_phone when creating a phone reservation from mobile', async () => {
+  it('sends phone when creating a phone reservation from mobile', async () => {
     mockedApiClient.post.mockResolvedValue({
       data: {
         ...reservationDto,
@@ -91,8 +91,8 @@ describe('reservation API request normalization', () => {
     expect(mockedApiClient.post).toHaveBeenCalledWith(
       '/locations/location-1/reservations',
       expect.objectContaining({
-        channel: 'staff_phone',
-        source: 'staff_phone',
+        channel: 'phone',
+        source: 'phone',
       }),
     );
   });
@@ -131,12 +131,12 @@ describe('reservation API request normalization', () => {
     );
   });
 
-  it('sends host_dashboard for availability lookups when the UI channel is host_dashboard', async () => {
+  it('sends host for availability lookups when the UI channel is host_dashboard', async () => {
     mockedApiClient.get.mockResolvedValue({
       data: {
         date: '2026-04-08',
         partySize: 2,
-        channel: 'host_dashboard',
+        channel: 'host',
         timezone: 'America/New_York',
         slots: [],
       },
@@ -152,12 +152,12 @@ describe('reservation API request normalization', () => {
       params: {
         service_date: '2026-04-08',
         party_size: 2,
-        channel: 'host_dashboard',
+        channel: 'host',
       },
     });
   });
 
-  it('maps web-like UI sources into backend-supported website_widget channels', async () => {
+  it('maps web-like UI sources into the public_web channel', async () => {
     mockedApiClient.post.mockResolvedValue({
       data: {
         ...reservationDto,
@@ -183,8 +183,8 @@ describe('reservation API request normalization', () => {
       '/locations/location-1/reservations',
       expect.objectContaining({
         reservationTime: '18:30:00',
-        channel: 'website_widget',
-        source: 'website_widget',
+        channel: 'public_web',
+        source: 'public_web',
       }),
     );
   });

@@ -56,7 +56,17 @@ export default function ReservationDetailModal() {
         await runReservationAction({ reservationId: reservation.id, action });
       }}
       onOpenFloor={() => router.replace('/(host)')}
-      onMessageGuest={() => router.push('/(host)/inbox/new' as Href)}
+      onMessageGuest={() =>
+        router.push({
+          pathname: '/(host)/inbox/new',
+          params: {
+            reservationId: reservation.id,
+            guestId: reservation.guestId ?? undefined,
+            guestName: reservation.guestName,
+            phone: reservation.guestPhone,
+          },
+        } as Href)
+      }
       onArchive={async () => {
         await archiveReservation({ reservationId: reservation.id });
         router.back();

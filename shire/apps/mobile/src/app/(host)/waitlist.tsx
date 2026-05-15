@@ -481,6 +481,7 @@ export default function WaitlistScreen() {
       />
       <WaitlistNotifySheet
         visible={Boolean(notifyEntryId)}
+        resetKey={notifyEntryId}
         templates={templatesQuery.data ?? []}
         partyName={
           waitlistEntries.find((entry) => entry.id === notifyEntryId)?.guest.name ?? 'Guest'

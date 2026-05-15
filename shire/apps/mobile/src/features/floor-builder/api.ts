@@ -1,5 +1,23 @@
 import type { FloorMap } from '@shire/shared';
+import { apiClient } from '@/services/api/client';
 import { supabase } from '@/services/supabase/client';
+
+export interface HostFloorMapUpsertResponse {
+  locationId: string;
+  floorId: string;
+  mapVersion: number;
+}
+
+export async function upsertHostFloorMap(
+  locationId: string,
+  floorMap: FloorMap,
+): Promise<HostFloorMapUpsertResponse> {
+  const { data } = await apiClient.put<HostFloorMapUpsertResponse>(
+    `/locations/${locationId}/floor-map`,
+    { floorMap },
+  );
+  return data;
+}
 
 export interface FloorMapRow {
   id: string;

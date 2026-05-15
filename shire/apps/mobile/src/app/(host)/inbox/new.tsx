@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Composer } from '@/components/Composer';
 import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import { useSendMessage } from '@/features/messaging/hooks';
@@ -23,8 +23,20 @@ function isE164(value: string): boolean {
 
 export default function NewConversationScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    guestId?: string;
+    guestName?: string;
+    phone?: string;
+    reservationId?: string;
+    waitlistId?: string;
+  }>();
   const { colors } = useTheme();
-  const [phone, setPhone] = useState('');
+  const initialPhone = typeof params.phone === 'string' ? params.phone : '';
+  const reservationId = typeof params.reservationId === 'string' ? params.reservationId : undefined;
+  const waitlistId = typeof params.waitlistId === 'string' ? params.waitlistId : undefined;
+  const guestId = typeof params.guestId === 'string' ? params.guestId : undefined;
+  const guestName = typeof params.guestName === 'string' ? params.guestName : null;
+  const [phone, setPhone] = useState(initialPhone);
   const [body, setBody] = useState('');
   const sendMutation = useSendMessage();
 
@@ -39,7 +51,13 @@ export default function NewConversationScreen() {
     }
 
     try {
-      const response = await sendMutation.mutateAsync({ phone: phone.trim(), body: body.trim() });
+      const response = await sendMutation.mutateAsync({
+        phone: phone.trim(),
+        body: body.trim(),
+        reservationId,
+        waitlistId,
+        guestId,
+      });
       router.replace(`/(host)/inbox/${response.conversation.id}` as Href);
     } catch (error) {
       Alert.alert(
@@ -63,6 +81,11 @@ export default function NewConversationScreen() {
           <View style={styles.iconButton} />
         </View>
         <View style={styles.content}>
+          {guestName && (
+            <Text style={[styles.contextText, { color: colors.text.muted }]}>
+              Messaging {guestName}
+            </Text>
+          )}
           <Text style={[styles.label, { color: colors.text.primary }]}>Phone</Text>
           <TextInput
             style={[styles.input, { color: colors.text.primary, borderColor: colors.glass.border }]}
@@ -97,6 +120,7 @@ const styles = StyleSheet.create({
   iconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   title: { ...textStyles.subtitle },
   content: { padding: spacing.xl, gap: spacing.sm },
+  contextText: { ...textStyles.caption },
   label: { ...textStyles.captionMedium },
   input: {
     borderWidth: 1,

@@ -4,9 +4,16 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import type { FloorMapTable, FloorMapRoom } from '@shire/shared';
-import { useBuilderStore, fetchFloorMapLayout, saveFloorMapLayout } from '@/features/floor-builder';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useBuilderStore,
+  fetchFloorMapLayout,
+  saveFloorMapLayout,
+  upsertHostFloorMap,
+} from '@/features/floor-builder';
 import { useFloorStore } from '@/features/floor';
 import { useAuth } from '@/features/auth';
+import { queryKeys } from '@/services/api/queryKeys';
 import { resolveFloorId } from '@/features/floor/floorId';
 import { normalizeFloorMap } from '@/features/floor/mapContract';
 import { BuilderCanvas } from '@/components/BuilderCanvas';
@@ -24,6 +31,7 @@ function generateTableId(): string {
 
 export default function FloorBuilderScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { colors } = useTheme();
   const { currentLocation } = useAuth();
 
@@ -186,6 +194,14 @@ export default function FloorBuilderScreen() {
     [selectedTableId, draftMap, updateTable, renameTable],
   );
 
+  const leaveBuilder = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/workday');
+    }
+  }, [router]);
+
   const handleSave = useCallback(async () => {
     if (!draftMap) return;
 
@@ -207,20 +223,27 @@ export default function FloorBuilderScreen() {
 
     setIsSaving(true);
     try {
-      // Bump map version
       const mapToSave = normalizeFloorMap({
         ...draftMap,
         floorId: resolveFloorId(draftMap.floorId, currentFloorId),
         mapVersion: `builder-${Date.now()}`,
       });
 
-      // Save to Supabase
+      let persistedMap = mapToSave;
+
       if (currentLocation) {
-        await saveFloorMapLayout(currentLocation.id, mapToSave.floorId, mapToSave);
+        // Persist to host_floor_maps via backend so /me/locations sees the new floor.
+        // Backend assigns the canonical floor_id; align the local map to it before
+        // writing the Supabase floor_maps row used by the live floor service.
+        const result = await upsertHostFloorMap(currentLocation.id, mapToSave);
+        if (result.floorId && result.floorId !== mapToSave.floorId) {
+          persistedMap = normalizeFloorMap({ ...mapToSave, floorId: result.floorId });
+        }
+        await saveFloorMapLayout(currentLocation.id, persistedMap.floorId, persistedMap);
+        await queryClient.invalidateQueries({ queryKey: queryKeys.auth.locations() });
       }
 
-      // Update live floor store
-      setFloorMap(mapToSave);
+      setFloorMap(persistedMap);
       markClean();
       Alert.alert('Saved', 'Floor map layout saved successfully.', [
         { text: 'OK', onPress: () => leaveBuilder() },
@@ -230,15 +253,7 @@ export default function FloorBuilderScreen() {
     } finally {
       setIsSaving(false);
     }
-  }, [currentFloorId, draftMap, currentLocation, setFloorMap, markClean, router]);
-
-  const leaveBuilder = useCallback(() => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/workday');
-    }
-  }, [router]);
+  }, [currentFloorId, draftMap, currentLocation, setFloorMap, markClean, queryClient, leaveBuilder]);
 
   const handleBack = useCallback(() => {
     if (isDirty) {

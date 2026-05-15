@@ -23,6 +23,7 @@ import {
   useTableDetails,
 } from '@/features/floor';
 import { useAuth } from '@/features/auth';
+import { AddPartyModal } from '@/components/AddPartyModal';
 import { HostDiagnosticsModal } from '@/components/HostDiagnosticsModal';
 import { FilterPill } from '@/components/FilterPill';
 import { GlassSurface } from '@/components/GlassSurface';
@@ -99,7 +100,8 @@ export default function FloorPlanScreen() {
   const reservationBook = useReservationDayBook(today);
   const hostParties = useFloorSidebarParties();
   const { updateReservation, runReservationAction } = useReservationMutations();
-  const { updateWaitlistEntry, runWaitlistAction } = useWaitlistMutations();
+  const { createWaitlistEntry, updateWaitlistEntry, runWaitlistAction } = useWaitlistMutations();
+  const [showAddPartyModal, setShowAddPartyModal] = useState(false);
   const markPendingSeat = usePendingSeatStore((state) => state.markPendingSeat);
 
   const [activeFilter, setActiveFilter] = useState('All Rooms');
@@ -473,9 +475,19 @@ export default function FloorPlanScreen() {
       <View style={styles.splitLayout}>
         <GlassSurface intensity={45} style={styles.sidebar}>
           <View style={[styles.sidebarHeader, { borderBottomColor: colors.border.subtle }]}>
-            <Text style={[styles.sidebarTitle, { color: colors.text.primary }]}>
-              Host Queue ({hostParties.length})
-            </Text>
+            <View style={styles.sidebarHeaderRow}>
+              <Text style={[styles.sidebarTitle, { color: colors.text.primary }]}>
+                Host Queue ({hostParties.length})
+              </Text>
+              <TouchableOpacity
+                style={[styles.addPartyButton, { backgroundColor: colors.accent }]}
+                activeOpacity={0.8}
+                onPress={() => setShowAddPartyModal(true)}
+                accessibilityLabel="Add party to waitlist"
+              >
+                <Ionicons name="add" size={18} color={colors.white} />
+              </TouchableOpacity>
+            </View>
             <Text style={[styles.sidebarSubtitle, { color: colors.text.muted }]}>
               Tap a guest for details, then select them for seating when you are ready.
             </Text>
@@ -712,6 +724,32 @@ export default function FloorPlanScreen() {
           router.replace(workdayHref);
         }}
       />
+
+      <AddPartyModal
+        visible={showAddPartyModal}
+        onClose={() => setShowAddPartyModal(false)}
+        onAdd={async (data) => {
+          try {
+            await createWaitlistEntry({
+              guestName: data.name,
+              guestPhone: data.phone,
+              partySize: data.size,
+              seatingPreference: data.seatingPreference,
+              notes: '',
+              source: 'manual',
+            });
+          } catch (error) {
+            Alert.alert(
+              'Unable to Add Party',
+              extractHostRequestErrorMessage(
+                error,
+                'The party could not be added to the waitlist.',
+              ),
+            );
+            throw error;
+          }
+        }}
+      />
     </View>
   );
 }
@@ -829,8 +867,20 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderBottomWidth: 1,
   },
+  sidebarHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   sidebarTitle: {
     ...textStyles.label,
+  },
+  addPartyButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sidebarSubtitle: {
     ...textStyles.caption,

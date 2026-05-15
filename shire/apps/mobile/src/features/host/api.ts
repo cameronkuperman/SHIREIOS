@@ -84,16 +84,7 @@ export type ArchiveReservationInput = {
   reason?: string;
 };
 
-type BackendReservationSource =
-  | 'host_dashboard'
-  | 'staff_phone'
-  | 'website_widget'
-  | 'app_native'
-  | 'google_business_profile'
-  | 'host'
-  | 'phone'
-  | 'public_web'
-  | 'public_app';
+type BackendReservationSource = 'host' | 'phone' | 'public_web' | 'public_app' | 'google';
 type BackendCreateReservationPayload = {
   guestName: string;
   guestPhone: string;
@@ -120,32 +111,27 @@ type BackendUpdateReservationPayload = {
 function toBackendReservationSource(source: Reservation['source']): BackendReservationSource {
   switch (source) {
     case 'host_dashboard':
-      return 'host_dashboard';
-    case 'staff_phone':
-      return 'staff_phone';
-    case 'website_widget':
-      return 'website_widget';
-    case 'app_native':
-      return 'app_native';
-    case 'google_business_profile':
-      return 'google_business_profile';
-    case 'phone':
-      return 'staff_phone';
-    case 'web':
-      return 'website_widget';
     case 'manual':
-      return 'host_dashboard';
-    case 'google':
-      return 'google_business_profile';
+      return 'host';
+    case 'staff_phone':
+    case 'phone':
+      return 'phone';
+    case 'website_widget':
+    case 'web':
     case 'walk_in':
     case 'yelp':
     case 'opentable':
     case 'resy':
     case 'sevenrooms':
     case 'import':
-      return 'website_widget';
+      return 'public_web';
+    case 'app_native':
+      return 'public_app';
+    case 'google_business_profile':
+    case 'google':
+      return 'google';
     default:
-      return toStaffReservationSource(source);
+      return toStaffReservationSource(source) === 'staff_phone' ? 'phone' : 'host';
   }
 }
 

@@ -14,6 +14,7 @@ import { renderPreview } from '@/features/messaging/templateRenderer';
 
 type WaitlistNotifySheetProps = {
   visible: boolean;
+  resetKey?: string | null;
   templates: MessageTemplate[];
   partyName: string;
   partySize: number;
@@ -24,6 +25,7 @@ type WaitlistNotifySheetProps = {
 
 export function WaitlistNotifySheet({
   visible,
+  resetKey,
   templates,
   partyName,
   partySize,
@@ -42,6 +44,16 @@ export function WaitlistNotifySheet({
   const [notes, setNotes] = useState('');
   const selectedTemplate = waitlistTemplates.find((template) => template.id === selectedTemplateId);
   const firstTemplateId = waitlistTemplates[0]?.id ?? null;
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
+    setBody('');
+    setNotes('');
+    setSelectedTemplateId(null);
+  }, [resetKey, visible]);
 
   useEffect(() => {
     if (!selectedTemplateId && firstTemplateId) {
