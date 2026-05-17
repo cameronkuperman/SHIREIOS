@@ -2,16 +2,7 @@ import React from 'react';
 import { Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { textStyles, spacing, borderRadius } from '@/theme';
 import { useTheme } from '@/theme';
-import { resolveTimeSlotOptions, type TimeSlotOption } from './reservationTimeSlots';
-
-function formatSlotLabel(slot: string): string {
-  const parts = slot.split(':').map(Number);
-  const h = parts[0] ?? 0;
-  const m = parts[1] ?? 0;
-  const period = h >= 12 ? 'PM' : 'AM';
-  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return `${hour12}:${m.toString().padStart(2, '0')} ${period}`;
-}
+import { formatSlotLabel, resolveTimeSlotOptions, type TimeSlotOption } from './reservationTimeSlots';
 
 type TimeSlotPickerProps = {
   value: string | null;

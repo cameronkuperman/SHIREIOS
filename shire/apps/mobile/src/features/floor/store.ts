@@ -35,6 +35,7 @@ import {
 type FloorStoreState = FloorStoreData & {
   connectionState: ConnectionState;
   floorMap: FloorMap;
+  staleCheckAt: number;
   applySnapshot: (snapshot: FloorSnapshot) => void;
   applyStreamMessage: (message: FloorStreamMessage) => void;
   queuePendingCommand: (command: TableCommand) => void;
@@ -42,6 +43,7 @@ type FloorStoreState = FloorStoreData & {
   setConnectionState: (connectionState: ConnectionState) => void;
   setSyncError: (syncError: string | null) => void;
   setFloorMap: (floorMap: FloorMap) => void;
+  touchStaleClock: () => void;
   resetSessionState: () => void;
   resetVolatileState: () => void;
 };
@@ -60,16 +62,19 @@ export const useFloorStore = create<FloorStoreState>()(
       pendingCommands: {},
       syncError: null,
       connectionState: 'idle',
+      staleCheckAt: Date.now(),
       applySnapshot: (snapshot) => {
         set((state) => ({
           ...state,
           ...applyFloorSnapshotState(state, snapshot),
+          staleCheckAt: Date.now(),
         }));
       },
       applyStreamMessage: (message) => {
         set((state) => ({
           ...state,
           ...applyFloorStreamMessageState(state, message),
+          staleCheckAt: Date.now(),
         }));
       },
       queuePendingCommand: (command) => {
@@ -108,8 +113,12 @@ export const useFloorStore = create<FloorStoreState>()(
             tablesById: nextTablesById,
             lastSnapshotAt: shouldResetTables ? null : state.lastSnapshotAt,
             lastAppliedSequence: shouldResetTables ? 0 : state.lastAppliedSequence,
+            staleCheckAt: Date.now(),
           };
         });
+      },
+      touchStaleClock: () => {
+        set({ staleCheckAt: Date.now() });
       },
       resetSessionState: () => {
         set((state) => ({
@@ -119,6 +128,7 @@ export const useFloorStore = create<FloorStoreState>()(
           pendingCommands: {},
           syncError: null,
           connectionState: 'idle',
+          staleCheckAt: Date.now(),
         }));
       },
       resetVolatileState: () => {
@@ -126,6 +136,7 @@ export const useFloorStore = create<FloorStoreState>()(
           connectionState: 'idle',
           pendingCommands: {},
           syncError: null,
+          staleCheckAt: Date.now(),
         });
       },
     }),
@@ -176,6 +187,7 @@ type FloorSelectorState = {
   tablesById: Record<string, TableLiveState>;
   pendingCommands: Record<string, PendingCommandEntry>;
   routing: WaiterRoutingState | null;
+  staleCheckAt: number;
 };
 
 function useFloorDerivedInputs(): FloorSelectorState {
@@ -185,44 +197,45 @@ function useFloorDerivedInputs(): FloorSelectorState {
       floorMap: state.floorMap,
       tablesById: state.tablesById,
       pendingCommands: state.pendingCommands,
+      staleCheckAt: state.staleCheckAt,
       routing,
     })),
   );
 }
 
 export function useFloorTablesByRoom(): FloorRoomViewModel[] {
-  const { floorMap, tablesById, pendingCommands, routing } = useFloorDerivedInputs();
+  const { floorMap, tablesById, pendingCommands, routing, staleCheckAt } = useFloorDerivedInputs();
 
   return useMemo(
-    () => selectTablesByRoom(floorMap, tablesById, pendingCommands, routing),
-    [floorMap, pendingCommands, routing, tablesById],
+    () => selectTablesByRoom(floorMap, tablesById, pendingCommands, routing, staleCheckAt),
+    [floorMap, pendingCommands, routing, staleCheckAt, tablesById],
   );
 }
 
 export function useAvailableTables() {
-  const { floorMap, tablesById, pendingCommands, routing } = useFloorDerivedInputs();
+  const { floorMap, tablesById, pendingCommands, routing, staleCheckAt } = useFloorDerivedInputs();
 
   return useMemo(
-    () => selectAvailableTables(floorMap, tablesById, pendingCommands, routing),
-    [floorMap, pendingCommands, routing, tablesById],
+    () => selectAvailableTables(floorMap, tablesById, pendingCommands, routing, staleCheckAt),
+    [floorMap, pendingCommands, routing, staleCheckAt, tablesById],
   );
 }
 
 export function useQuickSeatSuggestions(): QuickSeatSuggestion[] {
-  const { floorMap, tablesById, pendingCommands, routing } = useFloorDerivedInputs();
+  const { floorMap, tablesById, pendingCommands, routing, staleCheckAt } = useFloorDerivedInputs();
 
   return useMemo(
-    () => selectQuickSeatSuggestions(floorMap, tablesById, pendingCommands, routing),
-    [floorMap, pendingCommands, routing, tablesById],
+    () => selectQuickSeatSuggestions(floorMap, tablesById, pendingCommands, routing, staleCheckAt),
+    [floorMap, pendingCommands, routing, staleCheckAt, tablesById],
   );
 }
 
 export function useTableDetails(tableId: string | null): TableDetailsViewModel | null {
-  const { floorMap, tablesById, pendingCommands, routing } = useFloorDerivedInputs();
+  const { floorMap, tablesById, pendingCommands, routing, staleCheckAt } = useFloorDerivedInputs();
 
   return useMemo(
-    () => selectTableDetails(floorMap, tablesById, pendingCommands, routing, tableId),
-    [floorMap, pendingCommands, routing, tableId, tablesById],
+    () => selectTableDetails(floorMap, tablesById, pendingCommands, routing, tableId, staleCheckAt),
+    [floorMap, pendingCommands, routing, staleCheckAt, tableId, tablesById],
   );
 }
 

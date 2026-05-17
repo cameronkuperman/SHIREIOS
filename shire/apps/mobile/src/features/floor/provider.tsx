@@ -12,10 +12,11 @@ import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
 import { useWaiterRoutingStore } from '@/features/routing';
 import { queryKeys } from '@/services/api/queryKeys';
 import { useIsWorkdayActive } from '@/features/workday';
-import { fetchFloorSnapshot, FloorSnapshotUnavailableError } from './api';
+import { FloorSnapshotUnavailableError } from './api';
 import { resolveFloorId } from './floorId';
+import { floorRealtimeRepository } from './repository';
 import { useFloorStore } from './store';
-import { FloorRealtimeTransport, setActiveFloorTransport } from './transport';
+import { setActiveFloorTransport } from './transport';
 
 type FloorRealtimeProviderProps = {
   children: ReactNode;
@@ -53,6 +54,7 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
   const setSyncError = useFloorStore((state) => state.setSyncError);
   const resetSessionState = useFloorStore((state) => state.resetSessionState);
   const setFloorMap = useFloorStore((state) => state.setFloorMap);
+  const touchStaleClock = useFloorStore((state) => state.touchStaleClock);
   const applyRouting = useWaiterRoutingStore((state) => state.applyRouting);
   const confirmPendingSeat = usePendingSeatStore((state) => state.confirmPendingSeat);
   const rollbackPendingSeat = usePendingSeatStore((state) => state.rollbackPendingSeat);
@@ -68,8 +70,9 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
 
     let isDisposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let staleTimer: ReturnType<typeof setInterval> | null = null;
     let reconnectAttempt = 0;
-    let transport: FloorRealtimeTransport | null = null;
+    let transport: ReturnType<typeof floorRealtimeRepository.createTransport> | null = null;
     let reconnectScheduled = false;
 
     const locationId = currentLocation.id;
@@ -93,6 +96,11 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
     setFloorMap(bootstrap.floorMap);
     applyInlineRoutingSnapshot(bootstrap.routingSnapshot);
     resetSessionState();
+    staleTimer = setInterval(() => {
+      if (!isDisposed) {
+        touchStaleClock();
+      }
+    }, 30_000);
 
     const clearReconnectTimer = () => {
       if (reconnectTimer) {
@@ -120,7 +128,7 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
       try {
         const snapshot = await queryClient.fetchQuery({
           queryKey: queryKeys.floor.snapshot(locationId, floorId),
-          queryFn: () => fetchFloorSnapshot(locationId, floorId),
+          queryFn: () => floorRealtimeRepository.fetchSnapshot(locationId, floorId),
           staleTime: 0,
         });
 
@@ -177,7 +185,7 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
 
       transport?.disconnect();
 
-      const nextTransport = new FloorRealtimeTransport(
+      const nextTransport = floorRealtimeRepository.createTransport(
         env.WS_URL,
         accessToken,
         locationId,
@@ -340,6 +348,10 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
     return () => {
       isDisposed = true;
       clearReconnectTimer();
+      if (staleTimer) {
+        clearInterval(staleTimer);
+        staleTimer = null;
+      }
       transport?.disconnect();
       setActiveFloorTransport(null);
       clearAllPendingSeats();
@@ -362,6 +374,7 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
     setConnectionState,
     setFloorMap,
     setSyncError,
+    touchStaleClock,
   ]);
 
   return children;

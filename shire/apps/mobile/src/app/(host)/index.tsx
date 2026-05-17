@@ -3,7 +3,6 @@ import {
   Alert,
   LayoutChangeEvent,
   LayoutRectangle,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -112,14 +111,11 @@ export default function FloorPlanScreen() {
   } | null>(null);
   const [popover, setPopover] = useState<{ tableId: string; layout: LayoutRectangle } | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [roomSizes, setRoomSizes] = useState<Record<string, { width: number; height: number }>>({});
+  const [mapSize, setMapSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
-  const handleRoomLayout = useCallback((roomId: string, e: LayoutChangeEvent) => {
+  const handleMapLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
-    setRoomSizes((prev) => {
-      if (prev[roomId]?.width === width && prev[roomId]?.height === height) return prev;
-      return { ...prev, [roomId]: { width, height } };
-    });
+    setMapSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
   }, []);
 
   const tableRefs = useRef<Record<string, View | null>>({});
@@ -132,6 +128,44 @@ export default function FloorPlanScreen() {
     activeFilter === 'All Rooms'
       ? rooms
       : rooms.filter((room) => room.filterLabel === activeFilter);
+
+  type GlobalTablePos = { table: (typeof visibleRooms)[number]['tables'][number]; x: number; y: number; rotation?: number };
+  const positionedTables = useMemo<GlobalTablePos[]>(() => {
+    if (mapSize.width === 0 || mapSize.height === 0) return [];
+    const out: GlobalTablePos[] = [];
+    const totalFlex = visibleRooms.reduce((sum, r) => sum + (r.flex ?? 1), 0) || 1;
+    let leftFlex = 0;
+    for (const room of visibleRooms) {
+      const roomFlex = room.flex ?? 1;
+      const left = (leftFlex / totalFlex) * mapSize.width;
+      const width = (roomFlex / totalFlex) * mapSize.width;
+      leftFlex += roomFlex;
+
+      if (room.layoutMode === 'freeform') {
+        for (const table of room.tables) {
+          out.push({
+            table,
+            x: left + (table.x ?? 0.5) * width,
+            y: (table.y ?? 0.5) * mapSize.height,
+            rotation: table.rotation,
+          });
+        }
+      } else {
+        const totalRows = room.rows.length || 1;
+        room.rows.forEach((row, rowIdx) => {
+          const totalCols = row.length || 1;
+          row.forEach((table, colIdx) => {
+            out.push({
+              table,
+              x: left + ((colIdx + 0.5) / totalCols) * width,
+              y: ((rowIdx + 0.5) / totalRows) * mapSize.height,
+            });
+          });
+        });
+      }
+    }
+    return out;
+  }, [visibleRooms, mapSize]);
   const isUsingStarterMap =
     floorMap.floorId === DEFAULT_FLOOR_MAP.floorId &&
     floorMap.mapVersion === DEFAULT_FLOOR_MAP.mapVersion;
@@ -518,7 +552,7 @@ export default function FloorPlanScreen() {
             ))}
           </View>
 
-          <View style={styles.mapContainer}>
+          <View style={styles.mapContainer} onLayout={handleMapLayout}>
             <View
               style={[
                 styles.floorTexture,
@@ -530,93 +564,28 @@ export default function FloorPlanScreen() {
               ]}
             />
 
-            {visibleRooms.map((room) => (
-              <Pressable
-                key={room.roomId}
-                onLayout={(e) => handleRoomLayout(room.roomId, e)}
-                style={[
-                  styles.roomOutline,
-                  room.variant === 'patio' && styles.roomPatio,
-                  room.layoutMode === 'freeform' && styles.roomFreeform,
-                  {
-                    flex: room.flex,
-                    borderColor: colors.border.default,
-                    backgroundColor:
-                      room.variant === 'patio'
-                        ? isDark
-                          ? 'rgba(255, 255, 255, 0.02)'
-                          : 'rgba(230, 225, 215, 0.22)'
-                        : colors.surface.level4,
-                  },
-                ]}
+            {positionedTables.map(({ table, x, y, rotation }) => (
+              <View
+                key={table.id}
+                ref={(ref) => {
+                  tableRefs.current[table.id] = ref;
+                }}
+                collapsable={false}
+                style={{
+                  position: 'absolute',
+                  left: x - 32,
+                  top: y - 32,
+                  ...(rotation ? { transform: [{ rotate: `${rotation}deg` }] } : {}),
+                }}
               >
-                <Text
-                  style={[
-                    styles.roomLabel,
-                    { backgroundColor: colors.background, color: colors.text.muted },
-                  ]}
-                >
-                  {room.label}
-                </Text>
-                {room.layoutMode === 'freeform'
-                  ? // Freeform: absolute position each table
-                    room.tables.map((table) => {
-                      const size = roomSizes[room.roomId];
-                      const cw = size?.width ?? 600;
-                      const ch = size?.height ?? 400;
-                      return (
-                        <View
-                          key={table.id}
-                          ref={(ref) => {
-                            tableRefs.current[table.id] = ref;
-                          }}
-                          collapsable={false}
-                          style={{
-                            position: 'absolute',
-                            left: (table.x ?? 0.5) * cw - 32,
-                            top: (table.y ?? 0.5) * ch - 32,
-                            ...(table.rotation
-                              ? { transform: [{ rotate: `${table.rotation}deg` }] }
-                              : {}),
-                          }}
-                        >
-                          <Table
-                            id={table.label}
-                            status={table.status}
-                            shape={table.shape}
-                            capacity={table.capacity}
-                            onPress={() =>
-                              handleTablePress(table.id, tableRefs.current[table.id] ?? null)
-                            }
-                          />
-                        </View>
-                      );
-                    })
-                  : // Grid: row-based flexbox (existing behavior)
-                    room.rows.map((row, rowIdx) => (
-                      <View key={`${room.roomId}-${rowIdx}`} style={styles.tableRow}>
-                        {row.map((table) => (
-                          <View
-                            key={table.id}
-                            ref={(ref) => {
-                              tableRefs.current[table.id] = ref;
-                            }}
-                            collapsable={false}
-                          >
-                            <Table
-                              id={table.label}
-                              status={table.status}
-                              shape={table.shape}
-                              capacity={table.capacity}
-                              onPress={() =>
-                                handleTablePress(table.id, tableRefs.current[table.id] ?? null)
-                              }
-                            />
-                          </View>
-                        ))}
-                      </View>
-                    ))}
-              </Pressable>
+                <Table
+                  id={table.label}
+                  status={table.status}
+                  shape={table.shape}
+                  capacity={table.capacity}
+                  onPress={() => handleTablePress(table.id, tableRefs.current[table.id] ?? null)}
+                />
+              </View>
             ))}
           </View>
         </View>
@@ -901,37 +870,10 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     flex: 1,
-    flexDirection: 'row',
-    gap: spacing.lg,
+    minHeight: 300,
   },
   floorTexture: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: borderRadius['2xl'],
-  },
-  roomOutline: {
-    flex: 1,
-    borderWidth: 1.5,
-    borderRadius: borderRadius['2xl'],
-    padding: spacing['2xl'],
-  },
-  roomPatio: {
-    flex: 0.4,
-  },
-  roomFreeform: {
-    position: 'relative',
-    minHeight: 300,
-  },
-  roomLabel: {
-    position: 'absolute',
-    top: -10,
-    left: spacing['2xl'],
-    paddingHorizontal: spacing.sm,
-    ...textStyles.sectionLabel,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: spacing['3xl'],
-    marginTop: spacing.lg,
   },
 });

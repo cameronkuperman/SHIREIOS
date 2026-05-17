@@ -28,3 +28,14 @@ jest.mock('@react-native-community/netinfo', () => ({
     isInternetReachable: true,
   }),
 }));
+
+// Mock @react-native-community/datetimepicker (native module not available under jest)
+jest.mock('@react-native-community/datetimepicker', () => {
+  const React = require('react');
+  return {
+    __esModule: true,
+    default: (props: Record<string, unknown>) =>
+      React.createElement('DateTimePickerMock', props),
+    DateTimePickerAndroid: { open: jest.fn() },
+  };
+});

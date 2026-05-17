@@ -28,6 +28,13 @@ import { CalendarGrid } from './CalendarGrid';
 import { GlassSurface } from './GlassSurface';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
 import { TimeSlotPicker } from './TimeSlotPicker';
+import { TimeWheelField } from './TimeWheelField';
+import { findNearbyOpenSlots } from './findNearbyOpenSlots';
+import {
+  formatSlotLabel,
+  roundUpToInterval,
+  toMinutes,
+} from './reservationTimeSlots';
 
 export type ReservationFormValues = CreateReservationInput;
 
@@ -115,6 +122,8 @@ export function ReservationEditor({
   const [specialRequests, setSpecialRequests] = useState('');
   const [internalNotes, setInternalNotes] = useState('');
   const [pacingOverride, setPacingOverride] = useState(false);
+  const [showAllTimes, setShowAllTimes] = useState(false);
+  const [hasAutoDefaultedTime, setHasAutoDefaultedTime] = useState(mode === 'edit');
 
   useEffect(() => {
     if (!reservation) {
@@ -130,6 +139,8 @@ export function ReservationEditor({
       setSpecialRequests('');
       setInternalNotes('');
       setPacingOverride(false);
+      setShowAllTimes(false);
+      setHasAutoDefaultedTime(false);
       return;
     }
 
@@ -144,6 +155,8 @@ export function ReservationEditor({
     setSpecialRequests(reservation.specialRequests);
     setInternalNotes(reservation.internalNotes || reservation.notes);
     setPacingOverride(reservation.pacingOverrideApplied);
+    setShowAllTimes(false);
+    setHasAutoDefaultedTime(true);
   }, [initialDate, reservation]);
 
   const availability = useReservationAvailability(
@@ -182,6 +195,68 @@ export function ReservationEditor({
   const editableSource = toStaffReservationSource(source);
   const sourceLabel = getReservationSourceLabel(source) ?? 'Host';
   const isUsingFallbackTimeSlots = slotOptions.length === 0;
+
+  const nearby = useMemo(
+    () => findNearbyOpenSlots(availability?.slots, timeSlot, 2),
+    [availability?.slots, timeSlot],
+  );
+  const hasAnyOpenAlts = nearby.earlier.length + nearby.later.length > 0;
+
+  const statusLine = useMemo<
+    { kind: 'open' | 'closed'; text: string } | null
+  >(() => {
+    if (!selectedSlot) return null;
+    const size = parseInt(partySize, 10) || 1;
+    if (selectedSlot.available) {
+      const parts: string[] = [`Open for ${size}`];
+      if (selectedSlot.servicePeriodName) parts.push(selectedSlot.servicePeriodName);
+      if (selectedSlot.reason) parts.push(selectedSlot.reason);
+      return { kind: 'open', text: parts.join(' · ') };
+    }
+    const closest = nearby.earlier[nearby.earlier.length - 1] ?? nearby.later[0] ?? null;
+    const parts: string[] = [`Full for ${size}`];
+    if (selectedSlot.reason) parts.push(selectedSlot.reason);
+    if (closest && timeSlot) {
+      const delta = toMinutes(closest.timeSlot) - toMinutes(timeSlot);
+      const direction = delta < 0 ? 'earlier' : 'later';
+      parts.push(
+        `Closest open: ${formatSlotLabel(closest.timeSlot)} (${Math.abs(delta)} min ${direction})`,
+      );
+    }
+    return { kind: 'closed', text: parts.join(' · ') };
+  }, [selectedSlot, nearby, partySize, timeSlot]);
+
+  useEffect(() => {
+    if (hasAutoDefaultedTime) return;
+    if (timeSlot) return;
+    const slots = availability?.slots ?? [];
+    if (slots.length === 0) return;
+
+    const isToday = format(new Date(), 'yyyy-MM-dd') === selectedDate;
+    const target = isToday ? roundUpToInterval(new Date(), 15) : '18:00';
+
+    const open = slots.filter((s) => s.available);
+    const pool = open.length > 0 ? open : slots;
+    const candidate = pool
+      .map((s) => ({ s, d: Math.abs(toMinutes(s.timeSlot) - toMinutes(target)) }))
+      .sort((a, b) => a.d - b.d)[0]?.s;
+
+    if (candidate) {
+      setTimeSlot(candidate.timeSlot);
+      setHasAutoDefaultedTime(true);
+    }
+  }, [hasAutoDefaultedTime, timeSlot, availability?.slots, selectedDate]);
+
+  useEffect(() => {
+    if (
+      !selectedSlot &&
+      !hasAnyOpenAlts &&
+      !showAllTimes &&
+      (availability?.slots.length ?? 0) > 0
+    ) {
+      setShowAllTimes(true);
+    }
+  }, [selectedSlot, hasAnyOpenAlts, showAllTimes, availability?.slots.length]);
 
   const canSubmit =
     guestName.trim().length > 0 &&
@@ -444,18 +519,82 @@ export function ReservationEditor({
                 </Text>
               )}
             </View>
-            <TimeSlotPicker
+
+            <TimeWheelField
               value={timeSlot}
               onChange={setTimeSlot}
-              slots={slotOptions}
-              allowUnavailableSelection
+              partySize={parseInt(partySize, 10) || 1}
+              minuteInterval={15}
             />
-            {isUsingFallbackTimeSlots && (
-              <Text style={[styles.helperText, { color: colors.text.muted }]}>
-                Live availability did not return any time slots, so standard service times are
-                shown.
-              </Text>
+
+            {statusLine && (
+              <View style={styles.statusLineRow}>
+                <Ionicons
+                  name={statusLine.kind === 'open' ? 'checkmark-circle' : 'close-circle'}
+                  size={16}
+                  color={
+                    statusLine.kind === 'open'
+                      ? colors.status.available.text
+                      : colors.status.dirty.text
+                  }
+                />
+                <Text
+                  style={[
+                    styles.statusLineText,
+                    {
+                      color:
+                        statusLine.kind === 'open'
+                          ? colors.status.available.text
+                          : colors.status.dirty.text,
+                    },
+                  ]}
+                >
+                  {statusLine.text}
+                </Text>
+              </View>
             )}
+
+            {hasAnyOpenAlts && (
+              <View style={styles.quickChipsRow}>
+                {nearby.earlier.map((slot) => (
+                  <TouchableOpacity
+                    key={`earlier-${slot.timeSlot}`}
+                    onPress={() => setTimeSlot(slot.timeSlot)}
+                    activeOpacity={0.7}
+                    style={[
+                      styles.quickChip,
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.glass.borderSubtle,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.quickChipText, { color: colors.accent }]}>
+                      {formatSlotLabel(slot.timeSlot)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {nearby.later.map((slot) => (
+                  <TouchableOpacity
+                    key={`later-${slot.timeSlot}`}
+                    onPress={() => setTimeSlot(slot.timeSlot)}
+                    activeOpacity={0.7}
+                    style={[
+                      styles.quickChip,
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.glass.borderSubtle,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.quickChipText, { color: colors.accent }]}>
+                      {formatSlotLabel(slot.timeSlot)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
             {selectedSlot && !selectedSlot.available && (
               <View
                 style={[
@@ -485,6 +624,38 @@ export function ReservationEditor({
                   </TouchableOpacity>
                 )}
               </View>
+            )}
+
+            <TouchableOpacity
+              onPress={() => setShowAllTimes((v) => !v)}
+              style={styles.disclosureRow}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.disclosureLabel, { color: colors.text.secondary }]}>
+                {showAllTimes ? 'Hide all open times' : 'Browse all open times'}
+              </Text>
+              <Ionicons
+                name={showAllTimes ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color={colors.text.secondary}
+              />
+            </TouchableOpacity>
+
+            {showAllTimes && (
+              <>
+                <TimeSlotPicker
+                  value={timeSlot}
+                  onChange={setTimeSlot}
+                  slots={slotOptions}
+                  allowUnavailableSelection
+                />
+                {isUsingFallbackTimeSlots && (
+                  <Text style={[styles.helperText, { color: colors.text.muted }]}>
+                    Live availability did not return any time slots, so standard service times
+                    are shown.
+                  </Text>
+                )}
+              </>
             )}
           </GlassSurface>
 
@@ -757,6 +928,42 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   overrideText: {
+    ...textStyles.captionMedium,
+  },
+  statusLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  statusLineText: {
+    ...textStyles.caption,
+    flex: 1,
+  },
+  quickChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  quickChip: {
+    borderWidth: 1,
+    borderRadius: borderRadius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  quickChipText: {
+    ...textStyles.captionMedium,
+  },
+  disclosureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  disclosureLabel: {
     ...textStyles.captionMedium,
   },
 });

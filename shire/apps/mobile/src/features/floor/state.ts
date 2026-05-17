@@ -17,6 +17,7 @@ import type {
 const EMPTY_CLEAN = 'empty_clean';
 const OCCUPIED = 'occupied';
 const EMPTY_DIRTY = 'empty_dirty';
+export const ML_TABLE_STALE_MS = 3 * 60 * 1000;
 
 export interface PendingCommandEntry {
   command: TableCommand;
@@ -49,8 +50,10 @@ export interface FloorTableViewModel {
   isBlocked: boolean;
   isPending: boolean;
   hasExplicitServerAssignment: boolean;
+  isStale: boolean;
   stateConfidence: number;
   lastUpdateSource?: TableUpdateSource | null;
+  lastUpdatedAt?: string | null;
   x?: number;
   y?: number;
   rotation?: number;
@@ -396,6 +399,16 @@ export function applyFloorStreamMessageState(
         return state;
       }
 
+      if (
+        message.source === 'ml' &&
+        hasPendingCommandForTable(state.pendingCommands, message.table.tableId)
+      ) {
+        return {
+          lastAppliedSequence: message.sequence,
+          syncError: null,
+        };
+      }
+
       const nextPendingCommands =
         message.source === 'ml'
           ? state.pendingCommands
@@ -421,6 +434,13 @@ export function applyFloorStreamMessageState(
         message.source === 'ml' ? state.pendingCommands : { ...state.pendingCommands };
 
       for (const table of message.tables) {
+        if (
+          message.source === 'ml' &&
+          hasPendingCommandForTable(state.pendingCommands, table.tableId)
+        ) {
+          continue;
+        }
+
         nextTablesById[table.tableId] = table;
         if (message.source !== 'ml') {
           nextPendingCommands = removePendingCommandsForTable(nextPendingCommands, table.tableId);
@@ -518,6 +538,28 @@ function isTablePending(
   );
 }
 
+function hasPendingCommandForTable(
+  pendingCommands: Record<string, PendingCommandEntry>,
+  tableId: string,
+): boolean {
+  return Object.values(pendingCommands).some(
+    (pendingCommand) => pendingCommand.tableId === tableId,
+  );
+}
+
+function isMlTableStale(table: TableLiveState, now: number): boolean {
+  if (table.lastUpdateSource !== 'ml') {
+    return false;
+  }
+
+  const updatedAtMs = new Date(table.updatedAt).getTime();
+  if (Number.isNaN(updatedAtMs)) {
+    return false;
+  }
+
+  return now - updatedAtMs > ML_TABLE_STALE_MS;
+}
+
 function toQuickSeatType(type: TableType, shape: TableShape): QuickSeatSuggestion['tableType'] {
   if (type === 'booth') {
     return 'Booth';
@@ -608,8 +650,10 @@ function toTableViewModel(
     isBlocked: liveTable.isBlocked,
     isPending: isTablePending(pendingCommands, tableId),
     hasExplicitServerAssignment: Boolean(routing?.tableAssignments[tableId]),
+    isStale: isMlTableStale(liveTable, now),
     stateConfidence: liveTable.stateConfidence,
     lastUpdateSource: liveTable.lastUpdateSource ?? null,
+    lastUpdatedAt: liveTable.updatedAt,
     x: mapTable.x,
     y: mapTable.y,
     rotation: mapTable.rotation,

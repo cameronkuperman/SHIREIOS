@@ -19,6 +19,29 @@ function generateSlots(): string[] {
 
 export const DEFAULT_TIME_SLOTS = generateSlots();
 
+export function formatSlotLabel(value: string): string {
+  const parts = value.split(':').map(Number);
+  const h = parts[0] ?? 0;
+  const m = parts[1] ?? 0;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${hour12}:${m.toString().padStart(2, '0')} ${period}`;
+}
+
+export function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+export function roundUpToInterval(now: Date, intervalMin: number): string {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const rounded = Math.ceil(minutes / intervalMin) * intervalMin;
+  const clamped = Math.min(rounded, 23 * 60 + 45);
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+}
+
 export function resolveTimeSlotOptions(
   slots?: TimeSlotOption[],
   value?: string | null,
