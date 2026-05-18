@@ -223,19 +223,32 @@ export default function FloorPlanScreen() {
     const availableTables = allTablesFlat.filter(
       (table) => table.status === 'available' && !table.isBlocked,
     );
-    return routing.rotationOrder
+    const tablesByWaiter = new Map<string, typeof availableTables>();
+    for (const table of availableTables) {
+      const section = floorMap.tables[table.id]?.section ?? '';
+      const waiterId =
+        routing.nextUpByTable?.[table.id] ??
+        routing.tableAssignments[table.id] ??
+        routing.nextUpBySection?.[section] ??
+        routing.sectionAssignments[section] ??
+        routing.nextWaiterId;
+      if (!waiterId || !routing.activeWaiterIds.includes(waiterId)) continue;
+      tablesByWaiter.set(waiterId, [...(tablesByWaiter.get(waiterId) ?? []), table]);
+    }
+    const orderedWaiterIds = [
+      ...(routing.nextWaiterId ? [routing.nextWaiterId] : []),
+      ...routing.rotationOrder,
+      ...routing.activeWaiterIds,
+    ].filter((waiterId, index, values) => values.indexOf(waiterId) === index);
+
+    return orderedWaiterIds
       .filter((waiterId) => routing.activeWaiterIds.includes(waiterId))
       .map((waiterId) => {
         const waiter = routing.waiters.find((w) => w.id === waiterId);
         if (!waiter) return null;
-        const tablesForWaiter = availableTables
-          .filter((table) => {
-            if (routing.tableAssignments[table.id] === waiterId) return true;
-            const section = floorMap.tables[table.id]?.section;
-            if (section && routing.sectionAssignments[section] === waiterId) return true;
-            return false;
-          })
-          .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+        const tablesForWaiter = (tablesByWaiter.get(waiterId) ?? []).sort((a, b) =>
+          a.label.localeCompare(b.label, undefined, { numeric: true }),
+        );
         return { waiterId, waiterName: waiter.name, tables: tablesForWaiter };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);

@@ -74,7 +74,7 @@ function buildCoverage(
   for (const waiter of routing.waiters) {
     coverage.set(waiter.id, {
       assignedSectionIds: [],
-    assignedTableIds: [],
+      assignedTableIds: [],
     });
   }
 
@@ -97,6 +97,8 @@ function sanitizeRoutingState(routing: WaiterRoutingState): WaiterRoutingState {
   const activeWaiterIdSet = new Set(activeWaiterIds);
   const sectionAssignments = pruneAssignments(routing.sectionAssignments, validWaiterIds);
   const tableAssignments = pruneAssignments(routing.tableAssignments, validWaiterIds);
+  const nextUpByTable = pruneAssignments(routing.nextUpByTable ?? {}, validWaiterIds);
+  const nextUpBySection = pruneAssignments(routing.nextUpBySection ?? {}, validWaiterIds);
   const baseRotationOrder = routing.rotationOrder.filter((waiterId) =>
     activeWaiterIdSet.has(waiterId),
   );
@@ -122,6 +124,8 @@ function sanitizeRoutingState(routing: WaiterRoutingState): WaiterRoutingState {
     activeWaiterIds,
     sectionAssignments,
     tableAssignments,
+    nextUpByTable,
+    nextUpBySection,
     rotationOrder,
     nextWaiterId,
     waiters: routing.waiters.map((waiter) => {
@@ -131,11 +135,11 @@ function sanitizeRoutingState(routing: WaiterRoutingState): WaiterRoutingState {
         ...waiter,
         isActive: activeWaiterIdSet.has(waiter.id),
         assignedSectionIds: waiterCoverage?.assignedSectionIds ?? [],
-    assignedTableIds: waiterCoverage?.assignedTableIds ?? [],
-    currentTableIds,
-    liveTables: currentTableIds.length,
-    servedTableIds: dedupe(waiter.servedTableIds ?? []),
-    servedSeatingCount: waiter.servedSeatingCount ?? waiter.servedTableIds?.length ?? 0,
+        assignedTableIds: waiterCoverage?.assignedTableIds ?? [],
+        currentTableIds,
+        liveTables: currentTableIds.length,
+        servedTableIds: dedupe(waiter.servedTableIds ?? []),
+        servedSeatingCount: waiter.servedSeatingCount ?? waiter.servedTableIds?.length ?? 0,
       };
     }),
   };
@@ -196,12 +200,22 @@ export function resolveWaiterIdForTable(
     return null;
   }
 
+  const backendNextWaiterId = routing.nextUpByTable?.[tableId];
+  if (backendNextWaiterId) {
+    return backendNextWaiterId;
+  }
+
   const explicitWaiterId = routing.tableAssignments[tableId];
   if (explicitWaiterId) {
     return explicitWaiterId;
   }
 
   if (sectionId) {
+    const backendSectionWaiterId = routing.nextUpBySection?.[sectionId];
+    if (backendSectionWaiterId) {
+      return backendSectionWaiterId;
+    }
+
     const sectionWaiterId = routing.sectionAssignments[sectionId];
     if (sectionWaiterId) {
       return sectionWaiterId;

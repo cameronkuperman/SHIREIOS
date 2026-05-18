@@ -597,9 +597,19 @@ function resolveRoutingWaiter(
     return null;
   }
 
+  const backendNextWaiterId = routing.nextUpByTable?.[tableId];
+  if (backendNextWaiterId) {
+    return getWaiterById(routing, backendNextWaiterId);
+  }
+
   const explicitWaiterId = routing.tableAssignments[tableId];
   if (explicitWaiterId) {
     return getWaiterById(routing, explicitWaiterId);
+  }
+
+  const backendSectionWaiterId = routing.nextUpBySection?.[sectionId];
+  if (backendSectionWaiterId) {
+    return getWaiterById(routing, backendSectionWaiterId);
   }
 
   const sectionWaiterId = routing.sectionAssignments[sectionId];

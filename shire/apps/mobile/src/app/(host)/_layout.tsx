@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/features/auth';
 import { useIsWorkdayActive } from '@/features/workday';
+import { useTotalUnread } from '@/features/messaging/hooks';
 import { borderRadius, fontFamily, spacing, useTheme } from '@/theme';
 
 type RailItem = {
@@ -32,12 +33,6 @@ const RAIL_ITEMS: RailItem[] = [
     href: '/(host)/reservations' as Href,
     match: (pathname) => pathname.includes('/reservations'),
   },
-  {
-    label: 'Inbox',
-    icon: 'chatbubble-outline',
-    href: '/(host)/inbox' as Href,
-    match: (pathname) => pathname.includes('/inbox'),
-  },
 ];
 
 export default function HostLayout() {
@@ -48,6 +43,8 @@ export default function HostLayout() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const workdayHref = '/workday' as Href;
+  const unreadCount = useTotalUnread();
+  const inboxActive = pathname.includes('/inbox');
 
   if (isInitializing) {
     return (
@@ -118,15 +115,54 @@ export default function HostLayout() {
           })}
         </View>
 
-        <TouchableOpacity
-          activeOpacity={0.76}
-          accessibilityRole="button"
-          style={[styles.navItem, styles.settings]}
-          onPress={() => router.push('/settings' as Href)}
-        >
-          <Ionicons name="settings-outline" size={22} color={colors.text.muted} />
-          <Text style={[styles.navLabel, { color: colors.text.muted }]}>Settings</Text>
-        </TouchableOpacity>
+        <View style={styles.footer}>
+          <TouchableOpacity
+            activeOpacity={0.76}
+            accessibilityRole="button"
+            accessibilityLabel={
+              unreadCount > 0 ? `Inbox, ${unreadCount} unread` : 'Inbox'
+            }
+            accessibilityState={{ selected: inboxActive }}
+            style={[
+              styles.navItem,
+              inboxActive ? { backgroundColor: colors.accentLight } : null,
+            ]}
+            onPress={() => router.push('/(host)/inbox' as Href)}
+          >
+            <View>
+              <Ionicons
+                name="chatbubble-outline"
+                size={22}
+                color={inboxActive ? colors.accent : colors.text.muted}
+              />
+              {unreadCount > 0 ? (
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor: colors.accent,
+                      borderColor: colors.surface.level2,
+                    },
+                  ]}
+                >
+                  <Text style={styles.badgeText} numberOfLines={1}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.76}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            style={styles.navItem}
+            onPress={() => router.push('/settings' as Href)}
+          >
+            <Ionicons name="settings-outline" size={22} color={colors.text.muted} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.fill}>
@@ -163,12 +199,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
   },
-  settings: {
+  footer: {
     marginTop: 'auto',
+    width: '100%',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   navLabel: {
     fontFamily: fontFamily.sansSemibold,
     fontSize: 11,
     fontWeight: '600',
+  },
+  badge: {
+    position: 'absolute',
+    top: -6,
+    right: -8,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    fontFamily: fontFamily.sansSemibold,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#fff',
   },
 });
