@@ -6,11 +6,14 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { MOCK_WAITERS } from '@/features/routing/mockWaiters';
 import {
   DEFAULT_FLOOR_MAP,
   DEFAULT_FLOOR_ID,
@@ -25,14 +28,16 @@ import { AddPartyModal } from '@/components/AddPartyModal';
 import { HostDiagnosticsModal } from '@/components/HostDiagnosticsModal';
 import { FloorRoomPill, type FloorRoomOption } from '@/components/FloorRoomPill';
 import { FloorStatusBar } from '@/components/FloorStatusBar';
-import { GlassSurface } from '@/components/GlassSurface';
 import { HostPersonDetailSheet } from '@/components/HostPersonDetailSheet';
 import { NextUpCard } from '@/components/NextUpCard';
 import { SeatPartyModal } from '@/components/SeatPartyModal';
 import { ShiftSetupSheet } from '@/components/ShiftSetupSheet';
+import { StatsPanel } from '@/components/StatsPanel';
+import { ActivityFeed } from '@/components/ActivityFeed';
 import { Table } from '@/components/Table';
 import { TablePopover } from '@/components/TablePopover';
 import { WaitlistCard } from '@/components/WaitlistCard';
+import { Panel, SegmentedControl } from '@/components/ui';
 import { getAppVersionLabel, getOrCreateDeviceId } from '@/lib/device';
 import {
   type HostSidebarParty,
@@ -54,126 +59,31 @@ import {
 } from '@/features/routing';
 import { useWorkdayStore } from '@/features/workday';
 import type { TableParty } from '@shire/shared';
-import { borderRadius, shadows, spacing, textStyles, useTheme } from '@/theme';
+import {
+  borderRadius,
+  fontFamily,
+  shadows,
+  spacing,
+  type StatusKey,
+  textStyles,
+  useTheme,
+} from '@/theme';
 
 function toTableParty(party: HostSidebarParty): TableParty {
-  return {
-    id: party.id,
-    name: party.name,
-    size: party.size,
-    source: party.source,
-  };
+  return { id: party.id, name: party.name, size: party.size, source: party.source };
 }
-
-function SizeBucket({ label, count }: { label: string; count: number }) {
-  const { colors } = useTheme();
-  const dimmed = count === 0;
-  return (
-    <View
-      style={[
-        sizeBucketStyles.bucket,
-        {
-          backgroundColor: colors.surface.level2,
-          borderColor: colors.border.subtle,
-          opacity: dimmed ? 0.55 : 1,
-        },
-      ]}
-    >
-      <Text style={[sizeBucketStyles.label, { color: colors.text.muted }]}>{label}</Text>
-      <Text style={[sizeBucketStyles.count, { color: colors.text.primary }]}>×{count}</Text>
-    </View>
-  );
-}
-
-function ServiceMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: 'attention' | 'good';
-}) {
-  const { colors } = useTheme();
-  const valueColor =
-    tone === 'attention'
-      ? colors.status.dirty.text
-      : tone === 'good'
-        ? colors.status.available.text
-        : colors.text.primary;
-
-  return (
-    <View
-      style={[
-        serviceMetricStyles.metric,
-        { backgroundColor: colors.surface.level1, borderColor: colors.border.subtle },
-      ]}
-    >
-      <Text style={[serviceMetricStyles.value, { color: valueColor }]}>{value}</Text>
-      <Text style={[serviceMetricStyles.label, { color: colors.text.muted }]}>{label}</Text>
-    </View>
-  );
-}
-
-const serviceMetricStyles = StyleSheet.create({
-  metric: {
-    minWidth: 76,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  value: {
-    ...textStyles.label,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums' as const],
-  },
-  label: {
-    ...textStyles.tiny,
-    marginTop: 1,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-});
-
-const sizeBucketStyles = StyleSheet.create({
-  bucket: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-  },
-  label: {
-    ...textStyles.captionMedium,
-    fontWeight: '600',
-  },
-  count: {
-    ...textStyles.label,
-    fontWeight: '700',
-  },
-});
 
 function createReservationSeatCommandId(): string {
   return `reservation-seat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function formatConnectionLabel(connectionState: string, hasSnapshot: boolean) {
-  if (connectionState === 'error' || connectionState === 'disconnected') {
-    return 'Manual';
-  }
-  if (connectionState === 'connected' && hasSnapshot) {
-    return 'Synced';
-  }
-
+  if (connectionState === 'error' || connectionState === 'disconnected') return 'Manual';
+  if (connectionState === 'connected' && hasSnapshot) return 'Synced';
   return 'Syncing';
 }
 
 type TableSizeBucket = '1-2' | '3-4' | '5+';
-
 const TABLE_SIZE_BUCKETS: TableSizeBucket[] = ['1-2', '3-4', '5+'];
 
 function tableSizeBucket(capacity: number): TableSizeBucket {
@@ -181,20 +91,49 @@ function tableSizeBucket(capacity: number): TableSizeBucket {
   if (capacity <= 4) return '3-4';
   return '5+';
 }
-
 function tableMatchesSizeFilters(capacity: number, filters: TableSizeBucket[]): boolean {
   return filters.length === 0 || filters.includes(tableSizeBucket(capacity));
 }
 
+function SummaryCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  tone?: 'good' | 'attention';
+}) {
+  const { colors } = useTheme();
+  const valueColor =
+    tone === 'good'
+      ? colors.status.available.text
+      : tone === 'attention'
+        ? colors.status.dirty.text
+        : colors.text.primary;
+  return (
+    <View
+      style={[
+        styles.summaryCard,
+        { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
+        shadows.subtle,
+      ]}
+    >
+      <Text style={[styles.summaryValue, { color: valueColor }]}>{value}</Text>
+      <Text style={[styles.summaryLabel, { color: colors.text.muted }]}>{label}</Text>
+    </View>
+  );
+}
+
 export default function FloorPlanScreen() {
   const router = useRouter();
-  const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const { currentLocation, userSession } = useAuth();
   const {
     routing,
     error: routingError,
     isLoading: isRoutingLoading,
-    isSaving: isRoutingSaving,
   } = useWaiterRoutingState();
   const waiterColorMap = useWaiterColorMap();
   const waiterChips = useWaiterChips();
@@ -218,13 +157,16 @@ export default function FloorPlanScreen() {
 
   const [activeFilter, setActiveFilter] = useState('All Rooms');
   const [sizeFilters, setSizeFilters] = useState<TableSizeBucket[]>([]);
+  const [leftTab, setLeftTab] = useState<'waitlist' | 'reservations'>('waitlist');
   const [seatWaiterId, setSeatWaiterId] = useState<string | null>(null);
   const [selectedPartyId, setSelectedPartyId] = useState<string | null>(null);
   const [detailTarget, setDetailTarget] = useState<{
     source: HostSidebarParty['source'];
     id: string;
   } | null>(null);
-  const [popover, setPopover] = useState<{ tableId: string; layout: LayoutRectangle } | null>(null);
+  const [popover, setPopover] = useState<{ tableId: string; layout: LayoutRectangle } | null>(
+    null,
+  );
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [mapSize, setMapSize] = useState<{ width: number; height: number }>({
     width: 0,
@@ -270,26 +212,14 @@ export default function FloorPlanScreen() {
     () => hostParties.filter((party) => party.source === 'reservations'),
     [hostParties],
   );
-  const waitlistSizeBuckets = useMemo(() => {
-    let small = 0;
-    let medium = 0;
-    let large = 0;
-    for (const party of waitlistParties) {
-      if (party.size <= 2) small += 1;
-      else if (party.size <= 4) medium += 1;
-      else large += 1;
-    }
-    return { small, medium, large };
-  }, [waitlistParties]);
   const visibleTablesFlat = useMemo(
     () => visibleRooms.flatMap((room) => room.tables),
     [visibleRooms],
   );
   const allTablesFlat = useMemo(() => rooms.flatMap((room) => room.tables), [rooms]);
+
   const nextUpRotation = useMemo(() => {
-    if (!routing) {
-      return [];
-    }
+    if (!routing) return [];
     const availableTables = allTablesFlat.filter(
       (table) => table.status === 'available' && !table.isBlocked,
     );
@@ -297,42 +227,30 @@ export default function FloorPlanScreen() {
       .filter((waiterId) => routing.activeWaiterIds.includes(waiterId))
       .map((waiterId) => {
         const waiter = routing.waiters.find((w) => w.id === waiterId);
-        if (!waiter) {
-          return null;
-        }
+        if (!waiter) return null;
         const tablesForWaiter = availableTables
           .filter((table) => {
             if (routing.tableAssignments[table.id] === waiterId) return true;
             const section = floorMap.tables[table.id]?.section;
-            if (section && routing.sectionAssignments[section] === waiterId) {
-              return true;
-            }
+            if (section && routing.sectionAssignments[section] === waiterId) return true;
             return false;
           })
           .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
-        return {
-          waiterId,
-          waiterName: waiter.name,
-          tables: tablesForWaiter,
-        };
+        return { waiterId, waiterName: waiter.name, tables: tablesForWaiter };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }, [routing, allTablesFlat, floorMap.tables]);
+
   const floorMetrics = useMemo(() => {
     let open = 0;
     let seated = 0;
     let dirty = 0;
     let blocked = 0;
     for (const table of visibleTablesFlat) {
-      if (table.isBlocked || table.status === 'reserved') {
-        blocked += 1;
-      } else if (table.status === 'available') {
-        open += 1;
-      } else if (table.status === 'occupied') {
-        seated += 1;
-      } else if (table.status === 'dirty') {
-        dirty += 1;
-      }
+      if (table.isBlocked || table.status === 'reserved') blocked += 1;
+      else if (table.status === 'available') open += 1;
+      else if (table.status === 'occupied') seated += 1;
+      else if (table.status === 'dirty') dirty += 1;
     }
     return { open, seated, dirty, blocked };
   }, [visibleTablesFlat]);
@@ -353,7 +271,6 @@ export default function FloorPlanScreen() {
       const left = (leftFlex / totalFlex) * mapSize.width;
       const width = (roomFlex / totalFlex) * mapSize.width;
       leftFlex += roomFlex;
-
       if (room.layoutMode === 'freeform') {
         for (const table of room.tables) {
           out.push({
@@ -379,6 +296,7 @@ export default function FloorPlanScreen() {
     }
     return out;
   }, [visibleRooms, mapSize]);
+
   const isUsingStarterMap =
     floorMap.floorId === DEFAULT_FLOOR_MAP.floorId &&
     floorMap.mapVersion === DEFAULT_FLOOR_MAP.mapVersion;
@@ -405,49 +323,34 @@ export default function FloorPlanScreen() {
       : null;
 
   useEffect(() => {
-    if (!detailTarget) {
-      return;
-    }
-
+    if (!detailTarget) return;
     if (detailTarget.source === 'waitlist' && !selectedWaitlistEntry) {
       setDetailTarget(null);
       return;
     }
-
     if (detailTarget.source === 'reservations' && !selectedReservation) {
       setDetailTarget(null);
     }
   }, [detailTarget, selectedReservation, selectedWaitlistEntry]);
 
   const seatWarning = useMemo(() => {
-    if (!popover || !selectedParty || selectedParty.seatingPreference === 'none') {
-      return undefined;
-    }
-
+    if (!popover || !selectedParty || selectedParty.seatingPreference === 'none') return undefined;
     const mapTable = floorMap.tables[popover.tableId];
-    if (!mapTable) {
-      return undefined;
-    }
-
+    if (!mapTable) return undefined;
     const pref = selectedParty.seatingPreference;
     const isMatch =
       (pref === 'booth' && mapTable.type === 'booth') ||
       (pref === 'bar' && (mapTable.type === 'bar' || mapTable.type === 'counter')) ||
       (pref === 'patio' && mapTable.type === 'outdoor') ||
       (pref === 'window' && mapTable.type === 'regular');
-
     return isMatch ? undefined : `Guest prefers ${pref} seating`;
   }, [floorMap.tables, popover, selectedParty]);
 
   const popoverResolvedWaiter = useMemo(() => {
-    if (!popover || !liveTable) {
-      return null;
-    }
-
+    if (!popover || !liveTable) return null;
     return resolveWaiterForTable(routing, popover.tableId, liveTable.section);
   }, [liveTable, popover, routing]);
 
-  // Reset the per-seating waiter override whenever a different table is opened.
   useEffect(() => {
     setSeatWaiterId(null);
   }, [popover?.tableId]);
@@ -457,53 +360,39 @@ export default function FloorPlanScreen() {
     () => waiterChips.filter((chip) => chip.isActive),
     [waiterChips],
   );
-  // Effective waiter for the open table: the host's override, else next-up rotation.
   const seatWaiterIdEffective =
     seatWaiterId ??
     (popover && liveTable
       ? resolveWaiterIdForTable(routing, popover.tableId, liveTable.section)
       : null);
   const seatWaiterEffective = getWaiterById(routing, seatWaiterIdEffective);
-  // The waiter picker is offered only when seating in rotation mode — in section
-  // mode the section dictates the waiter, so there is nothing to choose.
   const canPickSeatWaiter = Boolean(
     isRotationMode && liveTable && liveTable.status === 'available' && !liveTable.isBlocked,
   );
 
   const handleTablePress = (tableId: string, ref: View | null | undefined) => {
-    if (!ref) {
-      return;
-    }
-
+    if (!ref) return;
     ref.measureInWindow((x, y, width, height) => {
       setPopover({ tableId, layout: { x, y, width, height } });
     });
   };
 
   const handleSeat = async () => {
-    if (!popover || !liveTable) {
-      return;
-    }
-
+    if (!popover || !liveTable) return;
     if (!selectedParty) {
       Alert.alert('Select a Party', 'Choose a host party before seating from the floor plan.');
       return;
     }
-
     const tableId = popover.tableId;
-    const waiterId =
-      seatWaiterId ?? resolveWaiterIdForTable(routing, tableId, liveTable.section);
-
+    const waiterId = seatWaiterId ?? resolveWaiterIdForTable(routing, tableId, liveTable.section);
     if (selectedParty.source === 'reservations') {
       const commandId = createReservationSeatCommandId();
-
       try {
         await runReservationAction({
           reservationId: selectedParty.id,
           action: 'seat',
           input: waiterId ? { commandId, tableId, waiterId } : { commandId, tableId },
         });
-
         markPendingSeat(commandId, {
           entityId: selectedParty.id,
           tableId,
@@ -517,16 +406,10 @@ export default function FloorPlanScreen() {
           error instanceof Error ? error.message : 'Reservation could not be seated.',
         );
       }
-
       return;
     }
-
     const result = seatParty(tableId, toTableParty(selectedParty), waiterId ?? undefined);
-
-    if (!result.ok) {
-      return;
-    }
-
+    if (!result.ok) return;
     markPendingSeat(result.commandId, {
       entityId: selectedParty.id,
       tableId,
@@ -537,29 +420,19 @@ export default function FloorPlanScreen() {
   };
 
   const handleSeatWalkIn = (size: number, name: string) => {
-    if (!popover || !liveTable) {
-      return;
-    }
-
+    if (!popover || !liveTable) return;
     const waiterId =
       seatWaiterId ?? resolveWaiterIdForTable(routing, liveTable.id, liveTable.section);
     const result = seatWalkIn(liveTable.id, name, size, waiterId ?? undefined);
-
-    if (result.ok) {
-      setPopover(null);
-    }
+    if (result.ok) setPopover(null);
   };
 
   const handleMarkAvailable = () => {
-    if (!liveTable) {
-      return;
-    }
-
+    if (!liveTable) return;
     if (liveTable.isBlocked) {
       if (unblockTable(liveTable.id).ok) setPopover(null);
       return;
     }
-
     if (liveTable.status === 'occupied') {
       const cleared = clearTable(liveTable.id);
       if (cleared.ok) {
@@ -568,33 +441,22 @@ export default function FloorPlanScreen() {
       }
       return;
     }
-
     if (liveTable.status === 'dirty') {
       if (markClean(liveTable.id).ok) setPopover(null);
     }
   };
 
   const handleMarkDirty = () => {
-    if (!liveTable || liveTable.status !== 'occupied') {
-      return;
-    }
-    if (clearTable(liveTable.id).ok) {
-      setPopover(null);
-    }
+    if (!liveTable || liveTable.status !== 'occupied') return;
+    if (clearTable(liveTable.id).ok) setPopover(null);
   };
 
   const handleBlock = () => {
-    if (!liveTable) {
-      return;
-    }
-
+    if (!liveTable) return;
     const didDispatch = liveTable.isBlocked
       ? unblockTable(liveTable.id).ok
       : blockTable(liveTable.id).ok;
-
-    if (didDispatch) {
-      setPopover(null);
-    }
+    if (didDispatch) setPopover(null);
   };
 
   const diagnosticsItems = [
@@ -612,75 +474,45 @@ export default function FloorPlanScreen() {
     { label: 'API Error', value: syncError ?? 'None' },
   ];
 
+  const leftParties = leftTab === 'waitlist' ? waitlistParties : reservationParties;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.ambientBackground, { backgroundColor: colors.background }]} />
+      {/* ===== TOP BAR ===== */}
+      <View
+        style={[
+          styles.topBar,
+          {
+            backgroundColor: colors.surface.level2,
+            borderBottomColor: colors.border.default,
+            paddingTop: insets.top + 8,
+          },
+        ]}
+      >
+        <View style={styles.brandBlock}>
+          <Text style={[styles.wordmark, { color: colors.text.primary }]}>SHIRE</Text>
+          <Text style={[styles.hostTag, { color: colors.text.muted }]}>Host</Text>
+        </View>
 
-      <View style={styles.topNav}>
-        <View style={styles.titleBlock}>
-          <Text style={[styles.logoText, { color: colors.text.primary }]}>SHIRE</Text>
-          {currentLocation && (
-            <Text style={[styles.locationText, { color: colors.text.muted }]}>
-              {currentLocation.name}
-            </Text>
-          )}
+        <View
+          style={[
+            styles.search,
+            { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
+          ]}
+        >
+          <Ionicons name="search" size={15} color={colors.text.muted} />
+          <TextInput
+            placeholder="Search guests, tables…"
+            placeholderTextColor={colors.text.muted}
+            style={[styles.searchInput, { color: colors.text.primary }]}
+          />
         </View>
-        <View style={styles.serviceMetrics}>
-          <ServiceMetric label="Open" value={floorMetrics.open} tone="good" />
-          <ServiceMetric label="Seated" value={floorMetrics.seated} />
-          <ServiceMetric label="Dirty" value={floorMetrics.dirty} tone="attention" />
-          <ServiceMetric label="Queue" value={waitlistParties.length} />
-          <ServiceMetric label="RSV" value={reservationParties.length} />
-        </View>
-        <View style={styles.topNavRight}>
-          <TouchableOpacity
-            style={[
-              styles.iconButton,
-              {
-                backgroundColor: colors.surface.level1,
-                borderColor: colors.glass.border,
-              },
-            ]}
-            activeOpacity={0.7}
-            accessibilityLabel="Seat party"
-            onPress={() => setShowSeatPartyModal(true)}
-          >
-            <Ionicons name="add-circle-outline" size={20} color={colors.text.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.iconButton,
-              {
-                backgroundColor: colors.surface.level1,
-                borderColor: colors.glass.border,
-              },
-            ]}
-            activeOpacity={0.7}
-            accessibilityLabel="Shift setup"
-            onPress={() => setShowShiftSetup(true)}
-          >
-            <Ionicons name="people-circle-outline" size={20} color={colors.text.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.iconButton,
-              {
-                backgroundColor: colors.surface.level1,
-                borderColor: colors.glass.border,
-              },
-            ]}
-            activeOpacity={0.7}
-            onPress={() => router.push('/floor-builder' as Href)}
-          >
-            <Ionicons name="map-outline" size={20} color={colors.text.primary} />
-          </TouchableOpacity>
+
+        <View style={styles.topBarRight}>
           <View
             style={[
               styles.connectionBadge,
-              {
-                backgroundColor: colors.surface.level1,
-                borderColor: colors.glass.border,
-              },
+              { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
             ]}
           >
             <View style={[styles.connectionDot, { backgroundColor: connectionColor }]} />
@@ -688,234 +520,80 @@ export default function FloorPlanScreen() {
               {connectionLabel}
             </Text>
           </View>
-          <TouchableOpacity
-            style={[
-              styles.iconButton,
+          {(
+            [
+              { icon: 'add-circle-outline' as const, onPress: () => setShowSeatPartyModal(true) },
               {
-                backgroundColor: colors.surface.level1,
-                borderColor: colors.glass.border,
+                icon: 'people-circle-outline' as const,
+                onPress: () => setShowShiftSetup(true),
               },
-            ]}
-            activeOpacity={0.7}
-            onPress={() => setShowDiagnostics(true)}
-          >
-            <Ionicons name="bug-outline" size={20} color={colors.text.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.iconButton,
               {
-                backgroundColor: colors.surface.level1,
-                borderColor: colors.glass.border,
+                icon: 'map-outline' as const,
+                onPress: () => router.push('/floor-builder' as Href),
               },
-            ]}
-            activeOpacity={0.7}
-            onPress={() => router.push('/settings' as Href)}
-          >
-            <Ionicons name="settings-outline" size={20} color={colors.text.primary} />
-          </TouchableOpacity>
+              { icon: 'bug-outline' as const, onPress: () => setShowDiagnostics(true) },
+              {
+                icon: 'settings-outline' as const,
+                onPress: () => router.push('/settings' as Href),
+              },
+            ]
+          ).map((btn) => (
+            <TouchableOpacity
+              key={btn.icon}
+              activeOpacity={0.7}
+              onPress={btn.onPress}
+              style={[
+                styles.iconButton,
+                { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
+              ]}
+            >
+              <Ionicons name={btn.icon} size={18} color={colors.text.secondary} />
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
 
-      {isUsingStarterMap && (
-        <View style={styles.bannerRow}>
-          <GlassSurface intensity={35} borderRadius={borderRadius.xl} style={styles.bannerCard}>
-            <Ionicons name="construct-outline" size={18} color={colors.text.secondary} />
-            <Text style={[styles.bannerText, { color: colors.text.secondary }]}>
-              This location is still using the starter floor map. Open the builder to create a
-              restaurant-specific layout before service.
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.bannerAction,
+      {/* ===== SUMMARY STRIP ===== */}
+      <View style={styles.summaryStrip}>
+        <SummaryCard label="Open" value={floorMetrics.open} tone="good" />
+        <SummaryCard label="Seated" value={floorMetrics.seated} />
+        <SummaryCard label="Dirty" value={floorMetrics.dirty} tone="attention" />
+        <SummaryCard label="Queue" value={waitlistParties.length} />
+        <SummaryCard label="RSV" value={reservationParties.length} />
+        <SummaryCard label="Blocked" value={floorMetrics.blocked} />
+      </View>
+
+      {/* ===== 3-PANEL BODY ===== */}
+      <View style={styles.body}>
+        {/* LEFT PANEL */}
+        <Panel level="level2" style={styles.leftPanel}>
+          <View style={styles.leftTabs}>
+            <SegmentedControl
+              options={[
+                { value: 'waitlist', label: 'Waitlist', count: waitlistParties.length },
                 {
-                  borderColor: colors.border.default,
-                  backgroundColor: colors.surface.level2,
+                  value: 'reservations',
+                  label: 'Reservations',
+                  count: reservationParties.length,
                 },
               ]}
-              activeOpacity={0.8}
-              onPress={() => router.push('/floor-builder' as Href)}
-            >
-              <Text style={[styles.bannerActionText, { color: colors.text.primary }]}>
-                Edit Map
-              </Text>
-            </TouchableOpacity>
-          </GlassSurface>
-        </View>
-      )}
-
-      {(syncError || connectionLabel !== 'Synced' || routingError || isRoutingSaving) && (
-        <View style={styles.bannerRow}>
-          <GlassSurface intensity={35} borderRadius={borderRadius.xl} style={styles.bannerCard}>
-            <Ionicons
-              name={
-                syncError || routingError || connectionLabel === 'Manual'
-                  ? 'alert-circle-outline'
-                  : 'sync-outline'
-              }
-              size={18}
-              color={
-                syncError || routingError || connectionLabel === 'Manual'
-                  ? colors.status.dirty.text
-                  : colors.text.secondary
-              }
+              value={leftTab}
+              onChange={setLeftTab}
             />
-            <Text
-              style={[
-                styles.bannerText,
-                {
-                  color:
-                    syncError || routingError || connectionLabel === 'Manual'
-                      ? colors.status.dirty.text
-                      : colors.text.secondary,
-                },
-              ]}
-            >
-              {syncError
-                ? syncError
-                : routingError
-                  ? routingError
-                  : isRoutingSaving
-                    ? 'Saving waiter routing changes to the backend.'
-                    : connectionLabel === 'Manual'
-                      ? 'Manual mode is active. Floor sync resumes automatically when the connection recovers.'
-                      : 'Syncing live floor and waiter routing.'}
-            </Text>
-          </GlassSurface>
-        </View>
-      )}
-
-      <View style={styles.quickSeatStrip}>
-        <GlassSurface
-          intensity={50}
-          borderRadius={borderRadius.xl}
-          style={styles.quickSeatContainer}
-        >
-          <View style={styles.quickSeatTitle}>
-            <Text style={[styles.quickSeatLabel, { color: colors.text.secondary }]}>Next Up</Text>
           </View>
           <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.quickSeatScroll}
+            style={styles.leftScroll}
+            contentContainerStyle={styles.leftScrollContent}
+            showsVerticalScrollIndicator={false}
           >
-            {nextUpRotation.length === 0 ? (
-              <Text style={[styles.nextUpEmpty, { color: colors.text.muted }]}>
-                No active waiters. Open Shift to set up rotation.
+            {leftParties.length === 0 ? (
+              <Text style={[styles.emptyText, { color: colors.text.muted }]}>
+                {leftTab === 'waitlist'
+                  ? 'No parties on the waitlist.'
+                  : 'No upcoming reservations.'}
               </Text>
             ) : (
-              nextUpRotation.map((entry, idx) => {
-                const primaryTableId = entry.tables[0]?.id;
-                return (
-                  <NextUpCard
-                    key={entry.waiterId}
-                    waiterId={entry.waiterId}
-                    waiterName={entry.waiterName}
-                    waiterColor={waiterColorMap[entry.waiterId]}
-                    tableLabels={entry.tables.map((table) => table.label)}
-                    isNext={idx === 0}
-                    onPress={() => {
-                      if (!primaryTableId) return;
-                      handleTablePress(primaryTableId, tableRefs.current[primaryTableId] ?? null);
-                    }}
-                  />
-                );
-              })
-            )}
-          </ScrollView>
-        </GlassSurface>
-      </View>
-
-      <View style={styles.splitLayout}>
-        <GlassSurface intensity={45} style={styles.sidebar}>
-          <AddPartyModal
-            visible={showAddPartyModal}
-            presentation="inline"
-            onClose={() => setShowAddPartyModal(false)}
-            onAdd={async (data) => {
-              try {
-                await createWaitlistEntry({
-                  guestName: data.name,
-                  guestPhone: data.phone,
-                  partySize: data.size,
-                  seatingPreference: data.seatingPreference,
-                  quotedWaitMinutes: data.quotedWaitMinutes,
-                  notes: '',
-                  source: 'manual',
-                });
-              } catch (error) {
-                Alert.alert(
-                  'Unable to Add Party',
-                  extractHostRequestErrorMessage(
-                    error,
-                    'The party could not be added to the waitlist.',
-                  ),
-                );
-                throw error;
-              }
-            }}
-          />
-
-          <ScrollView style={styles.sidebarScroll} showsVerticalScrollIndicator={false}>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Table Size</Text>
-              {sizeFilters.length > 0 && (
-                <TouchableOpacity onPress={() => setSizeFilters([])} hitSlop={6}>
-                  <Text style={[styles.sectionCount, { color: colors.accent }]}>Clear</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <View style={styles.sizeFilterRow}>
-              {TABLE_SIZE_BUCKETS.map((bucket) => {
-                const active = sizeFilters.includes(bucket);
-                return (
-                  <TouchableOpacity
-                    key={bucket}
-                    activeOpacity={0.75}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                    onPress={() =>
-                      setSizeFilters((prev) =>
-                        prev.includes(bucket)
-                          ? prev.filter((value) => value !== bucket)
-                          : [...prev, bucket],
-                      )
-                    }
-                    style={[
-                      styles.sizePill,
-                      {
-                        backgroundColor: active ? colors.accent : colors.surface.level2,
-                        borderColor: active ? colors.accent : colors.border.subtle,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.sizePillText,
-                        { color: active ? colors.white : colors.text.secondary },
-                      ]}
-                    >
-                      {bucket}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <View style={[styles.sectionHeader, styles.sectionHeaderSpaced]}>
-              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
-                Reservations
-              </Text>
-              <Text style={[styles.sectionCount, { color: colors.text.muted }]}>
-                {reservationParties.length}
-              </Text>
-            </View>
-            {reservationParties.length === 0 ? (
-              <Text style={[styles.sectionEmpty, { color: colors.text.muted }]}>
-                No upcoming reservations.
-              </Text>
-            ) : (
-              reservationParties.map((party, index) => (
+              leftParties.map((party, index) => (
                 <WaitlistCard
                   key={party.id}
                   party={party}
@@ -925,88 +603,62 @@ export default function FloorPlanScreen() {
                 />
               ))
             )}
+          </ScrollView>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => setShowAddPartyModal(true)}
+            style={[styles.addWalkIn, { borderColor: colors.border.strong }]}
+          >
+            <Ionicons name="add" size={18} color={colors.text.secondary} />
+            <Text style={[styles.addWalkInText, { color: colors.text.secondary }]}>
+              Add Walk-in
+            </Text>
+          </TouchableOpacity>
+        </Panel>
 
-            <View style={[styles.sectionHeader, styles.sectionHeaderSpaced]}>
-              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Waitlist</Text>
-              <View style={styles.sectionHeaderRight}>
-                <Text style={[styles.sectionCount, { color: colors.text.muted }]}>
-                  {waitlistParties.length}
-                </Text>
-                <TouchableOpacity
-                  style={[styles.addPartyButton, { backgroundColor: colors.accent }]}
-                  activeOpacity={0.8}
-                  onPress={() => setShowAddPartyModal(true)}
-                  accessibilityLabel="Add party to waitlist"
+        {/* CENTER — FLOOR */}
+        <View
+          style={[
+            styles.center,
+            { backgroundColor: colors.surface.level3, borderColor: colors.border.default },
+          ]}
+        >
+          <View style={styles.mapContainer} onLayout={handleMapLayout}>
+            {positionedTables.map(({ table, x, y, rotation }, idx) => {
+              const mock = MOCK_WAITERS[idx % MOCK_WAITERS.length]!;
+              return (
+                <View
+                  key={table.id}
+                  ref={(ref) => {
+                    tableRefs.current[table.id] = ref;
+                  }}
+                  collapsable={false}
+                  style={{
+                    position: 'absolute',
+                    left: x - 32,
+                    top: y - 32,
+                    opacity: tableMatchesSizeFilters(table.capacity, sizeFilters) ? 1 : 0.28,
+                    ...(rotation ? { transform: [{ rotate: `${rotation}deg` }] } : {}),
+                  }}
                 >
-                  <Ionicons name="add" size={18} color={colors.white} />
-                </TouchableOpacity>
-              </View>
-            </View>
-            <View style={styles.bucketRow}>
-              <SizeBucket label="1-2" count={waitlistSizeBuckets.small} />
-              <SizeBucket label="3-4" count={waitlistSizeBuckets.medium} />
-              <SizeBucket label="5+" count={waitlistSizeBuckets.large} />
-            </View>
-            {waitlistParties.length === 0 ? (
-              <Text style={[styles.sectionEmpty, { color: colors.text.muted }]}>
-                No parties on the waitlist.
-              </Text>
-            ) : (
-              waitlistParties.map((party, index) => (
-                <WaitlistCard
-                  key={party.id}
-                  party={party}
-                  index={index}
-                  isSelected={selectedPartyId === party.id}
-                  onPress={() => setDetailTarget({ source: party.source, id: party.id })}
-                />
-              ))
-            )}
-          </ScrollView>
-        </GlassSurface>
-
-        <View style={styles.mainArea}>
-          <View
-            style={[
-              styles.mapContainer,
-              { backgroundColor: colors.surface.level2, borderColor: colors.border.default },
-            ]}
-            onLayout={handleMapLayout}
-          >
-            <View
-              style={[
-                styles.floorTexture,
-                {
-                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#F9FBFC',
-                },
-              ]}
-            />
-
-            {positionedTables.map(({ table, x, y, rotation }) => (
-              <View
-                key={table.id}
-                ref={(ref) => {
-                  tableRefs.current[table.id] = ref;
-                }}
-                collapsable={false}
-                style={{
-                  position: 'absolute',
-                  left: x - 32,
-                  top: y - 32,
-                  opacity: tableMatchesSizeFilters(table.capacity, sizeFilters) ? 1 : 0.28,
-                  ...(rotation ? { transform: [{ rotate: `${rotation}deg` }] } : {}),
-                }}
-              >
-                <Table
-                  id={table.label}
-                  status={table.status}
-                  shape={table.shape}
-                  capacity={table.capacity}
-                  onPress={() => handleTablePress(table.id, tableRefs.current[table.id] ?? null)}
-                />
-              </View>
-            ))}
-
+                  <Table
+                    id={table.label}
+                    status={table.status as StatusKey}
+                    shape={table.shape}
+                    capacity={table.capacity}
+                    isBlocked={table.isBlocked}
+                    server={
+                      table.status === 'occupied'
+                        ? { initials: mock.initials, color: mock.color }
+                        : undefined
+                    }
+                    onPress={() =>
+                      handleTablePress(table.id, tableRefs.current[table.id] ?? null)
+                    }
+                  />
+                </View>
+              );
+            })}
             <View style={styles.mapOverlayBottomLeft} pointerEvents="box-none">
               <FloorRoomPill
                 rooms={roomOptions}
@@ -1015,13 +667,110 @@ export default function FloorPlanScreen() {
                 onManagePress={() => router.push('/floor-builder' as Href)}
               />
             </View>
-
             <View style={styles.mapOverlayBottomRight} pointerEvents="box-none">
               <FloorStatusBar tables={visibleTablesFlat} />
             </View>
           </View>
+          {isUsingStarterMap && (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => router.push('/floor-builder' as Href)}
+              style={[
+                styles.starterBanner,
+                { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
+              ]}
+            >
+              <Ionicons name="construct-outline" size={15} color={colors.text.muted} />
+              <Text style={[styles.starterText, { color: colors.text.muted }]}>
+                Starter floor map — tap to build your layout
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* RIGHT PANEL */}
+        <Panel level="level2" style={styles.rightPanel}>
+          <ScrollView
+            contentContainerStyle={styles.rightScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={[styles.sectionHeading, { color: colors.text.muted }]}>Next Up</Text>
+            {nextUpRotation.length === 0 ? (
+              <View style={styles.nextUpList}>
+                {MOCK_WAITERS.slice(0, 5).map((w, i) => (
+                  <NextUpCard
+                    key={w.id}
+                    waiterId={w.id}
+                    waiterName={w.name}
+                    waiterColor={w.color}
+                    tableLabels={[]}
+                    isNext={i === 0}
+                    onPress={() => {}}
+                  />
+                ))}
+              </View>
+            ) : (
+              <View style={styles.nextUpList}>
+                {nextUpRotation.map((entry, idx) => {
+                  const primaryTableId = entry.tables[0]?.id;
+                  return (
+                    <NextUpCard
+                      key={entry.waiterId}
+                      waiterId={entry.waiterId}
+                      waiterName={entry.waiterName}
+                      waiterColor={waiterColorMap[entry.waiterId]}
+                      tableLabels={entry.tables.map((table) => table.label)}
+                      isNext={idx === 0}
+                      onPress={() => {
+                        if (!primaryTableId) return;
+                        handleTablePress(
+                          primaryTableId,
+                          tableRefs.current[primaryTableId] ?? null,
+                        );
+                      }}
+                    />
+                  );
+                })}
+              </View>
+            )}
+
+            <View style={styles.rightDivider} />
+            <StatsPanel />
+
+            <View style={styles.rightDivider} />
+            <ActivityFeed />
+          </ScrollView>
+        </Panel>
       </View>
+
+      {/* ===== MODALS / OVERLAYS ===== */}
+      <AddPartyModal
+        visible={showAddPartyModal}
+        presentation="modal"
+        onClose={() => setShowAddPartyModal(false)}
+        onAdd={async (data) => {
+          try {
+            await createWaitlistEntry({
+              guestName: data.name,
+              guestPhone: data.phone,
+              partySize: data.size,
+              seatingPreference: data.seatingPreference,
+              notes: '',
+              quotedWaitMinutes: null,
+              source: 'manual',
+            });
+          } catch (error) {
+            Alert.alert(
+              'Unable to Add Party',
+              extractHostRequestErrorMessage(
+                error,
+                'The party could not be added to the waitlist.',
+              ),
+            );
+            throw error;
+          }
+        }}
+      />
 
       {popover && liveTable && (
         <TablePopover
@@ -1036,9 +785,7 @@ export default function FloorPlanScreen() {
           server={
             canPickSeatWaiter
               ? (seatWaiterEffective?.name ?? 'Assign waiter')
-              : (liveTable.currentWaiterName ??
-                popoverResolvedWaiter?.name ??
-                liveTable.server)
+              : (liveTable.currentWaiterName ?? popoverResolvedWaiter?.name ?? liveTable.server)
           }
           serverColor={
             canPickSeatWaiter
@@ -1136,9 +883,7 @@ export default function FloorPlanScreen() {
       />
 
       <SeatPartyModal visible={showSeatPartyModal} onClose={() => setShowSeatPartyModal(false)} />
-
       <ShiftSetupSheet visible={showShiftSetup} onClose={() => setShowShiftSetup(false)} />
-
       <HostDiagnosticsModal
         visible={showDiagnostics}
         onClose={() => setShowDiagnostics(false)}
@@ -1160,225 +905,126 @@ export default function FloorPlanScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  ambientBackground: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  topNav: {
+  container: { flex: 1 },
+  // top bar
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    paddingTop: 28,
-    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
   },
-  titleBlock: {
-    minWidth: 150,
-  },
-  logoText: {
-    fontSize: 20,
-    fontWeight: '800',
-    letterSpacing: 3,
-  },
-  locationText: {
-    ...textStyles.caption,
-    marginTop: spacing.xs,
-  },
-  topNavRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  serviceMetrics: {
+  brandBlock: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  wordmark: { ...textStyles.wordmark, fontSize: 22 },
+  hostTag: { ...textStyles.caption },
+  search: {
     flex: 1,
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.sm,
+    alignItems: 'center',
+    gap: 7,
+    height: 34,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
   },
+  searchInput: {
+    flex: 1,
+    fontFamily: fontFamily.sans,
+    fontSize: 13,
+    padding: 0,
+  },
+  topBarRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   connectionBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: 6,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    height: 32,
     borderRadius: borderRadius.pill,
     borderWidth: 1,
   },
-  connectionDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  connectionText: {
-    ...textStyles.captionMedium,
-  },
+  connectionDot: { width: 7, height: 7, borderRadius: 4 },
+  connectionText: { ...textStyles.captionMedium },
   iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: borderRadius.sm,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
     borderWidth: 1,
-    ...shadows.subtle,
   },
-  bannerRow: {
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-  },
-  bannerCard: {
+  // summary strip
+  summaryStrip: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  bannerText: {
-    ...textStyles.caption,
+  summaryCard: {
     flex: 1,
-  },
-  bannerAction: {
-    borderWidth: 1,
     borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+  },
+  summaryValue: {
+    fontFamily: fontFamily.monoMedium,
+    fontSize: 19,
+    fontVariant: ['tabular-nums'],
+  },
+  summaryLabel: { ...textStyles.sectionLabel, marginTop: 2 },
+  // body
+  body: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+  },
+  leftPanel: { width: 320, overflow: 'hidden' },
+  leftTabs: { padding: spacing.md },
+  leftScroll: { flex: 1 },
+  leftScrollContent: { paddingHorizontal: spacing.md, gap: spacing.sm, paddingBottom: spacing.md },
+  emptyText: { ...textStyles.caption, paddingVertical: spacing.lg, textAlign: 'center' },
+  addWalkIn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 44,
+    margin: spacing.md,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+  },
+  addWalkInText: { ...textStyles.bodyMedium },
+  center: {
+    flex: 1,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  mapContainer: { flex: 1 },
+  mapOverlayBottomLeft: { position: 'absolute', left: spacing.md, bottom: spacing.md, zIndex: 20 },
+  mapOverlayBottomRight: { position: 'absolute', right: spacing.md, bottom: spacing.md },
+  starterBanner: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.md,
+    right: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-  },
-  bannerActionText: {
-    ...textStyles.label,
-  },
-  quickSeatStrip: {
-    paddingHorizontal: spacing.xl,
-    marginBottom: spacing.md,
-  },
-  quickSeatContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: spacing.lg,
-    paddingVertical: spacing.xs,
-  },
-  quickSeatTitle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginRight: spacing.md,
-  },
-  quickSeatLabel: {
-    ...textStyles.captionMedium,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  quickSeatScroll: {
-    paddingRight: spacing.lg,
-    gap: spacing.sm,
-    alignItems: 'center',
-  },
-  nextUpEmpty: {
-    ...textStyles.caption,
-    paddingVertical: spacing.sm,
-  },
-  splitLayout: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xl,
-    gap: spacing.lg,
-  },
-  sidebar: {
-    width: 340,
-    borderRadius: borderRadius.xl,
-    overflow: 'hidden',
-  },
-  addPartyButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sidebarScroll: {
-    padding: spacing.md,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.sm,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.sm,
-  },
-  sectionHeaderSpaced: {
-    marginTop: spacing.lg,
-  },
-  sectionHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  sectionTitle: {
-    ...textStyles.label,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  sectionCount: {
-    ...textStyles.captionMedium,
-    fontWeight: '700',
-  },
-  sectionEmpty: {
-    ...textStyles.caption,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.md,
-  },
-  bucketRow: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  mainArea: {
-    flex: 1,
-  },
-  mapContainer: {
-    flex: 1,
-    minHeight: 300,
+    borderRadius: borderRadius.sm,
     borderWidth: 1,
-    borderRadius: borderRadius.xl,
-    overflow: 'hidden',
-    ...shadows.subtle,
   },
-  floorTexture: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: borderRadius['2xl'],
-  },
-  mapOverlayBottomLeft: {
-    position: 'absolute',
-    left: spacing.md,
-    bottom: spacing.md,
-    zIndex: 20,
-  },
-  sizeFilterRow: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  sizePill: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  sizePillText: {
-    ...textStyles.captionMedium,
-    fontWeight: '700',
-  },
-  mapOverlayBottomRight: {
-    position: 'absolute',
-    right: spacing.md,
-    bottom: spacing.md,
-  },
+  starterText: { ...textStyles.caption },
+  rightPanel: { width: 296, overflow: 'hidden' },
+  rightScrollContent: { padding: spacing.lg, gap: spacing.sm },
+  sectionHeading: { ...textStyles.sectionLabel, marginBottom: spacing.sm },
+  nextUpList: { gap: spacing.sm },
+  rightDivider: { height: spacing.lg },
 });

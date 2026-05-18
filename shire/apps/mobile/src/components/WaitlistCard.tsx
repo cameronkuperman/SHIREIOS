@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { borderRadius, shadows, spacing, textStyles, useTheme } from '@/theme';
+import { fontFamily, spacing, textStyles, useTheme } from '@/theme';
 import type { HostSidebarParty } from '@/features/host/hooks';
-import { seatingPrefIcon, seatingPrefLabel } from './SeatingPreferencePicker';
+import { seatingPrefLabel } from './SeatingPreferencePicker';
+import { Button } from './ui/Button';
+import { IconButton } from './ui/IconButton';
+import { Card } from './ui/Card';
 
 function formatRelativeWait(joinedAt: string, now: number): string {
   const elapsed = Math.max(0, Math.floor((now - new Date(joinedAt).getTime()) / 60_000));
@@ -14,16 +17,15 @@ function formatRelativeWait(joinedAt: string, now: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-function elapsedWaitMinutes(joinedAt: string | null, now: number): number | null {
-  if (!joinedAt) return null;
-  return Math.max(0, Math.floor((now - new Date(joinedAt).getTime()) / 60_000));
-}
-
 type WaitlistCardProps = {
   party: HostSidebarParty;
   index: number;
   onPress?: () => void;
   isSelected?: boolean;
+  onSeat?: () => void;
+  onCall?: () => void;
+  onMessage?: () => void;
+  // legacy props — accepted for compatibility, unused
   onNotify?: () => void;
   onNotifyMore?: () => void;
   isNotifying?: boolean;
@@ -34,9 +36,9 @@ export function WaitlistCard({
   index,
   onPress,
   isSelected,
-  onNotify,
-  onNotifyMore,
-  isNotifying = false,
+  onSeat,
+  onCall,
+  onMessage,
 }: WaitlistCardProps) {
   const { colors } = useTheme();
   const [now, setNow] = useState(Date.now());
@@ -46,222 +48,92 @@ export function WaitlistCard({
     return () => clearInterval(interval);
   }, []);
 
-  const statusColor =
-    party.status === 'Arrived' || party.status === 'Checked In'
-      ? colors.accent
-      : colors.status.reserved.text;
-
   const liveWait =
     party.source === 'waitlist' && party.joinedAt
       ? formatRelativeWait(party.joinedAt, now)
       : party.waitLabel;
-  const elapsedMinutes =
-    party.source === 'waitlist' ? elapsedWaitMinutes(party.joinedAt, now) : null;
-  const quotedWaitLabel =
-    party.source === 'waitlist'
-      ? party.quotedWaitMinutes != null
-        ? `${party.quotedWaitMinutes}m`
-        : 'TBD'
-      : party.waitLabel;
-  const isPastQuote =
-    party.quotedWaitMinutes != null &&
-    elapsedMinutes != null &&
-    elapsedMinutes > party.quotedWaitMinutes;
   const showPref = party.seatingPreference !== 'none';
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.7}
-      onPress={onPress}
-      style={[
-        styles.card,
-        {
-          backgroundColor: colors.surface.level1,
-          borderColor: colors.border.subtle,
-        },
-        isSelected && {
-          borderColor: colors.accent,
-          backgroundColor: colors.accentLight,
-        },
-      ]}
-    >
-      <View style={[styles.priorityStripe, { backgroundColor: statusColor }]} />
-      {party.source === 'waitlist' && (
-        <View
-          style={[
-            styles.quoteBlock,
-            {
-              backgroundColor: isPastQuote ? colors.status.dirty.fill : colors.accentLight,
-              borderColor: isPastQuote ? colors.status.dirty.text : colors.accent,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.quoteLabel,
-              { color: isPastQuote ? colors.status.dirty.text : colors.accent },
-            ]}
-          >
-            Quoted
-          </Text>
-          <Text
-            style={[
-              styles.quoteValue,
-              { color: isPastQuote ? colors.status.dirty.text : colors.accent },
-            ]}
-          >
-            {quotedWaitLabel}
-          </Text>
-        </View>
+    <Card selected={isSelected} padded={false} style={styles.card}>
+      <View style={styles.header}>
+        <Text style={[styles.name, { color: colors.text.primary }]} numberOfLines={1}>
+          {index + 1}. {party.name}
+        </Text>
+        <Text style={[styles.wait, { color: colors.text.muted }]}>{liveWait}</Text>
+      </View>
+
+      <View style={styles.metaRow}>
+        <Ionicons name="people-outline" size={13} color={colors.text.muted} />
+        <Text style={[styles.meta, { color: colors.text.secondary }]}>Party of {party.size}</Text>
+        <Text style={[styles.meta, { color: colors.text.muted }]}>·</Text>
+        <Text style={[styles.meta, { color: colors.text.secondary }]}>{party.status}</Text>
+      </View>
+
+      {showPref && (
+        <Text style={[styles.pref, { color: colors.text.muted }]}>
+          Prefers {seatingPrefLabel(party.seatingPreference).toLowerCase()}
+        </Text>
       )}
-      <View style={styles.info}>
-        <View style={styles.nameRow}>
-          <Text style={[styles.name, { color: colors.text.primary }]}>
-            {index + 1}. {party.name}
-          </Text>
-          <Text style={[styles.sourcePill, { color: colors.text.muted }]}>{party.sourceLabel}</Text>
-        </View>
-        <View style={styles.detailsRow}>
-          <Text style={[styles.details, { color: colors.text.secondary }]}>
-            {party.source === 'waitlist' ? `Waited ${liveWait}` : liveWait} · Party of {party.size}
-          </Text>
-          {showPref && (
-            <View style={[styles.prefChip, { backgroundColor: colors.surface.level3 }]}>
-              <Ionicons
-                name={seatingPrefIcon(party.seatingPreference)}
-                size={11}
-                color={colors.text.muted}
-              />
-              <Text style={[styles.prefText, { color: colors.text.muted }]}>
-                {seatingPrefLabel(party.seatingPreference)}
-              </Text>
-            </View>
-          )}
-        </View>
+
+      <View style={styles.actions}>
+        <Button
+          label="Seat"
+          variant="success"
+          size="sm"
+          fullWidth
+          onPress={onSeat ?? onPress}
+          style={styles.seatBtn}
+        />
+        <IconButton filled onPress={onCall ?? onPress} accessibilityLabel="Call guest">
+          <Ionicons name="call-outline" size={16} color={colors.text.secondary} />
+        </IconButton>
+        <IconButton filled onPress={onMessage ?? onPress} accessibilityLabel="Message guest">
+          <Ionicons name="chatbubble-outline" size={16} color={colors.text.secondary} />
+        </IconButton>
       </View>
-      <View style={styles.statusContainer}>
-        <Text style={[styles.status, { color: statusColor }]}>{party.status}</Text>
-        {party.source === 'waitlist' && onNotify && (
-          <View style={styles.notifyRow}>
-            <TouchableOpacity
-              style={[styles.notifyButton, { backgroundColor: colors.accentLight }]}
-              onPress={onNotify}
-              disabled={isNotifying}
-            >
-              <Text style={[styles.notifyText, { color: colors.accent }]}>Notify</Text>
-            </TouchableOpacity>
-            {onNotifyMore && (
-              <TouchableOpacity
-                style={[styles.moreButton, { backgroundColor: colors.surface.level2 }]}
-                onPress={onNotifyMore}
-                disabled={isNotifying}
-              >
-                <Ionicons name="ellipsis-horizontal" size={15} color={colors.text.secondary} />
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-      </View>
-    </TouchableOpacity>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: borderRadius.md,
     padding: spacing.md,
-    marginBottom: spacing.sm,
+    gap: 6,
+  },
+  header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     justifyContent: 'space-between',
-    borderWidth: 1,
-    ...shadows.subtle,
-  },
-  priorityStripe: {
-    width: 3,
-    alignSelf: 'stretch',
-    borderRadius: 2,
-    marginRight: spacing.sm,
-  },
-  info: {
-    flex: 1,
-  },
-  quoteBlock: {
-    width: 78,
-    alignItems: 'center',
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    paddingVertical: spacing.sm,
-    marginRight: spacing.md,
-  },
-  quoteLabel: {
-    ...textStyles.tiny,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  quoteValue: {
-    ...textStyles.subtitle,
-    marginTop: 1,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: spacing.sm,
-    marginBottom: spacing.xs,
   },
   name: {
     ...textStyles.label,
+    flex: 1,
   },
-  sourcePill: {
-    ...textStyles.tiny,
-    textTransform: 'uppercase',
+  wait: {
+    fontFamily: fontFamily.mono,
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
   },
-  detailsRow: {
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 5,
   },
-  details: {
+  meta: {
     ...textStyles.caption,
   },
-  prefChip: {
+  pref: {
+    ...textStyles.caption,
+  },
+  actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 1,
-    borderRadius: borderRadius.pill,
-  },
-  prefText: {
-    fontSize: 10,
-    fontWeight: '500',
-  },
-  statusContainer: {
-    paddingLeft: spacing.md,
-    alignItems: 'flex-end',
-  },
-  status: {
-    ...textStyles.captionMedium,
-  },
-  notifyRow: {
-    flexDirection: 'row',
     gap: spacing.xs,
-    marginTop: spacing.sm,
+    marginTop: 4,
   },
-  notifyButton: {
-    borderRadius: borderRadius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 5,
-  },
-  notifyText: {
-    ...textStyles.tiny,
-    fontWeight: '700',
-  },
-  moreButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+  seatBtn: {
+    flex: 1,
   },
 });

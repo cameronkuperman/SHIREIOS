@@ -1,25 +1,29 @@
 // Shire Design System — Typography
-// Fraunces (serif) is reserved for the SHIRE wordmark, the sidebar "S" mark,
-// and big table numbers. Inter carries everything else. RN does not resolve
+// Ported from SHIRE-FRONTEND: Inter Tight (body/UI), Instrument Serif
+// (display/headings), Geist Mono (data/numbers). RN does not resolve
 // fontWeight to font files — every style names its family explicitly.
 
 export const fontFamily = {
-  serif: 'Fraunces_600SemiBold',
-  serifRegular: 'Fraunces_400Regular',
-  sans: 'Inter_400Regular',
-  sansMedium: 'Inter_500Medium',
-  sansSemibold: 'Inter_600SemiBold',
-  sansBold: 'Inter_700Bold',
+  sans: 'InterTight_400Regular',
+  sansMedium: 'InterTight_500Medium',
+  sansSemibold: 'InterTight_600SemiBold',
+  sansBold: 'InterTight_700Bold',
+  display: 'InstrumentSerif_400Regular',
+  // legacy aliases — kept so existing imports resolve
+  serif: 'InstrumentSerif_400Regular',
+  serifRegular: 'InstrumentSerif_400Regular',
+  mono: 'GeistMono_400Regular',
+  monoMedium: 'GeistMono_500Medium',
 } as const;
 
 export const fontSize = {
-  xs: 11,
+  xs: 12,
   sm: 13,
-  base: 15,
+  base: 14,
   md: 16,
   lg: 18,
-  xl: 22,
-  '2xl': 28,
+  xl: 20,
+  '2xl': 24,
 } as const;
 
 export const fontWeight = {
@@ -30,18 +34,23 @@ export const fontWeight = {
 };
 
 export const letterSpacing = {
-  tight: 0,
+  tight: -0.3,
   normal: 0,
-  wide: 0.5,
-  caps: 1.5,
+  wide: 0.3,
+  caps: 0.5,
 } as const;
 
 // Pre-composed text styles
 export const textStyles = {
-  headline: {
-    fontFamily: fontFamily.sansBold,
+  // Instrument Serif display headings
+  display: {
+    fontFamily: fontFamily.display,
     fontSize: fontSize['2xl'],
-    fontWeight: fontWeight.bold,
+    letterSpacing: letterSpacing.tight,
+  },
+  headline: {
+    fontFamily: fontFamily.display,
+    fontSize: fontSize.xl,
     letterSpacing: letterSpacing.tight,
   },
   title: {
@@ -92,36 +101,40 @@ export const textStyles = {
     fontWeight: fontWeight.regular,
     letterSpacing: letterSpacing.normal,
   },
+  // Geist Mono uppercase micro-label (.label-mono)
   sectionLabel: {
-    fontFamily: fontFamily.sansBold,
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.mono,
+    fontSize: 10,
     letterSpacing: letterSpacing.caps,
     textTransform: 'uppercase' as const,
   },
   tableId: {
-    fontFamily: fontFamily.sansBold,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
+    fontFamily: fontFamily.sansSemibold,
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.semibold,
     letterSpacing: letterSpacing.tight,
   },
+  // Geist Mono data / stats
   stat: {
-    fontFamily: fontFamily.sansBold,
+    fontFamily: fontFamily.monoMedium,
     fontSize: fontSize.xl,
-    fontWeight: fontWeight.bold,
     letterSpacing: letterSpacing.tight,
     fontVariant: ['tabular-nums' as const],
   },
-  // Serif — reserved usages only.
+  data: {
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.sm,
+    fontVariant: ['tabular-nums' as const],
+  },
   wordmark: {
-    fontFamily: fontFamily.serif,
-    fontSize: fontSize.lg,
-    letterSpacing: 1,
+    fontFamily: fontFamily.display,
+    fontSize: fontSize.xl,
+    letterSpacing: letterSpacing.tight,
   },
   tableNumber: {
-    fontFamily: fontFamily.serif,
-    fontSize: fontSize.xl,
+    fontFamily: fontFamily.sansSemibold,
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.semibold,
     letterSpacing: letterSpacing.tight,
-    fontVariant: ['tabular-nums' as const],
   },
 } as const;
