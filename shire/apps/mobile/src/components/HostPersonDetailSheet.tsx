@@ -23,6 +23,7 @@ import type {
   WaitlistAction,
 } from '@/features/host/api';
 import { getReservationSourceLabel } from '@/features/host/source';
+import { useFloorActions, useTableDetails } from '@/features/floor';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
 
@@ -178,10 +179,7 @@ function buildReservationTimeline(reservation: Reservation): TimelineItem[] {
   ];
 }
 
-function actionTone(
-  colors: ReturnType<typeof useTheme>['colors'],
-  destructive?: boolean,
-) {
+function actionTone(colors: ReturnType<typeof useTheme>['colors'], destructive?: boolean) {
   return destructive
     ? {
         backgroundColor: colors.status.dirty.fill,
@@ -277,12 +275,16 @@ export function HostPersonDetailSheet({
     setReservationPreference(reservation.seatingPreference);
   }, [reservation]);
 
+  const { blockTable, unblockTable } = useFloorActions();
+  const suggestedTableId = reservation?.suggestedTableId ?? null;
+  const suggestedTable = useTableDetails(suggestedTableId);
+
   const detail = reservation ?? waitlistEntry ?? null;
   const isReservation = Boolean(reservation);
   const phone = reservation?.guestPhone ?? waitlistEntry?.guest.phone ?? '';
   const canCall = phone.trim().length > 0;
   const sourceLabel = reservation
-    ? getReservationSourceLabel(reservation.source) ?? 'Reservation'
+    ? (getReservationSourceLabel(reservation.source) ?? 'Reservation')
     : waitlistEntry
       ? 'Waitlist'
       : '';
@@ -329,6 +331,23 @@ export function HostPersonDetailSheet({
       await Linking.openURL(`tel:${formatPhoneForCall(phone)}`);
     } catch {
       Alert.alert('Call Unavailable', 'This device could not start a phone call.');
+    }
+  };
+
+  const handleToggleSuggestedBlock = () => {
+    if (!suggestedTable) {
+      return;
+    }
+
+    const result = suggestedTable.isBlocked
+      ? unblockTable(suggestedTable.id)
+      : blockTable(suggestedTable.id);
+
+    if (!result.ok) {
+      Alert.alert(
+        'Table Update Failed',
+        'The table could not be updated. Try again from the floor plan.',
+      );
     }
   };
 
@@ -500,7 +519,9 @@ export function HostPersonDetailSheet({
                 { backgroundColor: colors.surface.level1, borderColor: colors.glass.borderSubtle },
               ]}
             >
-              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Current Details</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
+                Current Details
+              </Text>
               <View style={styles.infoGrid}>
                 <View style={styles.infoItem}>
                   <Text style={[styles.infoLabel, { color: colors.text.muted }]}>Phone</Text>
@@ -516,7 +537,9 @@ export function HostPersonDetailSheet({
                 </View>
                 <View style={styles.infoItem}>
                   <Text style={[styles.infoLabel, { color: colors.text.muted }]}>Source</Text>
-                  <Text style={[styles.infoValue, { color: colors.text.primary }]}>{sourceLabel}</Text>
+                  <Text style={[styles.infoValue, { color: colors.text.primary }]}>
+                    {sourceLabel}
+                  </Text>
                 </View>
                 <View style={styles.infoItem}>
                   <Text style={[styles.infoLabel, { color: colors.text.muted }]}>Status</Text>
@@ -550,6 +573,60 @@ export function HostPersonDetailSheet({
                 </View>
               </View>
             </View>
+
+            {reservation && suggestedTable && (
+              <View
+                style={[
+                  styles.section,
+                  {
+                    backgroundColor: colors.surface.level1,
+                    borderColor: colors.glass.borderSubtle,
+                  },
+                ]}
+              >
+                <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
+                  Suggested Table
+                </Text>
+                <View style={styles.suggestedRow}>
+                  <View style={styles.suggestedInfo}>
+                    <Ionicons name="restaurant-outline" size={18} color={colors.text.secondary} />
+                    <Text style={[styles.suggestedText, { color: colors.text.primary }]}>
+                      Table {suggestedTable.label} · {suggestedTable.capacity}p
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.suggestedButton,
+                      {
+                        backgroundColor: suggestedTable.isBlocked
+                          ? colors.surface.level2
+                          : colors.accent,
+                      },
+                    ]}
+                    onPress={handleToggleSuggestedBlock}
+                  >
+                    <Ionicons
+                      name={suggestedTable.isBlocked ? 'lock-open-outline' : 'lock-closed-outline'}
+                      size={15}
+                      color={suggestedTable.isBlocked ? colors.text.primary : colors.white}
+                    />
+                    <Text
+                      style={[
+                        styles.suggestedButtonText,
+                        { color: suggestedTable.isBlocked ? colors.text.primary : colors.white },
+                      ]}
+                    >
+                      {suggestedTable.isBlocked ? 'Unblock' : 'Block off'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={[styles.suggestedMeta, { color: colors.text.muted }]}>
+                  {suggestedTable.isBlocked
+                    ? 'Held for this reservation. Unblock to free it up.'
+                    : 'Block this table to hold it until the party arrives.'}
+                </Text>
+              </View>
+            )}
 
             <View
               style={[
@@ -617,7 +694,10 @@ export function HostPersonDetailSheet({
                   <View
                     style={[
                       styles.inputWrapper,
-                      { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.glass.borderSubtle,
+                      },
                     ]}
                   >
                     <Ionicons name="person-outline" size={18} color={colors.text.muted} />
@@ -632,7 +712,10 @@ export function HostPersonDetailSheet({
                   <View
                     style={[
                       styles.inputWrapper,
-                      { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.glass.borderSubtle,
+                      },
                     ]}
                   >
                     <Ionicons name="call-outline" size={18} color={colors.text.muted} />
@@ -648,7 +731,10 @@ export function HostPersonDetailSheet({
                   <View
                     style={[
                       styles.inputWrapper,
-                      { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.glass.borderSubtle,
+                      },
                     ]}
                   >
                     <Ionicons name="people-outline" size={18} color={colors.text.muted} />
@@ -714,12 +800,17 @@ export function HostPersonDetailSheet({
                   <View
                     style={[
                       styles.readOnlyCard,
-                      { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.glass.borderSubtle,
+                      },
                     ]}
                   >
                     <View style={styles.readOnlyRow}>
                       <Ionicons name="person-outline" size={16} color={colors.text.muted} />
-                      <Text style={[styles.readOnlyLabel, { color: colors.text.muted }]}>Guest</Text>
+                      <Text style={[styles.readOnlyLabel, { color: colors.text.muted }]}>
+                        Guest
+                      </Text>
                     </View>
                     <Text style={[styles.readOnlyValue, { color: colors.text.primary }]}>
                       {waitlistEntry.guest.name}
@@ -731,7 +822,10 @@ export function HostPersonDetailSheet({
                   <View
                     style={[
                       styles.inputWrapper,
-                      { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.glass.borderSubtle,
+                      },
                     ]}
                   >
                     <Ionicons name="people-outline" size={18} color={colors.text.muted} />
@@ -744,7 +838,10 @@ export function HostPersonDetailSheet({
                       onChangeText={setWaitlistPartySize}
                     />
                   </View>
-                  <SeatingPreferencePicker value={waitlistPreference} onChange={setWaitlistPreference} />
+                  <SeatingPreferencePicker
+                    value={waitlistPreference}
+                    onChange={setWaitlistPreference}
+                  />
                   <TextInput
                     style={[
                       styles.textArea,
@@ -905,6 +1002,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  suggestedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  suggestedInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
+  },
+  suggestedText: {
+    ...textStyles.captionMedium,
+    fontWeight: '700',
+  },
+  suggestedButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+  },
+  suggestedButtonText: {
+    ...textStyles.captionMedium,
+    fontWeight: '700',
+  },
+  suggestedMeta: {
+    ...textStyles.caption,
   },
   actionButton: {
     paddingHorizontal: spacing.md,

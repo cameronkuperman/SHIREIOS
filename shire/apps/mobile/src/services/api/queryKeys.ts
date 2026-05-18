@@ -73,4 +73,8 @@ export const queryKeys = {
     all: ['routing'] as const,
     location: (locationId: string) => [...queryKeys.routing.all, 'location', locationId] as const,
   },
+  waiters: {
+    all: ['waiters'] as const,
+    list: (locationId: string) => [...queryKeys.waiters.all, 'list', locationId] as const,
+  },
 } as const;

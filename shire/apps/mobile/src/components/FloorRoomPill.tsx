@@ -1,13 +1,5 @@
 import React, { useState } from 'react';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, shadows, spacing, textStyles, useTheme } from '@/theme';
 
@@ -34,42 +26,26 @@ export function FloorRoomPill({
   const [open, setOpen] = useState(false);
   const activeRoom = rooms.find((room) => room.id === activeRoomId) ?? rooms[0];
 
-  return (
-    <>
-      <TouchableOpacity
-        style={[
-          styles.pill,
-          {
-            backgroundColor: isDark ? 'rgba(30, 30, 34, 0.92)' : 'rgba(255,255,255,0.95)',
-            borderColor: colors.glass.border,
-          },
-        ]}
-        activeOpacity={0.7}
-        onPress={() => setOpen(true)}
-        accessibilityRole="button"
-        accessibilityLabel={`Switch room. Current: ${activeRoom?.label ?? 'None'}`}
-      >
-        <Ionicons name="layers-outline" size={16} color={colors.text.secondary} />
-        <Text style={[styles.label, { color: colors.text.primary }]} numberOfLines={1}>
-          {activeRoom?.label ?? 'Select room'}
-        </Text>
-        <Ionicons name="chevron-up" size={14} color={colors.text.secondary} />
-      </TouchableOpacity>
+  const surface = isDark ? 'rgba(30, 30, 34, 0.98)' : 'rgba(255,255,255,0.98)';
 
-      <Modal transparent visible={open} animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
+  return (
+    <View style={styles.root}>
+      {open && (
+        <>
+          {/* Catches taps outside the dropdown to dismiss it. */}
+          <Pressable
+            style={styles.outsideCatcher}
+            onPress={() => setOpen(false)}
+            accessibilityLabel="Close room menu"
+          />
           <View
             style={[
-              styles.sheet,
-              {
-                backgroundColor: isDark ? 'rgba(30, 30, 34, 0.98)' : 'rgba(255,255,255,0.98)',
-                borderColor: colors.glass.border,
-              },
+              styles.dropdown,
+              { backgroundColor: surface, borderColor: colors.glass.border },
             ]}
-            onStartShouldSetResponder={() => true}
           >
-            <View style={styles.sheetHeader}>
-              <Text style={[styles.sheetTitle, { color: colors.text.muted }]}>ROOMS</Text>
+            <View style={styles.dropdownHeader}>
+              <Text style={[styles.dropdownTitle, { color: colors.text.muted }]}>ROOMS</Text>
               {onManagePress && (
                 <TouchableOpacity
                   onPress={() => {
@@ -83,7 +59,7 @@ export function FloorRoomPill({
                 </TouchableOpacity>
               )}
             </View>
-            <ScrollView style={{ maxHeight: 360 }}>
+            <ScrollView style={styles.dropdownScroll}>
               {rooms.map((room) => {
                 const isActive = room.id === activeRoomId;
                 return (
@@ -96,7 +72,7 @@ export function FloorRoomPill({
                     }}
                     activeOpacity={0.7}
                   >
-                    <View style={{ flex: 1 }}>
+                    <View style={styles.optionText}>
                       <Text
                         style={[
                           styles.optionLabel,
@@ -117,13 +93,49 @@ export function FloorRoomPill({
               })}
             </ScrollView>
           </View>
-        </Pressable>
-      </Modal>
-    </>
+        </>
+      )}
+
+      <TouchableOpacity
+        style={[
+          styles.pill,
+          {
+            backgroundColor: isDark ? 'rgba(30, 30, 34, 0.92)' : 'rgba(255,255,255,0.95)',
+            borderColor: open ? colors.accent : colors.glass.border,
+          },
+        ]}
+        activeOpacity={0.7}
+        hitSlop={8}
+        onPress={() => setOpen((current) => !current)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`Switch room. Current: ${activeRoom?.label ?? 'None'}`}
+      >
+        <Ionicons name="layers-outline" size={16} color={colors.text.secondary} />
+        <Text style={[styles.label, { color: colors.text.primary }]} numberOfLines={1}>
+          {activeRoom?.label ?? 'Select room'}
+        </Text>
+        <Ionicons
+          name={open ? 'chevron-down' : 'chevron-up'}
+          size={14}
+          color={colors.text.secondary}
+        />
+      </TouchableOpacity>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    position: 'relative',
+  },
+  outsideCatcher: {
+    position: 'absolute',
+    left: -2000,
+    right: -2000,
+    top: -2000,
+    bottom: -2000,
+  },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -141,31 +153,29 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flexGrow: 1,
   },
-  backdrop: {
-    flex: 1,
-    alignItems: 'flex-start',
-    justifyContent: 'flex-end',
-    padding: spacing['2xl'],
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
-  },
-  sheet: {
-    width: 320,
-    maxWidth: '100%',
-    marginBottom: spacing['3xl'],
+  dropdown: {
+    position: 'absolute',
+    bottom: '100%',
+    left: 0,
+    marginBottom: spacing.sm,
+    width: 264,
     paddingVertical: spacing.md,
     borderRadius: borderRadius.xl,
     borderWidth: 1,
     ...shadows.elevated,
   },
-  sheetHeader: {
+  dropdownHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.sm,
   },
-  sheetTitle: {
+  dropdownTitle: {
     ...textStyles.sectionLabel,
+  },
+  dropdownScroll: {
+    maxHeight: 320,
   },
   option: {
     flexDirection: 'row',
@@ -173,6 +183,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     gap: spacing.md,
+  },
+  optionText: {
+    flex: 1,
   },
   optionLabel: {
     ...textStyles.body,

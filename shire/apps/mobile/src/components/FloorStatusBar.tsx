@@ -33,7 +33,7 @@ export function FloorStatusBar({ tables }: FloorStatusBarProps) {
       style={[
         styles.bar,
         {
-          backgroundColor: isDark ? 'rgba(30, 30, 34, 0.92)' : 'rgba(255,255,255,0.95)',
+          backgroundColor: isDark ? 'rgba(17, 24, 32, 0.94)' : 'rgba(255,255,255,0.98)',
           borderColor: colors.glass.border,
         },
       ]}

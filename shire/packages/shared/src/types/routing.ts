@@ -1,4 +1,4 @@
-export type WaiterRoutingMode = 'manual_rotation';
+export type WaiterRoutingMode = 'manual_rotation' | 'section';
 
 export type RoutingWaiterStatus = 'available' | 'busy' | 'on_break';
 

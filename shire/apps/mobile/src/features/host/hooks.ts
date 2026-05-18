@@ -12,6 +12,7 @@ import type {
   WaitlistStatus,
 } from '@shire/shared';
 import { useAuth } from '@/features/auth';
+import { useFloorStore } from '@/features/floor';
 import { useIsWorkdayActive } from '@/features/workday';
 import { queryKeys } from '@/services/api/queryKeys';
 import {
@@ -275,15 +276,48 @@ export function useReservations(filters: ReservationListFilters = {}) {
   });
 }
 
+/**
+ * Mock: surface a table suggestion on the first few upcoming reservations so
+ * hosts can pre-block a table. Remove once the backend returns a real
+ * `suggestedTableId` on the reservation payload.
+ */
+function withMockTableSuggestions(reservations: Reservation[], tableIds: string[]): Reservation[] {
+  if (tableIds.length === 0) {
+    return reservations;
+  }
+
+  const maxSuggestions = Math.min(3, tableIds.length);
+  let assigned = 0;
+
+  return reservations.map((reservation) => {
+    if (
+      reservation.suggestedTableId ||
+      reservation.assignedTableId ||
+      assigned >= maxSuggestions ||
+      ['seated', 'completed', 'canceled', 'no_show'].includes(reservation.status)
+    ) {
+      return reservation;
+    }
+
+    const tableId = tableIds[assigned];
+    assigned += 1;
+    return { ...reservation, suggestedTableId: tableId };
+  });
+}
+
 export function useReservationDayBook(date: string) {
   const reservationsQuery = useReservations({ date });
+  const floorTables = useFloorStore((state) => state.floorMap.tables);
 
   return useMemo(
     () =>
-      (reservationsQuery.data ?? []).sort((left, right) =>
-        left.timeSlot.localeCompare(right.timeSlot),
+      withMockTableSuggestions(
+        (reservationsQuery.data ?? [])
+          .slice()
+          .sort((left, right) => left.timeSlot.localeCompare(right.timeSlot)),
+        Object.keys(floorTables),
       ),
-    [reservationsQuery.data],
+    [reservationsQuery.data, floorTables],
   );
 }
 

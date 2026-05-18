@@ -1,8 +1,5 @@
 import axios from 'axios';
-import type {
-  WaiterRoutingState,
-  WaiterRoutingUpdatePayload,
-} from '@shire/shared';
+import type { WaiterRoutingState, WaiterRoutingUpdatePayload } from '@shire/shared';
 import { apiClient } from '@/services/api/client';
 import { normalizeWaiterRoutingState } from './contracts';
 
@@ -65,4 +62,53 @@ export async function updateWaiterRouting(
     payload,
   );
   return unwrapRoutingResponse(response.data);
+}
+
+export interface RosterWaiter {
+  id: string;
+  name: string;
+  role: string | null;
+}
+
+type WaitersListResponse = { waiters: RosterWaiter[] } | RosterWaiter[];
+
+function unwrapWaitersResponse(response: WaitersListResponse): RosterWaiter[] {
+  if (Array.isArray(response)) {
+    return response;
+  }
+  return response.waiters ?? [];
+}
+
+export async function fetchWaiters(locationId: string): Promise<RosterWaiter[]> {
+  try {
+    const response = await apiClient.get<WaitersListResponse>(`/locations/${locationId}/waiters`);
+    return unwrapWaitersResponse(response.data);
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      return [];
+    }
+
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const suffix = status ? ` (${status})` : '';
+      throw new Error(`Unable to load waiter roster${suffix}.`);
+    }
+
+    throw error instanceof Error ? error : new Error('Unable to load waiter roster.');
+  }
+}
+
+export async function createWaiter(
+  locationId: string,
+  input: { name: string; role?: string },
+): Promise<RosterWaiter> {
+  const response = await apiClient.post<{ waiter: RosterWaiter } | RosterWaiter>(
+    `/locations/${locationId}/waiters`,
+    input,
+  );
+  const data = response.data;
+  if ('waiter' in data && data.waiter) {
+    return data.waiter;
+  }
+  return data as RosterWaiter;
 }

@@ -11,6 +11,7 @@ import { useRouter, Redirect } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { GlassSurface } from '@/components/GlassSurface';
+import { ShiftSetupSheet } from '@/components/ShiftSetupSheet';
 import { useAuth } from '@/features/auth';
 import { resolveFloorId } from '@/features/floor/floorId';
 import { useIsWorkdayActive, useWorkdayStore } from '@/features/workday';
@@ -25,6 +26,7 @@ export default function WorkdayScreen() {
   const startWorkday = useWorkdayStore((state) => state.startWorkday);
   const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
   const [isStarting, setIsStarting] = useState(false);
+  const [showShiftSetup, setShowShiftSetup] = useState(false);
   const floorId = resolveFloorId(currentLocation?.floorId);
 
   if (!isAuthenticated) {
@@ -64,7 +66,8 @@ export default function WorkdayScreen() {
         <Text style={[styles.eyebrow, { color: colors.text.muted }]}>PRE-SHIFT</Text>
         <Text style={[styles.title, { color: colors.text.primary }]}>Start Workday</Text>
         <Text style={[styles.subtitle, { color: colors.text.secondary }]}>
-          Connect the host stand to live floor state and waitlist updates for {currentLocation.name}.
+          Connect the host stand to live floor state and waitlist updates for {currentLocation.name}
+          .
         </Text>
 
         <GlassSurface intensity={45} borderRadius={borderRadius['2xl']} style={styles.card}>
@@ -122,6 +125,23 @@ export default function WorkdayScreen() {
               },
             ]}
             activeOpacity={0.8}
+            onPress={() => setShowShiftSetup(true)}
+          >
+            <Ionicons name="people-circle-outline" size={18} color={colors.text.primary} />
+            <Text style={[styles.mapBuilderButtonText, { color: colors.text.primary }]}>
+              Set Up Shift
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.mapBuilderButton,
+              {
+                borderColor: colors.border.default,
+                backgroundColor: colors.surface.level2,
+              },
+            ]}
+            activeOpacity={0.8}
             onPress={() => router.push('/floor-builder')}
           >
             <Ionicons name="construct-outline" size={18} color={colors.text.primary} />
@@ -157,6 +177,8 @@ export default function WorkdayScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      <ShiftSetupSheet visible={showShiftSetup} onClose={() => setShowShiftSetup(false)} />
     </SafeAreaView>
   );
 }

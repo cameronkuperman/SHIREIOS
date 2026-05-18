@@ -1,7 +1,14 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, type ViewStyle } from 'react-native';
-import { type StatusKey, shadows, borderRadius as br, textStyles } from '@/theme';
-import { useTheme } from '@/theme';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  type TextStyle,
+  type ViewStyle,
+} from 'react-native';
+import { type StatusKey, shadows, textStyles, useTheme } from '@/theme';
+import { ServerAvatar } from './ServerAvatar';
 
 type TableShape = 'circle' | 'square' | 'horizontal';
 
@@ -11,8 +18,17 @@ type TableProps = {
   shape?: TableShape;
   capacity?: number;
   onPress?: () => void;
-  sectionColor?: string;
+  /** A blocked table overrides the status palette with the blocked gray. */
+  isBlocked?: boolean;
+  /** Selected = accent ring + soft lift. */
+  selected?: boolean;
+  /** One live datum under the number — a seated timer or an RSV time. */
+  liveDatum?: string;
+  /** The server who owns this table — shown as a corner avatar badge. */
+  server?: { initials: string; color: string };
   dimmed?: boolean;
+  /** @deprecated superseded by `server` */
+  sectionColor?: string;
 };
 
 const SHAPE_STYLES: Record<TableShape, ViewStyle> = {
@@ -24,106 +40,102 @@ const SHAPE_STYLES: Record<TableShape, ViewStyle> = {
   square: {
     width: 64,
     height: 64,
-    borderRadius: br.lg,
+    borderRadius: 8,
   },
   horizontal: {
     width: 140,
     height: 64,
-    borderRadius: br.lg,
+    borderRadius: 8,
   },
 };
 
 export function Table({
   id,
   status,
-  shape = 'circle',
+  shape = 'square',
   capacity,
   onPress,
-  sectionColor,
+  isBlocked,
+  selected,
+  liveDatum,
+  server,
   dimmed,
 }: TableProps) {
-  const { colors, isDark } = useTheme();
-  const statusColors = colors.status[status];
-  const shapeStyle = SHAPE_STYLES[shape];
+  const { colors } = useTheme();
+  const palette = isBlocked ? colors.blocked : colors.status[status];
 
-  const tableStyle: ViewStyle = {
-    ...baseStyles.tableBase,
-    ...shapeStyle,
-    backgroundColor: statusColors.fill,
-    borderColor: statusColors.border,
-  };
-
-  // Stronger fill for occupied/dirty so status is visible at arm's length
-  const fillOverride: ViewStyle | undefined =
-    status === 'occupied'
-      ? { backgroundColor: isDark ? 'rgba(0, 122, 255, 0.22)' : 'rgba(0, 122, 255, 0.12)' }
-      : status === 'dirty'
-        ? { backgroundColor: isDark ? 'rgba(255, 59, 48, 0.22)' : 'rgba(255, 59, 48, 0.12)' }
-        : status === 'reserved'
-          ? { backgroundColor: isDark ? 'rgba(255, 149, 0, 0.20)' : 'rgba(255, 149, 0, 0.10)' }
-          : undefined;
+  // Available tables stay light & clean (they read as "empty / ready").
+  // Occupied / dirty / reserved / blocked are solid color blocks — the
+  // crisp, glance-readable Yelp host-floor treatment.
+  const isSolid = isBlocked || status !== 'available';
+  const bg = isSolid ? palette.border : palette.fill;
+  const numberColor = isSolid ? '#FFFFFF' : colors.text.primary;
+  const subColor = isSolid ? 'rgba(255,255,255,0.82)' : colors.text.muted;
+  const datumColor = isSolid ? 'rgba(255,255,255,0.92)' : palette.text;
+  const edgeColor = isSolid ? palette.text : palette.border;
 
   return (
     <TouchableOpacity
-      activeOpacity={0.7}
+      activeOpacity={0.8}
       onPress={onPress}
-      style={[tableStyle, fillOverride, dimmed && { opacity: 0.35 }]}
+      style={[
+        viewStyles.tableBase,
+        SHAPE_STYLES[shape],
+        { backgroundColor: bg, borderColor: edgeColor },
+        selected ? { borderColor: colors.accent, borderWidth: 3, ...shadows.elevated } : null,
+        dimmed ? { opacity: 0.4 } : null,
+      ]}
     >
-      <View
-        style={[
-          baseStyles.innerGlow,
-          {
-            borderRadius: shapeStyle.borderRadius,
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
-          },
-        ]}
-      />
-      <Text style={[baseStyles.tableId, { color: colors.text.primary }]}>{id}</Text>
+      <Text style={[textBlocks.tableNumber, { color: numberColor }]}>{id}</Text>
       {capacity != null && (
-        <Text style={[baseStyles.tableCapacity, { color: colors.text.muted }]}>
-          {capacity}p
+        <Text style={[textBlocks.capacity, { color: subColor }]}>{capacity}p</Text>
+      )}
+      {liveDatum != null && (
+        <Text style={[textBlocks.liveDatum, { color: datumColor }]} numberOfLines={1}>
+          {liveDatum}
         </Text>
       )}
-      {sectionColor != null && (
-        <View
-          style={[
-            baseStyles.sectionDot,
-            { backgroundColor: sectionColor },
-          ]}
-        />
+      {server != null && (
+        <View style={viewStyles.avatarSlot}>
+          <ServerAvatar initials={server.initials} color={server.color} size={22} />
+        </View>
       )}
     </TouchableOpacity>
   );
 }
 
-const baseStyles = StyleSheet.create({
+const viewStyles = StyleSheet.create({
   tableBase: {
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1.5,
-    ...shadows.medium,
+    ...shadows.subtle,
   },
-  innerGlow: {
-    ...StyleSheet.absoluteFillObject,
-    borderWidth: 1,
-    pointerEvents: 'none',
+  avatarSlot: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
   },
-  tableId: {
-    ...textStyles.tableId,
+});
+
+const textBlocks = StyleSheet.create<{
+  tableNumber: TextStyle;
+  capacity: TextStyle;
+  liveDatum: TextStyle;
+}>({
+  tableNumber: {
+    ...textStyles.tableNumber,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 24,
   },
-  tableCapacity: {
-    fontSize: 11,
-    fontWeight: '500',
+  capacity: {
+    ...textStyles.tiny,
     marginTop: 1,
   },
-  sectionDot: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.9)',
+  liveDatum: {
+    fontFamily: textStyles.captionMedium.fontFamily,
+    fontSize: 10,
+    marginTop: 1,
+    fontVariant: ['tabular-nums'],
   },
 });

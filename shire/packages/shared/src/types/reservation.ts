@@ -53,6 +53,7 @@ export interface Reservation {
   source: ReservationSource;
   linkedVisitId?: string | null;
   assignedTableId: string | null;
+  suggestedTableId?: string | null;
   pacingOverrideApplied: boolean;
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601

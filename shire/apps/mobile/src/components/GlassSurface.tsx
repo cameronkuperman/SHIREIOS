@@ -1,71 +1,41 @@
 import React from 'react';
-import { View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
-import { shadows } from '@/theme';
-import { useTheme } from '@/theme';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
+import { shadows, useTheme } from '@/theme';
 
 type GlassSurfaceProps = {
   children: React.ReactNode;
-  intensity?: number;
-  tint?: 'light' | 'dark' | 'default';
+  /** Which solid surface level to render. */
+  level?: 'level1' | 'level2';
   borderRadius?: number;
   style?: StyleProp<ViewStyle>;
+  /** @deprecated retained for call-site compatibility — ignored. */
+  intensity?: number;
+  /** @deprecated retained for call-site compatibility — ignored. */
+  tint?: 'light' | 'dark' | 'default';
 };
 
 /**
- * Translucent glass-morphism surface.
- * Uses a plain View with rgba background instead of expo-blur BlurView
- * to avoid "Unimplemented component" errors in Expo Go / new-arch builds.
+ * A solid surface container. (Formerly a glass-morphism surface — the
+ * "calm software" redesign uses opaque cream surfaces, no translucency.)
+ * Props `intensity`/`tint` are kept in the signature so existing call sites
+ * compile unchanged.
  */
 export function GlassSurface({
   children,
-  intensity = 40,
-  tint = 'light',
-  borderRadius = 24,
+  level = 'level1',
+  borderRadius = 16,
   style,
 }: GlassSurfaceProps) {
-  const { colors, isDark } = useTheme();
-
-  // Map intensity (0-100) to a translucent background
-  const opacity = Math.min(intensity / 100, 1);
-  let bgColor: string;
-  if (isDark) {
-    bgColor =
-      tint === 'dark'
-        ? `rgba(0, 0, 0, ${(opacity * 0.6).toFixed(2)})`
-        : `rgba(255, 255, 255, ${(opacity * 0.12).toFixed(2)})`;
-  } else {
-    bgColor =
-      tint === 'dark'
-        ? `rgba(0, 0, 0, ${(opacity * 0.85).toFixed(2)})`
-        : `rgba(255, 255, 255, ${(opacity * 0.85).toFixed(2)})`;
-  }
+  const { colors } = useTheme();
 
   const containerStyle: ViewStyle = {
     borderRadius,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: colors.glass.border,
-    backgroundColor: bgColor,
+    borderColor: colors.border.default,
+    backgroundColor: colors.surface[level],
     ...shadows.subtle,
   };
 
-  return (
-    <View style={[containerStyle, style]}>
-      <View
-        style={[
-          innerStyles.highlight,
-          { borderRadius, borderColor: colors.glass.innerHighlight },
-        ]}
-      />
-      {children}
-    </View>
-  );
+  return <View style={[containerStyle, style]}>{children}</View>;
 }
-
-const innerStyles = StyleSheet.create({
-  highlight: {
-    ...StyleSheet.absoluteFillObject,
-    borderWidth: 1,
-    pointerEvents: 'none',
-  },
-});

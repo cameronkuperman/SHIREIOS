@@ -1,4 +1,5 @@
 // Shire Design System — Color Tokens
+// "Calm software" — soft-cream, light-only. Arc / Craft / Raycast spirit.
 
 type StatusPalette = {
   fill: string;
@@ -27,6 +28,8 @@ export type Colors = {
     dirty: StatusPalette;
     reserved: StatusPalette;
   };
+  // Blocked is a top-level token (not a StatusKey) — applied via `isBlocked`.
+  blocked: StatusPalette;
   accent: string;
   accentLight: string;
   glass: {
@@ -47,140 +50,85 @@ export type Colors = {
 };
 
 export const lightColors: Colors = {
-  // Backgrounds
-  background: '#F7F5F0',
-  backgroundDark: '#1a1a2e',
+  // Cool warm-neutral surfaces (greige — only a whisper of warmth)
+  background: '#EBEBE9', // page
+  backgroundDark: '#1F1E1C', // legacy field — unused in light-only
 
-  // Surface levels (glass layering)
   surface: {
-    level1: 'rgba(255, 255, 255, 0.72)',
-    level2: 'rgba(255, 255, 255, 0.55)',
-    level3: 'rgba(255, 255, 255, 0.35)',
-    level4: 'rgba(255, 255, 255, 0.18)',
+    level1: '#FFFFFF', // cards & table tiles
+    level2: '#F4F4F2', // sidebar & side panels
+    level3: '#FBFBFA', // floor canvas
+    level4: '#F0F0EE', // inset wells / segmented-control track
   },
 
-  // Text
+  // Ink
   text: {
-    primary: '#1a1a1a',
-    secondary: '#666666',
-    muted: '#8A847A',
+    primary: '#1F1E1C',
+    secondary: '#67655F',
+    muted: '#9A988F',
     inverse: '#FFFFFF',
   },
 
-  // Status palette — fill + border pairs
+  // Functional status spectrum — fill = faint tile tint, border = the
+  // canonical hue (legend dots / rings), text = a readable darker variant.
   status: {
     available: {
-      fill: 'rgba(52, 199, 89, 0.08)',
-      border: '#34C759',
-      text: '#2DA44E',
+      fill: '#ECF1E8',
+      border: '#3F7A4E',
+      text: '#2F6B40',
     },
     occupied: {
-      fill: 'rgba(0, 122, 255, 0.08)',
-      border: '#007AFF',
-      text: '#0066DD',
+      fill: '#E9EFF4',
+      border: '#3E6E9E',
+      text: '#2E5C88',
     },
     dirty: {
-      fill: 'rgba(255, 59, 48, 0.08)',
-      border: '#FF3B30',
-      text: '#DD3328',
+      fill: '#F6E7E5',
+      border: '#C24238',
+      text: '#A5392F',
     },
     reserved: {
-      fill: 'rgba(255, 149, 0, 0.08)',
-      border: '#FF9500',
-      text: '#E88B12',
+      fill: '#FBF1DF',
+      border: '#BE8A2A',
+      text: '#94681B',
     },
   },
 
-  // Brand accent — warm emerald
-  accent: '#2D8B55',
-  accentLight: 'rgba(45, 139, 85, 0.12)',
+  blocked: {
+    fill: '#ECEAE6',
+    border: '#9AA0A2',
+    text: '#6F6A62',
+  },
 
-  // Glass tokens
+  // Brand accent — blue, rationed
+  accent: '#2F6CAE',
+  accentLight: '#E7EEF6',
+
+  // Surface tokens (GlassSurface is now a solid surface)
   glass: {
-    tint: 'rgba(255, 255, 255, 0.4)',
-    border: 'rgba(255, 255, 255, 0.5)',
-    borderSubtle: 'rgba(255, 255, 255, 0.3)',
-    shadow: 'rgba(0, 0, 0, 0.08)',
-    innerHighlight: 'rgba(255, 255, 255, 0.6)',
+    tint: '#FFFFFF',
+    border: '#E5E4E1',
+    borderSubtle: '#EDEDEA',
+    shadow: 'rgba(28, 28, 26, 0.06)',
+    innerHighlight: '#FFFFFF',
   },
 
-  // UI borders
+  // Hairline borders
   border: {
-    default: 'rgba(0, 0, 0, 0.06)',
-    subtle: 'rgba(0, 0, 0, 0.04)',
-    strong: 'rgba(0, 0, 0, 0.12)',
-    warm: '#E8DED1',
-  },
-
-  // Semantic
-  white: '#FFFFFF',
-  black: '#000000',
-};
-
-export const darkColors: Colors = {
-  background: '#121214',
-  backgroundDark: '#0A0A0C',
-
-  surface: {
-    level1: 'rgba(255, 255, 255, 0.10)',
-    level2: 'rgba(255, 255, 255, 0.07)',
-    level3: 'rgba(255, 255, 255, 0.05)',
-    level4: 'rgba(255, 255, 255, 0.03)',
-  },
-
-  text: {
-    primary: '#F0EEEB',
-    secondary: '#A0A0A0',
-    muted: '#6A6660',
-    inverse: '#1a1a1a',
-  },
-
-  status: {
-    available: {
-      fill: 'rgba(52, 199, 89, 0.18)',
-      border: '#34C759',
-      text: '#4ADE80',
-    },
-    occupied: {
-      fill: 'rgba(0, 122, 255, 0.18)',
-      border: '#007AFF',
-      text: '#60A5FA',
-    },
-    dirty: {
-      fill: 'rgba(255, 59, 48, 0.18)',
-      border: '#FF3B30',
-      text: '#F87171',
-    },
-    reserved: {
-      fill: 'rgba(255, 149, 0, 0.18)',
-      border: '#FF9500',
-      text: '#FBBF24',
-    },
-  },
-
-  accent: '#34D399',
-  accentLight: 'rgba(52, 211, 153, 0.15)',
-
-  glass: {
-    tint: 'rgba(255, 255, 255, 0.06)',
-    border: 'rgba(255, 255, 255, 0.12)',
-    borderSubtle: 'rgba(255, 255, 255, 0.08)',
-    shadow: 'rgba(0, 0, 0, 0.4)',
-    innerHighlight: 'rgba(255, 255, 255, 0.08)',
-  },
-
-  border: {
-    default: 'rgba(255, 255, 255, 0.08)',
-    subtle: 'rgba(255, 255, 255, 0.05)',
-    strong: 'rgba(255, 255, 255, 0.15)',
-    warm: '#2A2520',
+    default: '#E5E4E1',
+    subtle: '#EDEDEA',
+    strong: '#D6D5D0',
+    warm: '#E5E4E1',
   },
 
   white: '#FFFFFF',
   black: '#000000',
 };
 
-// Backward-compatible static export (light theme default)
+// Light-only: darkColors aliases lightColors so existing imports resolve.
+export const darkColors: Colors = lightColors;
+
+// Backward-compatible static export.
 export const colors = lightColors;
 
 export type StatusKey = keyof Colors['status'];

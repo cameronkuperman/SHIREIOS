@@ -13,3 +13,6 @@ export {
   useWaiterRoutingStore,
 } from './store';
 export type { WaiterCardData, WaiterChipData } from './store';
+export { useWaiters } from './useWaiters';
+export type { UseWaitersResult } from './useWaiters';
+export type { RosterWaiter } from './api';

@@ -3,24 +3,24 @@ import { type ViewStyle } from 'react-native';
 
 export const shadows: Record<string, ViewStyle> = {
   subtle: {
-    shadowColor: '#000',
+    shadowColor: '#152333',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
     elevation: 2,
   },
   medium: {
-    shadowColor: '#000',
+    shadowColor: '#152333',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
+    shadowOpacity: 0.09,
+    shadowRadius: 18,
     elevation: 4,
   },
   elevated: {
-    shadowColor: '#000',
+    shadowColor: '#152333',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
+    shadowOpacity: 0.14,
+    shadowRadius: 26,
     elevation: 8,
   },
   glass: {

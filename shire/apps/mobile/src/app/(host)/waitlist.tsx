@@ -29,13 +29,25 @@ import {
   useWaitlist,
   useWaitlistMutations,
   waitlistToSidebarParty,
+  type HostSidebarParty,
 } from '@/features/host/hooks';
 import { useTemplates, useWaitlistNotify } from '@/features/messaging/hooks';
-import type { ReservationStatus } from '@shire/shared';
+import type { Reservation, ReservationStatus } from '@shire/shared';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
 
-type QueueTab = 'waitlist' | 'reservations';
-type QueueDetailTarget = { source: QueueTab; id: string } | null;
+type QueueItemSource = 'waitlist' | 'reservations';
+type QueueTab = 'all' | QueueItemSource;
+type QueueDetailTarget = { source: QueueItemSource; id: string } | null;
+
+const QUEUE_TABS: {
+  key: QueueTab;
+  label: string;
+  icon: 'layers-outline' | 'people-outline' | 'calendar-outline';
+}[] = [
+  { key: 'all', label: 'All', icon: 'layers-outline' },
+  { key: 'waitlist', label: 'Waitlist', icon: 'people-outline' },
+  { key: 'reservations', label: 'Reservations', icon: 'calendar-outline' },
+];
 
 const RESERVATION_FILTERS: { key: ReservationStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -99,6 +111,32 @@ export default function WaitlistScreen() {
       );
     });
   }, [reservationBook, search, statusFilter]);
+  type QueueAllItem =
+    | { kind: 'waitlist'; id: string; sortKey: number; party: HostSidebarParty }
+    | { kind: 'reservation'; id: string; sortKey: number; reservation: Reservation };
+  const allItems = useMemo<QueueAllItem[]>(() => {
+    const items: QueueAllItem[] = [];
+    waitlistEntries.forEach((entry, index) => {
+      const card = waitlistCards[index];
+      if (!card) return;
+      items.push({
+        kind: 'waitlist',
+        id: entry.id,
+        sortKey: Date.parse(entry.joinedAt) || 0,
+        party: card,
+      });
+    });
+    filteredReservations.forEach((reservation) => {
+      items.push({
+        kind: 'reservation',
+        id: reservation.id,
+        sortKey: Date.parse(`${selectedDate}T${reservation.timeSlot}:00`) || 0,
+        reservation,
+      });
+    });
+    return items.sort((a, b) => a.sortKey - b.sortKey);
+  }, [waitlistEntries, waitlistCards, filteredReservations, selectedDate]);
+
   const selectedEntry =
     detailTarget?.source === 'waitlist'
       ? (waitlistEntries.find((entry) => entry.id === detailTarget.id) ?? null)
@@ -157,6 +195,39 @@ export default function WaitlistScreen() {
     }
   };
 
+  const renderWaitlistCard = (party: HostSidebarParty, index: number) => (
+    <Animated.View key={party.id} entering={FadeIn.delay(index * 40).duration(220)}>
+      <WaitlistCard
+        party={party}
+        index={index}
+        isSelected={detailTarget?.source === 'waitlist' && detailTarget.id === party.id}
+        onPress={() => setDetailTarget({ source: 'waitlist', id: party.id })}
+        isNotifying={waitlistNotify.isPending}
+        onNotify={async () => {
+          try {
+            await waitlistNotify.mutateAsync({ entryId: party.id });
+          } catch (error) {
+            Alert.alert(
+              'Unable to Notify',
+              extractHostRequestErrorMessage(error, 'The guest could not be notified.'),
+            );
+          }
+        }}
+        onNotifyMore={() => setNotifyEntryId(party.id)}
+      />
+    </Animated.View>
+  );
+
+  const renderReservationCard = (reservation: Reservation, index: number) => (
+    <Animated.View key={reservation.id} entering={FadeIn.delay(index * 30).duration(220)}>
+      <ReservationCard
+        reservation={reservation}
+        isSelected={detailTarget?.source === 'reservations' && detailTarget.id === reservation.id}
+        onPress={() => setDetailTarget({ source: 'reservations', id: reservation.id })}
+      />
+    </Animated.View>
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
@@ -179,9 +250,11 @@ export default function WaitlistScreen() {
             ]}
           >
             <Text style={[styles.countText, { color: colors.text.secondary }]}>
-              {activeTab === 'waitlist'
-                ? `${waitlistCards.length} parties`
-                : `${filteredReservations.length} reservations`}
+              {activeTab === 'all'
+                ? `${allItems.length} waiting`
+                : activeTab === 'waitlist'
+                  ? `${waitlistCards.length} parties`
+                  : `${filteredReservations.length} reservations`}
             </Text>
           </View>
           {activeTab === 'reservations' && (
@@ -220,93 +293,167 @@ export default function WaitlistScreen() {
         </View>
       </View>
 
-      <View style={styles.segmentRow}>
-        {(['waitlist', 'reservations'] as const).map((tab) => {
-          const isActive = activeTab === tab;
-          return (
-            <TouchableOpacity
-              key={tab}
-              style={[
-                styles.segmentButton,
-                {
-                  backgroundColor: isActive ? colors.accentLight : colors.surface.level2,
-                  borderColor: isActive ? colors.accent : colors.glass.borderSubtle,
-                },
-              ]}
-              onPress={() => {
-                setActiveTab(tab);
-                setDetailTarget(null);
-              }}
-            >
-              <Text
+      <View style={styles.queueWorkspace}>
+        <View
+          style={[
+            styles.queuePanel,
+            { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
+          ]}
+        >
+          <Text style={[styles.panelEyebrow, { color: colors.text.muted }]}>Live book</Text>
+          {QUEUE_TABS.map((tab) => {
+            const isActive = activeTab === tab.key;
+            const count =
+              tab.key === 'all'
+                ? allItems.length
+                : tab.key === 'waitlist'
+                  ? waitlistCards.length
+                  : filteredReservations.length;
+            return (
+              <TouchableOpacity
+                key={tab.key}
                 style={[
-                  styles.segmentText,
-                  { color: isActive ? colors.accent : colors.text.secondary },
+                  styles.queueSwitch,
+                  {
+                    backgroundColor: isActive ? colors.accentLight : colors.surface.level2,
+                    borderColor: isActive ? colors.accent : colors.border.subtle,
+                  },
                 ]}
+                onPress={() => {
+                  setActiveTab(tab.key);
+                  setDetailTarget(null);
+                }}
               >
-                {tab === 'waitlist' ? 'Waitlist' : 'Reservations'}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {activeTab === 'reservations' && (
-        <>
-          <View
-            style={[
-              styles.searchBar,
-              { backgroundColor: colors.surface.level1, borderColor: colors.glass.border },
-            ]}
-          >
-            <Ionicons name="search-outline" size={18} color={colors.text.muted} />
-            <TextInput
-              style={[styles.searchInput, { color: colors.text.primary }]}
-              placeholder="Search name or phone"
-              placeholderTextColor={colors.text.muted}
-              value={search}
-              onChangeText={setSearch}
-            />
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterScroll}
-            contentContainerStyle={styles.filterRow}
-          >
-            {RESERVATION_FILTERS.map((filter) => {
-              const isActive = statusFilter === filter.key;
-              return (
-                <TouchableOpacity
-                  key={filter.key}
-                  style={[
-                    styles.filterChip,
-                    {
-                      backgroundColor: isActive ? colors.accentLight : colors.surface.level2,
-                      borderColor: isActive ? colors.accent : colors.glass.borderSubtle,
-                    },
-                  ]}
-                  onPress={() => setStatusFilter(filter.key)}
-                >
+                <View style={styles.queueSwitchIcon}>
+                  <Ionicons
+                    name={tab.icon}
+                    size={19}
+                    color={isActive ? colors.accent : colors.text.secondary}
+                  />
+                </View>
+                <View style={styles.queueSwitchText}>
                   <Text
                     style={[
-                      styles.filterLabel,
-                      { color: isActive ? colors.accent : colors.text.secondary },
+                      styles.segmentText,
+                      { color: isActive ? colors.accent : colors.text.primary },
                     ]}
                   >
-                    {filter.label}
+                    {tab.label}
                   </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+                  <Text style={[styles.switchSubtext, { color: colors.text.muted }]}>
+                    {count} active
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
 
-          {showCalendar && (
+          {activeTab === 'reservations' && (
+            <>
+              <TouchableOpacity
+                style={[
+                  styles.dateButton,
+                  { backgroundColor: colors.surface.level2, borderColor: colors.border.subtle },
+                ]}
+                activeOpacity={0.76}
+                onPress={() => setShowCalendar((current) => !current)}
+              >
+                <Ionicons name="calendar-outline" size={18} color={colors.text.secondary} />
+                <Text style={[styles.dateButtonText, { color: colors.text.primary }]}>
+                  {selectedDate}
+                </Text>
+              </TouchableOpacity>
+              <View
+                style={[
+                  styles.searchBar,
+                  { backgroundColor: colors.surface.level2, borderColor: colors.border.subtle },
+                ]}
+              >
+                <Ionicons name="search-outline" size={18} color={colors.text.muted} />
+                <TextInput
+                  style={[styles.searchInput, { color: colors.text.primary }]}
+                  placeholder="Search guest"
+                  placeholderTextColor={colors.text.muted}
+                  value={search}
+                  onChangeText={setSearch}
+                />
+              </View>
+              <View style={styles.filterGrid}>
+                {RESERVATION_FILTERS.map((filter) => {
+                  const isActive = statusFilter === filter.key;
+                  return (
+                    <TouchableOpacity
+                      key={filter.key}
+                      style={[
+                        styles.filterChip,
+                        {
+                          backgroundColor: isActive ? colors.accentLight : colors.surface.level2,
+                          borderColor: isActive ? colors.accent : colors.border.subtle,
+                        },
+                      ]}
+                      onPress={() => setStatusFilter(filter.key)}
+                    >
+                      <Text
+                        style={[
+                          styles.filterLabel,
+                          { color: isActive ? colors.accent : colors.text.secondary },
+                        ]}
+                      >
+                        {filter.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
+        </View>
+
+        <View
+          style={[
+            styles.queueBoard,
+            { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
+          ]}
+        >
+          <View style={styles.boardHeader}>
+            <View>
+              <Text style={[styles.boardTitle, { color: colors.text.primary }]}>
+                {activeTab === 'all'
+                  ? 'All waiting'
+                  : activeTab === 'waitlist'
+                    ? 'Waiting parties'
+                    : 'Reservation book'}
+              </Text>
+              <Text style={[styles.boardSubtitle, { color: colors.text.muted }]}>
+                {activeTab === 'all'
+                  ? 'Waitlist and reservations together, by time.'
+                  : activeTab === 'waitlist'
+                    ? 'Notify, inspect, and move parties to the floor.'
+                    : 'Search by guest and filter by arrival state.'}
+              </Text>
+            </View>
+            {activeTab === 'reservations' && (
+              <TouchableOpacity
+                style={[
+                  styles.calendarBtn,
+                  {
+                    backgroundColor: colors.surface.level2,
+                    borderColor: colors.border.subtle,
+                  },
+                ]}
+                activeOpacity={0.7}
+                onPress={() => setShowCalendar((current) => !current)}
+              >
+                <Ionicons name="calendar-outline" size={18} color={colors.text.primary} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {activeTab === 'reservations' && showCalendar && (
             <View
               style={[
                 styles.calendarCard,
-                { backgroundColor: colors.surface.level1, borderColor: colors.glass.border },
+                { backgroundColor: colors.surface.level2, borderColor: colors.border.subtle },
               ]}
             >
               <CalendarGrid
@@ -317,101 +464,94 @@ export default function WaitlistScreen() {
               />
             </View>
           )}
-        </>
-      )}
 
-      <ScrollView
-        style={styles.list}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {activeTab === 'waitlist'
-          ? waitlistCards.map((party, index) => (
-              <Animated.View key={party.id} entering={FadeIn.delay(index * 40).duration(220)}>
-                <WaitlistCard
-                  party={party}
-                  index={index}
-                  isSelected={detailTarget?.source === 'waitlist' && detailTarget.id === party.id}
-                  onPress={() => setDetailTarget({ source: 'waitlist', id: party.id })}
-                  isNotifying={waitlistNotify.isPending}
-                  onNotify={async () => {
-                    try {
-                      await waitlistNotify.mutateAsync({ entryId: party.id });
-                    } catch (error) {
-                      Alert.alert(
-                        'Unable to Notify',
-                        extractHostRequestErrorMessage(error, 'The guest could not be notified.'),
-                      );
-                    }
+          <ScrollView
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {activeTab === 'waitlist' &&
+              waitlistCards.map((party, index) => renderWaitlistCard(party, index))}
+
+            {activeTab === 'reservations' &&
+              filteredReservations.map((reservation, index) =>
+                renderReservationCard(reservation, index),
+              )}
+
+            {activeTab === 'all' &&
+              allItems.map((item, index) =>
+                item.kind === 'waitlist'
+                  ? renderWaitlistCard(item.party, index)
+                  : renderReservationCard(item.reservation, index),
+              )}
+
+            {activeTab === 'all' && allItems.length === 0 && (
+              <View style={styles.emptyState}>
+                <Ionicons name="layers-outline" size={42} color={colors.text.muted} />
+                <Text style={[styles.emptyText, { color: colors.text.muted }]}>
+                  No parties waiting.
+                </Text>
+              </View>
+            )}
+
+            {activeTab === 'waitlist' && waitlistQuery.isLoading && waitlistCards.length === 0 && (
+              <View style={styles.emptyState}>
+                <ActivityIndicator color={colors.accent} />
+                <Text style={[styles.emptyText, { color: colors.text.muted }]}>
+                  Loading waitlist...
+                </Text>
+              </View>
+            )}
+
+            {activeTab === 'waitlist' && waitlistErrorMessage && !waitlistQuery.isLoading && (
+              <View style={styles.emptyState}>
+                <Ionicons name="alert-circle-outline" size={42} color={colors.status.dirty.text} />
+                <Text style={[styles.emptyText, { color: colors.status.dirty.text }]}>
+                  {waitlistErrorMessage}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.retryButton,
+                    {
+                      backgroundColor: colors.surface.level2,
+                      borderColor: colors.glass.border,
+                    },
+                  ]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    void waitlistQuery.refetch();
                   }}
-                  onNotifyMore={() => setNotifyEntryId(party.id)}
-                />
-              </Animated.View>
-            ))
-          : filteredReservations.map((reservation, index) => (
-              <Animated.View key={reservation.id} entering={FadeIn.delay(index * 30).duration(220)}>
-                <ReservationCard
-                  reservation={reservation}
-                  isSelected={
-                    detailTarget?.source === 'reservations' && detailTarget.id === reservation.id
-                  }
-                  onPress={() => setDetailTarget({ source: 'reservations', id: reservation.id })}
-                />
-              </Animated.View>
-            ))}
+                >
+                  <Text style={[styles.retryButtonText, { color: colors.text.primary }]}>
+                    Retry
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
-        {activeTab === 'waitlist' && waitlistQuery.isLoading && waitlistCards.length === 0 && (
-          <View style={styles.emptyState}>
-            <ActivityIndicator color={colors.accent} />
-            <Text style={[styles.emptyText, { color: colors.text.muted }]}>Loading waitlist…</Text>
-          </View>
-        )}
+            {activeTab === 'waitlist' &&
+              !waitlistQuery.isLoading &&
+              !waitlistErrorMessage &&
+              waitlistCards.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Ionicons name="person-add-outline" size={42} color={colors.text.muted} />
+                  <Text style={[styles.emptyText, { color: colors.text.muted }]}>
+                    No active waitlist entries
+                  </Text>
+                </View>
+              )}
 
-        {activeTab === 'waitlist' && waitlistErrorMessage && !waitlistQuery.isLoading && (
-          <View style={styles.emptyState}>
-            <Ionicons name="alert-circle-outline" size={42} color={colors.status.dirty.text} />
-            <Text style={[styles.emptyText, { color: colors.status.dirty.text }]}>
-              {waitlistErrorMessage}
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.retryButton,
-                {
-                  backgroundColor: colors.surface.level2,
-                  borderColor: colors.glass.border,
-                },
-              ]}
-              activeOpacity={0.7}
-              onPress={() => {
-                void waitlistQuery.refetch();
-              }}
-            >
-              <Text style={[styles.retryButtonText, { color: colors.text.primary }]}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {activeTab === 'waitlist' &&
-          !waitlistQuery.isLoading &&
-          !waitlistErrorMessage &&
-          waitlistCards.length === 0 && (
-            <View style={styles.emptyState}>
-              <Ionicons name="person-add-outline" size={42} color={colors.text.muted} />
-              <Text style={[styles.emptyText, { color: colors.text.muted }]}>
-                No active waitlist entries
-              </Text>
-            </View>
-          )}
-
-        {activeTab === 'reservations' && filteredReservations.length === 0 && (
-          <View style={styles.emptyState}>
-            <Ionicons name="calendar-clear-outline" size={42} color={colors.text.muted} />
-            <Text style={[styles.emptyText, { color: colors.text.muted }]}>
-              No reservations in this view
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+            {activeTab === 'reservations' && filteredReservations.length === 0 && (
+              <View style={styles.emptyState}>
+                <Ionicons name="calendar-clear-outline" size={42} color={colors.text.muted} />
+                <Text style={[styles.emptyText, { color: colors.text.muted }]}>
+                  No reservations in this view
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
 
       <HostPersonDetailSheet
         visible={Boolean(selectedEntry || selectedReservation)}
@@ -517,8 +657,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    paddingTop: 28,
+    paddingBottom: spacing.md,
   },
   title: {
     ...textStyles.title,
@@ -532,21 +673,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
-  segmentRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing.md,
-  },
-  segmentButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: borderRadius.pill,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-  },
   segmentText: {
     ...textStyles.captionMedium,
+    fontWeight: '800',
   },
   countBadge: {
     paddingHorizontal: spacing.md,
@@ -567,14 +696,70 @@ const styles = StyleSheet.create({
   calendarBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  searchBar: {
-    marginHorizontal: spacing['2xl'],
+  queueWorkspace: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xl,
+  },
+  queuePanel: {
+    width: 284,
+    borderWidth: 1,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+  },
+  queueBoard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+  },
+  panelEyebrow: {
+    ...textStyles.sectionLabel,
     marginBottom: spacing.md,
+  },
+  queueSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  queueSwitchIcon: {
+    width: 34,
+    alignItems: 'center',
+  },
+  queueSwitchText: {
+    flex: 1,
+  },
+  switchSubtext: {
+    ...textStyles.tiny,
+    marginTop: 1,
+  },
+  dateButton: {
+    marginTop: spacing.lg,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  dateButtonText: {
+    ...textStyles.captionMedium,
+    fontWeight: '700',
+  },
+  searchBar: {
+    marginTop: spacing.sm,
     borderWidth: 1,
     borderRadius: borderRadius.lg,
     paddingHorizontal: spacing.md,
@@ -587,14 +772,11 @@ const styles = StyleSheet.create({
     flex: 1,
     ...textStyles.body,
   },
-  filterScroll: {
-    flexGrow: 0,
-  },
-  filterRow: {
-    paddingHorizontal: spacing['2xl'],
+  filterGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
-    paddingBottom: spacing.md,
-    alignItems: 'center',
+    marginTop: spacing.md,
   },
   filterChip: {
     borderRadius: borderRadius.pill,
@@ -606,17 +788,32 @@ const styles = StyleSheet.create({
     ...textStyles.captionMedium,
   },
   calendarCard: {
-    marginHorizontal: spacing['2xl'],
+    marginHorizontal: spacing.lg,
     marginBottom: spacing.md,
     borderRadius: borderRadius.xl,
     borderWidth: 1,
     paddingVertical: spacing.md,
   },
+  boardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  boardTitle: {
+    ...textStyles.subtitle,
+  },
+  boardSubtitle: {
+    ...textStyles.caption,
+    marginTop: 2,
+  },
   list: {
     flex: 1,
   },
   listContent: {
-    paddingHorizontal: spacing['2xl'],
+    paddingHorizontal: spacing.lg,
     paddingBottom: spacing['3xl'],
   },
   emptyState: {

@@ -60,7 +60,7 @@ export function WaitlistCard({
         styles.card,
         {
           backgroundColor: colors.surface.level1,
-          borderColor: colors.glass.border,
+          borderColor: colors.border.subtle,
         },
         isSelected && {
           borderColor: colors.accent,
@@ -68,6 +68,7 @@ export function WaitlistCard({
         },
       ]}
     >
+      <View style={[styles.priorityStripe, { backgroundColor: statusColor }]} />
       <View style={styles.info}>
         <View style={styles.nameRow}>
           <Text style={[styles.name, { color: colors.text.primary }]}>
@@ -122,14 +123,20 @@ export function WaitlistCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
     marginBottom: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
     ...shadows.subtle,
+  },
+  priorityStripe: {
+    width: 3,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    marginRight: spacing.sm,
   },
   info: {
     flex: 1,

@@ -16,10 +16,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     name: 'Shire',
     slug: 'shire',
     version: packageJson.version,
-    orientation: 'portrait',
+    orientation: 'landscape',
     icon: './src/assets/icon.png',
     scheme: 'shire',
-    userInterfaceStyle: 'automatic',
+    userInterfaceStyle: 'light',
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
@@ -31,7 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       adaptiveIcon: {
-        backgroundColor: '#1a1a2e',
+        backgroundColor: '#EBEBE9',
       },
       package: 'com.shire.mobile',
       edgeToEdgeEnabled: true,
@@ -45,10 +45,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       [
         'expo-splash-screen',
         {
-          backgroundColor: '#1a1a2e',
-          dark: {
-            backgroundColor: '#1a1a2e',
-          },
+          backgroundColor: '#EBEBE9',
         },
       ],
     ],

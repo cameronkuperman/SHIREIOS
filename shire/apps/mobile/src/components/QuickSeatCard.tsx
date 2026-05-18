@@ -37,7 +37,7 @@ export function QuickSeatCard({
     <TouchableOpacity activeOpacity={0.7} onPress={onPress}>
       <GlassSurface
         intensity={50}
-        borderRadius={borderRadius.xl}
+        borderRadius={borderRadius.lg}
         style={styles.card}
       >
         {label && (
@@ -67,11 +67,12 @@ export function QuickSeatCard({
 
 const styles = StyleSheet.create({
   card: {
-    width: 200,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    alignItems: 'center',
-    ...shadows.medium,
+    width: 176,
+    minHeight: 92,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    alignItems: 'flex-start',
+    ...shadows.subtle,
   },
   labelBadge: {
     paddingHorizontal: spacing.sm,
@@ -84,7 +85,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   icon: {
-    marginBottom: spacing.sm,
+    position: 'absolute',
+    right: spacing.md,
+    top: spacing.md,
   },
   tableId: {
     ...textStyles.label,
