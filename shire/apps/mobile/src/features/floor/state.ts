@@ -85,6 +85,7 @@ export interface TableDetailsViewModel extends FloorTableViewModel {
   override: TableOverride | null;
   currentWaiterId: string | null;
   currentWaiterName: string | null;
+  currentPartySize: number | null;
 }
 
 const COMMAND_REJECTED_MESSAGES: Partial<Record<BusinessRuleError['code'], string>> = {
@@ -779,5 +780,6 @@ export function selectTableDetails(
     override: liveTable.override,
     currentWaiterId: liveTable.currentWaiterId ?? null,
     currentWaiterName: liveTable.currentWaiterName ?? null,
+    currentPartySize: liveTable.currentPartySize ?? null,
   };
 }

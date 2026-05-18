@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Modal,
   Pressable,
+  TextInput,
   type LayoutRectangle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +14,8 @@ import { textStyles, spacing, shadows, borderRadius } from '@/theme';
 import { useTheme } from '@/theme';
 import type { StatusKey } from '@/theme';
 import type { WaiterChipData } from '@/features/routing';
+
+type PillKey = 'available' | 'occupied' | 'dirty' | 'blocked';
 
 type TablePopoverProps = {
   visible: boolean;
@@ -22,15 +25,21 @@ type TablePopoverProps = {
   status: StatusKey;
   isBlocked?: boolean;
   capacity?: number;
+  sectionLabel?: string;
   server?: string;
   serverColor?: string;
   partyName?: string;
+  currentPartySize?: number | null;
   seatedTime?: string;
   anchorLayout?: LayoutRectangle;
-  onSeat?: () => void;
-  onClear?: () => void;
+  selectedPartyName?: string | null;
+  nextUpServer?: { name: string; color?: string } | null;
+  routingModeLabel?: string;
+  onMarkSeated?: () => void;
+  onSeatWalkIn?: (size: number, name: string) => void;
+  onMarkAvailable?: () => void;
+  onMarkDirty?: () => void;
   onBlock?: () => void;
-  blockActionLabel?: string;
   servers?: WaiterChipData[];
   currentServerId?: string;
   onChangeServer?: (serverId: string) => void;
@@ -38,12 +47,20 @@ type TablePopoverProps = {
   seatWarning?: string;
 };
 
-const STATUS_LABELS: Record<StatusKey, string> = {
-  available: 'Available',
-  occupied: 'Occupied',
-  dirty: 'Needs Cleaning',
-  reserved: 'Reserved',
-};
+const PILLS: { key: PillKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'available', label: 'Open', icon: 'checkmark-circle-outline' },
+  { key: 'occupied', label: 'Seated', icon: 'people-outline' },
+  { key: 'dirty', label: 'Dirty', icon: 'sparkles-outline' },
+  { key: 'blocked', label: 'Block', icon: 'close-circle-outline' },
+];
+
+function currentPill(status: StatusKey, isBlocked: boolean): PillKey {
+  if (isBlocked) return 'blocked';
+  if (status === 'available') return 'available';
+  if (status === 'occupied') return 'occupied';
+  if (status === 'dirty') return 'dirty';
+  return 'available';
+}
 
 export function TablePopover({
   visible,
@@ -53,15 +70,21 @@ export function TablePopover({
   status,
   isBlocked = false,
   capacity,
+  sectionLabel,
   server,
   serverColor,
   partyName,
+  currentPartySize,
   seatedTime,
   anchorLayout,
-  onSeat,
-  onClear,
+  selectedPartyName,
+  nextUpServer,
+  routingModeLabel,
+  onMarkSeated,
+  onSeatWalkIn,
+  onMarkAvailable,
+  onMarkDirty,
   onBlock,
-  blockActionLabel = 'Block',
   servers,
   currentServerId,
   onChangeServer,
@@ -70,18 +93,104 @@ export function TablePopover({
 }: TablePopoverProps) {
   const { colors, isDark } = useTheme();
   const [serverPickerOpen, setServerPickerOpen] = useState(false);
+  const [walkInMode, setWalkInMode] = useState(false);
+  const [walkInSize, setWalkInSize] = useState<number | null>(null);
+  const [walkInName, setWalkInName] = useState('');
+  const [walkInCustomOpen, setWalkInCustomOpen] = useState(false);
+  const [walkInCustomText, setWalkInCustomText] = useState('');
+
+  useEffect(() => {
+    if (!visible) {
+      setWalkInMode(false);
+      setWalkInSize(null);
+      setWalkInName('');
+      setWalkInCustomOpen(false);
+      setWalkInCustomText('');
+      setServerPickerOpen(false);
+    }
+  }, [visible]);
+
+  const activePill = currentPill(status, isBlocked);
 
   if (!visible) return null;
 
   const popoverTop = anchorLayout ? anchorLayout.y + anchorLayout.height + 8 : 200;
   const popoverLeft = anchorLayout
-    ? Math.max(16, anchorLayout.x + anchorLayout.width / 2 - 130)
+    ? Math.max(16, anchorLayout.x + anchorLayout.width / 2 - 160)
     : 100;
 
-  const statusColor = colors.status[status];
-  const popoverBg = isDark ? 'rgba(30, 30, 34, 0.92)' : 'rgba(255, 255, 255, 0.92)';
+  const popoverBg = isDark ? 'rgba(30, 30, 34, 0.94)' : 'rgba(255, 255, 255, 0.94)';
   const canEditServer = Boolean(servers && onChangeServer);
   const serverLabel = server ?? (canEditServer ? 'Assign waiter' : null);
+
+  const isAvailable = activePill === 'available';
+  const isOccupied = activePill === 'occupied';
+  const isDirty = activePill === 'dirty';
+  const isBlockedActive = activePill === 'blocked';
+
+  const handlePillPress = (target: PillKey) => {
+    if (target === activePill) return;
+
+    if (target === 'blocked') {
+      onBlock?.();
+      return;
+    }
+
+    if (isBlockedActive) {
+      if (target === 'available') {
+        onBlock?.();
+      }
+      return;
+    }
+
+    if (target === 'occupied') {
+      if (!isAvailable) return;
+      if (selectedPartyName && onMarkSeated) {
+        onMarkSeated();
+        return;
+      }
+      if (onSeatWalkIn) {
+        setWalkInMode(true);
+        setWalkInSize(null);
+        setWalkInName('');
+        setWalkInCustomOpen(false);
+        setWalkInCustomText('');
+      }
+      return;
+    }
+
+    if (target === 'dirty') {
+      if (!isOccupied) return;
+      onMarkDirty?.();
+      return;
+    }
+
+    if (target === 'available') {
+      if (isOccupied || isDirty) {
+        onMarkAvailable?.();
+      }
+      return;
+    }
+  };
+
+  const pillEnabled = (target: PillKey): boolean => {
+    if (target === activePill) return false;
+    if (isBlockedActive) return target === 'available';
+    if (target === 'blocked') return !isOccupied;
+    if (target === 'occupied') return isAvailable;
+    if (target === 'dirty') return isOccupied;
+    if (target === 'available') return isOccupied || isDirty;
+    return false;
+  };
+
+  const handleSubmitWalkIn = () => {
+    const size = walkInCustomOpen ? parseInt(walkInCustomText, 10) : walkInSize;
+    if (!size || size < 1) return;
+    onSeatWalkIn?.(size, walkInName.trim());
+  };
+
+  const walkInSubmitSize = walkInCustomOpen ? parseInt(walkInCustomText, 10) : walkInSize;
+  const canSubmitWalkIn = Boolean(walkInSubmitSize && walkInSubmitSize >= 1);
 
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
@@ -97,234 +206,465 @@ export function TablePopover({
           ]}
           onStartShouldSetResponder={() => true}
         >
-          {/* Translucent background (replaces BlurView) */}
           <View style={[StyleSheet.absoluteFill, { backgroundColor: popoverBg }]} />
           <View style={styles.content}>
-            {/* Arrow indicator */}
             <View
               style={[
                 styles.arrow,
                 {
                   left: anchorLayout
                     ? anchorLayout.width / 2 + (anchorLayout.x - popoverLeft) - 8
-                    : 122,
+                    : 152,
                   backgroundColor: isDark ? '#1E1E22' : colors.surface.level1,
                   borderColor: colors.glass.border,
                 },
               ]}
             />
 
-            {/* Header */}
             <View style={styles.header}>
-              <Text style={[styles.title, { color: colors.text.primary }]}>
-                Table {tableLabel ?? tableId}
-              </Text>
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: statusColor.fill, borderColor: statusColor.border },
-                ]}
-              >
-                <Text style={[styles.statusText, { color: statusColor.text }]}>
-                  {STATUS_LABELS[status]}
+              <View style={styles.headerLeft}>
+                <Text style={[styles.title, { color: colors.text.primary }]}>
+                  Table {tableLabel ?? tableId}
                 </Text>
-              </View>
-            </View>
-
-            {/* Info rows */}
-            {capacity != null && (
-              <View style={styles.infoRow}>
-                <Ionicons name="people-outline" size={16} color={colors.text.muted} />
-                <Text style={[styles.infoText, { color: colors.text.secondary }]}>
-                  Seats {capacity}
-                </Text>
-              </View>
-            )}
-            {serverLabel && (
-              <TouchableOpacity
-                activeOpacity={canEditServer ? 0.7 : 1}
-                disabled={!canEditServer}
-                onPress={() => {
-                  if (canEditServer) {
-                    setServerPickerOpen(!serverPickerOpen);
-                  }
-                }}
-                style={styles.infoRow}
-              >
-                {serverColor ? (
-                  <View style={[styles.serverDotSmall, { backgroundColor: serverColor }]} />
-                ) : (
-                  <Ionicons name="person-outline" size={16} color={colors.text.muted} />
-                )}
-                <Text style={[styles.infoText, { color: colors.text.secondary, flex: 1 }]}>
-                  {serverLabel}
-                </Text>
-                {canEditServer && (
-                  <Ionicons
-                    name={serverPickerOpen ? 'chevron-up' : 'chevron-down'}
-                    size={14}
-                    color={colors.text.muted}
-                  />
-                )}
-              </TouchableOpacity>
-            )}
-            {serverPickerOpen && servers && onChangeServer && (
-              <View style={[styles.serverPickerList, { borderTopColor: colors.border.subtle }]}>
-                {onClearServerAssignment && (
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      onClearServerAssignment();
-                      setServerPickerOpen(false);
-                    }}
+                {sectionLabel && (
+                  <View
                     style={[
-                      styles.serverPickerRow,
+                      styles.sectionBadge,
                       {
-                        backgroundColor:
-                          currentServerId == null
-                            ? isDark
-                              ? 'rgba(255,255,255,0.06)'
-                              : 'rgba(0,0,0,0.03)'
-                            : 'transparent',
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.border.subtle,
                       },
                     ]}
                   >
-                    <Ionicons name="swap-horizontal-outline" size={16} color={colors.text.muted} />
+                    <Text style={[styles.sectionBadgeText, { color: colors.text.secondary }]}>
+                      {sectionLabel}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              {selectedPartyName && isAvailable && onMarkSeated && !walkInMode && (
+                <TouchableOpacity
+                  style={[styles.headerCta, { backgroundColor: colors.accent }]}
+                  activeOpacity={0.85}
+                  onPress={onMarkSeated}
+                >
+                  <Text style={styles.headerCtaText} numberOfLines={1}>
+                    Seat {selectedPartyName}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={14} color={colors.white} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.statusStrip}>
+              {PILLS.map((pill) => {
+                const isActive = pill.key === activePill;
+                const enabled = pillEnabled(pill.key);
+                const pillColor =
+                  pill.key === 'available'
+                    ? colors.status.available
+                    : pill.key === 'occupied'
+                      ? colors.status.occupied
+                      : pill.key === 'dirty'
+                        ? colors.status.dirty
+                        : colors.status.reserved;
+                return (
+                  <TouchableOpacity
+                    key={pill.key}
+                    activeOpacity={enabled ? 0.7 : 1}
+                    disabled={!enabled && !isActive}
+                    onPress={() => handlePillPress(pill.key)}
+                    style={[
+                      styles.pill,
+                      {
+                        backgroundColor: isActive ? pillColor.fill : 'transparent',
+                        borderColor: isActive ? pillColor.border : colors.border.subtle,
+                        opacity: enabled || isActive ? 1 : 0.35,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={pill.icon}
+                      size={16}
+                      color={isActive ? pillColor.text : colors.text.secondary}
+                    />
                     <Text
                       style={[
-                        styles.infoText,
-                        { color: colors.text.secondary, flex: 1 },
-                        currentServerId == null && {
-                          color: colors.text.primary,
-                          fontWeight: '600',
+                        styles.pillText,
+                        { color: isActive ? pillColor.text : colors.text.secondary },
+                      ]}
+                    >
+                      {pill.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {walkInMode ? (
+              <View style={styles.walkInPanel}>
+                <Text style={[styles.walkInTitle, { color: colors.text.primary }]}>
+                  How many?
+                </Text>
+                <View style={styles.sizeGrid}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => {
+                    const isSel = !walkInCustomOpen && walkInSize === n;
+                    return (
+                      <TouchableOpacity
+                        key={n}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setWalkInSize(n);
+                          setWalkInCustomOpen(false);
+                          setWalkInCustomText('');
+                        }}
+                        style={[
+                          styles.sizeTile,
+                          {
+                            backgroundColor: isSel ? colors.accent : colors.surface.level2,
+                            borderColor: isSel ? colors.accent : colors.border.subtle,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.sizeTileText,
+                            { color: isSel ? colors.white : colors.text.primary },
+                          ]}
+                        >
+                          {n}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setWalkInCustomOpen(true);
+                      setWalkInSize(null);
+                    }}
+                    style={[
+                      styles.sizeTile,
+                      {
+                        backgroundColor: walkInCustomOpen ? colors.accent : colors.surface.level2,
+                        borderColor: walkInCustomOpen ? colors.accent : colors.border.subtle,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="keypad-outline"
+                      size={16}
+                      color={walkInCustomOpen ? colors.white : colors.text.secondary}
+                    />
+                    <Text
+                      style={[
+                        styles.sizeTileMore,
+                        { color: walkInCustomOpen ? colors.white : colors.text.secondary },
+                      ]}
+                    >
+                      More
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {walkInCustomOpen && (
+                  <View
+                    style={[
+                      styles.walkInCustomRow,
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.border.subtle,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="people-outline" size={16} color={colors.text.muted} />
+                    <TextInput
+                      style={[styles.walkInCustomInput, { color: colors.text.primary }]}
+                      placeholder="Party size"
+                      placeholderTextColor={colors.text.muted}
+                      keyboardType="number-pad"
+                      value={walkInCustomText}
+                      onChangeText={setWalkInCustomText}
+                      autoFocus
+                    />
+                  </View>
+                )}
+
+                <View
+                  style={[
+                    styles.walkInNameRow,
+                    {
+                      backgroundColor: colors.surface.level2,
+                      borderColor: colors.border.subtle,
+                    },
+                  ]}
+                >
+                  <Ionicons name="person-outline" size={16} color={colors.text.muted} />
+                  <TextInput
+                    style={[styles.walkInNameInput, { color: colors.text.primary }]}
+                    placeholder="Name (optional)"
+                    placeholderTextColor={colors.text.muted}
+                    value={walkInName}
+                    onChangeText={setWalkInName}
+                  />
+                </View>
+
+                <View style={styles.walkInActions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.walkInBtn,
+                      {
+                        backgroundColor: colors.surface.level3,
+                        borderColor: colors.border.default,
+                        borderWidth: 1,
+                      },
+                    ]}
+                    onPress={() => {
+                      setWalkInMode(false);
+                      setWalkInSize(null);
+                      setWalkInName('');
+                      setWalkInCustomOpen(false);
+                      setWalkInCustomText('');
+                    }}
+                  >
+                    <Text style={[styles.walkInBtnText, { color: colors.text.secondary }]}>
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.walkInBtn,
+                      {
+                        backgroundColor: canSubmitWalkIn ? colors.accent : colors.surface.level3,
+                        opacity: canSubmitWalkIn ? 1 : 0.5,
+                      },
+                    ]}
+                    disabled={!canSubmitWalkIn}
+                    onPress={handleSubmitWalkIn}
+                  >
+                    <Text style={[styles.walkInBtnText, { color: colors.white }]}>
+                      Seat {walkInSubmitSize ?? ''}
+                    </Text>
+                    <Ionicons name="arrow-forward" size={14} color={colors.white} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <>
+                {isAvailable && nextUpServer && (
+                  <View style={styles.infoRow}>
+                    <Ionicons name="flash-outline" size={14} color={colors.text.muted} />
+                    <Text style={[styles.infoText, { color: colors.text.secondary }]}>
+                      Next up:
+                    </Text>
+                    {nextUpServer.color && (
+                      <View
+                        style={[styles.serverDotSmall, { backgroundColor: nextUpServer.color }]}
+                      />
+                    )}
+                    <Text
+                      style={[styles.infoText, { color: colors.text.primary, fontWeight: '600' }]}
+                    >
+                      {nextUpServer.name}
+                    </Text>
+                    {routingModeLabel && (
+                      <Text style={[styles.infoText, { color: colors.text.muted }]}>
+                        ({routingModeLabel})
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                {capacity != null && (
+                  <View style={styles.infoRow}>
+                    <Ionicons name="people-outline" size={14} color={colors.text.muted} />
+                    <Text style={[styles.infoText, { color: colors.text.secondary }]}>
+                      Seats {capacity}
+                    </Text>
+                  </View>
+                )}
+
+                {(isOccupied || partyName) && (
+                  <View
+                    style={[
+                      styles.guestRow,
+                      { borderTopColor: colors.border.subtle },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.guestAvatar,
+                        {
+                          backgroundColor: colors.status.occupied.fill,
+                          borderColor: colors.status.occupied.border,
                         },
                       ]}
                     >
-                      Auto Assign
-                    </Text>
-                    {currentServerId == null && (
-                      <Ionicons name="checkmark" size={16} color={colors.accent} />
-                    )}
-                  </TouchableOpacity>
+                      <Text
+                        style={[styles.guestAvatarText, { color: colors.status.occupied.text }]}
+                      >
+                        {currentPartySize ?? '·'}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.guestName, { color: colors.text.primary }]}>
+                        {partyName ?? 'Guest'}
+                      </Text>
+                      {seatedTime && (
+                        <Text style={[styles.guestMeta, { color: colors.text.muted }]}>
+                          {seatedTime}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
                 )}
-                {servers.map((s) => (
+
+                {serverLabel && (
                   <TouchableOpacity
-                    key={s.id}
-                    activeOpacity={0.7}
+                    activeOpacity={canEditServer ? 0.7 : 1}
+                    disabled={!canEditServer}
                     onPress={() => {
-                      onChangeServer(s.id);
-                      setServerPickerOpen(false);
+                      if (canEditServer) {
+                        setServerPickerOpen(!serverPickerOpen);
+                      }
                     }}
                     style={[
-                      styles.serverPickerRow,
-                      {
-                        backgroundColor: s.id === currentServerId
-                          ? (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)')
-                          : 'transparent',
-                      },
+                      styles.serverRow,
+                      { borderTopColor: colors.border.subtle },
                     ]}
                   >
-                    <View style={[styles.serverDotSmall, { backgroundColor: s.color }]} />
-                    <Text
-                      style={[
-                        styles.infoText,
-                        { color: colors.text.secondary, flex: 1 },
-                        s.id === currentServerId && { color: colors.text.primary, fontWeight: '600' },
-                      ]}
-                    >
-                      {s.name}
+                    <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
+                      SERVER
                     </Text>
-                    {s.id === currentServerId && (
-                      <Ionicons name="checkmark" size={16} color={colors.accent} />
-                    )}
+                    <View style={styles.serverRowInner}>
+                      {serverColor ? (
+                        <View style={[styles.serverDotSmall, { backgroundColor: serverColor }]} />
+                      ) : (
+                        <Ionicons name="person-outline" size={16} color={colors.text.muted} />
+                      )}
+                      <Text
+                        style={[styles.infoText, { color: colors.text.primary, flex: 1 }]}
+                      >
+                        {serverLabel}
+                      </Text>
+                      {canEditServer && (
+                        <Ionicons
+                          name={serverPickerOpen ? 'chevron-up' : 'chevron-down'}
+                          size={14}
+                          color={colors.text.muted}
+                        />
+                      )}
+                    </View>
                   </TouchableOpacity>
-                ))}
-              </View>
-            )}
-            {partyName && (
-              <View style={styles.infoRow}>
-                <Ionicons name="restaurant-outline" size={16} color={colors.text.muted} />
-                <Text style={[styles.infoText, { color: colors.text.secondary }]}>
-                  {partyName}
-                </Text>
-              </View>
-            )}
-            {seatedTime && (
-              <View style={styles.infoRow}>
-                <Ionicons name="time-outline" size={16} color={colors.text.muted} />
-                <Text style={[styles.infoText, { color: colors.text.secondary }]}>
-                  {seatedTime}
-                </Text>
-              </View>
-            )}
+                )}
 
-            {/* Seating preference warning */}
-            {seatWarning && (
-              <View style={[styles.warningRow, { backgroundColor: colors.status.reserved.fill }]}>
-                <Ionicons name="alert-circle-outline" size={14} color={colors.status.reserved.text} />
-                <Text style={[styles.warningText, { color: colors.status.reserved.text }]}>
-                  {seatWarning}
-                </Text>
-              </View>
-            )}
+                {serverPickerOpen && servers && onChangeServer && (
+                  <View
+                    style={[styles.serverPickerList, { borderTopColor: colors.border.subtle }]}
+                  >
+                    {onClearServerAssignment && (
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          onClearServerAssignment();
+                          setServerPickerOpen(false);
+                        }}
+                        style={[
+                          styles.serverPickerRow,
+                          {
+                            backgroundColor:
+                              currentServerId == null
+                                ? isDark
+                                  ? 'rgba(255,255,255,0.06)'
+                                  : 'rgba(0,0,0,0.03)'
+                                : 'transparent',
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="swap-horizontal-outline"
+                          size={16}
+                          color={colors.text.muted}
+                        />
+                        <Text
+                          style={[
+                            styles.infoText,
+                            { color: colors.text.secondary, flex: 1 },
+                            currentServerId == null && {
+                              color: colors.text.primary,
+                              fontWeight: '600',
+                            },
+                          ]}
+                        >
+                          Auto Assign
+                        </Text>
+                        {currentServerId == null && (
+                          <Ionicons name="checkmark" size={16} color={colors.accent} />
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    {servers.map((s) => (
+                      <TouchableOpacity
+                        key={s.id}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          onChangeServer(s.id);
+                          setServerPickerOpen(false);
+                        }}
+                        style={[
+                          styles.serverPickerRow,
+                          {
+                            backgroundColor:
+                              s.id === currentServerId
+                                ? isDark
+                                  ? 'rgba(255,255,255,0.06)'
+                                  : 'rgba(0,0,0,0.03)'
+                                : 'transparent',
+                          },
+                        ]}
+                      >
+                        <View style={[styles.serverDotSmall, { backgroundColor: s.color }]} />
+                        <Text
+                          style={[
+                            styles.infoText,
+                            { color: colors.text.secondary, flex: 1 },
+                            s.id === currentServerId && {
+                              color: colors.text.primary,
+                              fontWeight: '600',
+                            },
+                          ]}
+                        >
+                          {s.name}
+                        </Text>
+                        {s.id === currentServerId && (
+                          <Ionicons name="checkmark" size={16} color={colors.accent} />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
 
-            {/* Actions */}
-            <View style={[styles.actions, { borderTopColor: colors.border.subtle }]}>
-              {status === 'available' && onSeat && (
-                <TouchableOpacity
-                  style={[styles.actionBtn, { backgroundColor: colors.accent }]}
-                  onPress={onSeat}
-                >
-                  <Ionicons name="checkmark-circle-outline" size={18} color={colors.white} />
-                  <Text style={styles.actionPrimaryText}>Seat</Text>
-                </TouchableOpacity>
-              )}
-              {status === 'occupied' && onClear && (
-                <TouchableOpacity
-                  style={[styles.actionBtn, { backgroundColor: colors.accent }]}
-                  onPress={onClear}
-                >
-                  <Ionicons name="checkmark-done-outline" size={18} color={colors.white} />
-                  <Text style={styles.actionPrimaryText}>Clear</Text>
-                </TouchableOpacity>
-              )}
-              {status === 'dirty' && onClear && (
-                <TouchableOpacity
-                  style={[styles.actionBtn, { backgroundColor: colors.accent }]}
-                  onPress={onClear}
-                >
-                  <Ionicons name="sparkles-outline" size={18} color={colors.white} />
-                  <Text style={styles.actionPrimaryText}>Mark Clean</Text>
-                </TouchableOpacity>
-              )}
-              {status === 'reserved' && !isBlocked && onSeat && (
-                <TouchableOpacity
-                  style={[styles.actionBtn, { backgroundColor: colors.accent }]}
-                  onPress={onSeat}
-                >
-                  <Ionicons name="checkmark-circle-outline" size={18} color={colors.white} />
-                  <Text style={styles.actionPrimaryText}>Seat</Text>
-                </TouchableOpacity>
-              )}
-              {onBlock && (
-                <TouchableOpacity
-                  style={[
-                    styles.actionBtn,
-                    {
-                      backgroundColor: colors.surface.level3,
-                      borderWidth: 1,
-                      borderColor: colors.border.default,
-                    },
-                  ]}
-                  onPress={onBlock}
-                >
-                  <Ionicons name="close-circle-outline" size={18} color={colors.text.secondary} />
-                  <Text style={[styles.actionSecondaryText, { color: colors.text.secondary }]}>
-                    {blockActionLabel}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
+                {seatWarning && (
+                  <View
+                    style={[
+                      styles.warningRow,
+                      { backgroundColor: colors.status.reserved.fill },
+                    ]}
+                  >
+                    <Ionicons
+                      name="alert-circle-outline"
+                      size={14}
+                      color={colors.status.reserved.text}
+                    />
+                    <Text
+                      style={[styles.warningText, { color: colors.status.reserved.text }]}
+                    >
+                      {seatWarning}
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
           </View>
         </View>
       </Pressable>
@@ -338,7 +678,7 @@ const styles = StyleSheet.create({
   },
   popover: {
     position: 'absolute',
-    width: 260,
+    width: 320,
     borderRadius: borderRadius.xl,
     overflow: 'hidden',
     borderWidth: 1,
@@ -361,52 +701,114 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.sm,
     marginBottom: spacing.md,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 1,
   },
   title: {
     ...textStyles.subtitle,
   },
-  statusBadge: {
+  sectionBadge: {
     paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
+    paddingVertical: 2,
     borderRadius: borderRadius.sm,
     borderWidth: 1,
   },
-  statusText: {
+  sectionBadgeText: {
+    ...textStyles.tiny,
+    fontWeight: '600',
+  },
+  headerCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: borderRadius.md,
+    maxWidth: 170,
+  },
+  headerCtaText: {
+    ...textStyles.captionMedium,
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+  statusStrip: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: spacing.md,
+  },
+  pill: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: 4,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+  },
+  pillText: {
     ...textStyles.tiny,
     fontWeight: '600',
   },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
   },
   infoText: {
     ...textStyles.caption,
   },
-  actions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-  },
-  actionBtn: {
-    flex: 1,
+  guestRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.md,
+    paddingTop: spacing.md,
+    marginTop: spacing.xs,
+    borderTopWidth: 1,
+  },
+  guestAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
+    borderWidth: 1.5,
   },
-  actionPrimaryText: {
-    ...textStyles.captionMedium,
-    color: '#FFFFFF',
+  guestAvatarText: {
+    ...textStyles.subtitle,
+    fontWeight: '700',
   },
-  actionSecondaryText: {
-    ...textStyles.captionMedium,
+  guestName: {
+    ...textStyles.body,
+    fontWeight: '600',
+  },
+  guestMeta: {
+    ...textStyles.tiny,
+    marginTop: 2,
+  },
+  serverRow: {
+    paddingTop: spacing.md,
+    marginTop: spacing.md,
+    borderTopWidth: 1,
+  },
+  serverRowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  sectionLabel: {
+    ...textStyles.tiny,
+    letterSpacing: 1,
+    fontWeight: '600',
   },
   serverDotSmall: {
     width: 10,
@@ -416,7 +818,7 @@ const styles = StyleSheet.create({
   serverPickerList: {
     borderTopWidth: 1,
     paddingTop: spacing.xs,
-    marginBottom: spacing.xs,
+    marginTop: spacing.xs,
   },
   serverPickerRow: {
     flexDirection: 'row',
@@ -433,11 +835,85 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs + 2,
     borderRadius: borderRadius.sm,
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
   },
   warningText: {
     ...textStyles.tiny,
     fontWeight: '500',
     flex: 1,
+  },
+  walkInPanel: {
+    gap: spacing.sm,
+  },
+  walkInTitle: {
+    ...textStyles.label,
+    marginBottom: 2,
+  },
+  sizeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  sizeTile: {
+    width: '22%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+  },
+  sizeTileText: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  sizeTileMore: {
+    ...textStyles.tiny,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  walkInCustomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+  },
+  walkInCustomInput: {
+    flex: 1,
+    ...textStyles.body,
+    padding: 0,
+  },
+  walkInNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+  },
+  walkInNameInput: {
+    flex: 1,
+    ...textStyles.body,
+    padding: 0,
+  },
+  walkInActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  walkInBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+  },
+  walkInBtnText: {
+    ...textStyles.captionMedium,
   },
 });

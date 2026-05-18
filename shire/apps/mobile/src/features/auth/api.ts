@@ -140,13 +140,19 @@ export async function fetchLocations(): Promise<Location[]> {
 export async function fetchHostBootstrap(locationId: string): Promise<HostBootstrap> {
   console.log(LOG_TAG, 'fetchHostBootstrap: locationId=', locationId);
   const response = await apiClient.get<HostBootstrap>(`/locations/${locationId}/bootstrap`);
+  const floorId = resolveFloorId(
+    response.data?.floorId,
+    response.data?.location?.floorId,
+    response.data?.floorMap?.floorId,
+  );
+
   return {
     ...response.data,
-    floorId: resolveFloorId(
-      response.data?.floorId,
-      response.data?.location?.floorId,
-      response.data?.floorMap?.floorId,
-    ),
+    floorId,
+    floorMap: {
+      ...response.data.floorMap,
+      floorId,
+    },
   };
 }
 

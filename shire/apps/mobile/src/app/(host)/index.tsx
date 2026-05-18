@@ -24,7 +24,8 @@ import {
 import { useAuth } from '@/features/auth';
 import { AddPartyModal } from '@/components/AddPartyModal';
 import { HostDiagnosticsModal } from '@/components/HostDiagnosticsModal';
-import { FilterPill } from '@/components/FilterPill';
+import { FloorRoomPill, type FloorRoomOption } from '@/components/FloorRoomPill';
+import { FloorStatusBar } from '@/components/FloorStatusBar';
 import { GlassSurface } from '@/components/GlassSurface';
 import { HostPersonDetailSheet } from '@/components/HostPersonDetailSheet';
 import { QuickSeatCard } from '@/components/QuickSeatCard';
@@ -61,6 +62,47 @@ function toTableParty(party: HostSidebarParty): TableParty {
   };
 }
 
+function SizeBucket({ label, count }: { label: string; count: number }) {
+  const { colors } = useTheme();
+  const dimmed = count === 0;
+  return (
+    <View
+      style={[
+        sizeBucketStyles.bucket,
+        {
+          backgroundColor: colors.surface.level2,
+          borderColor: colors.border.subtle,
+          opacity: dimmed ? 0.55 : 1,
+        },
+      ]}
+    >
+      <Text style={[sizeBucketStyles.label, { color: colors.text.muted }]}>{label}</Text>
+      <Text style={[sizeBucketStyles.count, { color: colors.text.primary }]}>×{count}</Text>
+    </View>
+  );
+}
+
+const sizeBucketStyles = StyleSheet.create({
+  bucket: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+  },
+  label: {
+    ...textStyles.captionMedium,
+    fontWeight: '600',
+  },
+  count: {
+    ...textStyles.label,
+    fontWeight: '700',
+  },
+});
+
 function createReservationSeatCommandId(): string {
   return `reservation-seat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -70,7 +112,7 @@ function formatConnectionLabel(connectionState: string, hasSnapshot: boolean) {
     return 'Manual';
   }
   if (connectionState === 'connected' && hasSnapshot) {
-    return 'Live';
+    return 'Synced';
   }
 
   return 'Syncing';
@@ -92,7 +134,8 @@ export default function FloorPlanScreen() {
   const rooms = useFloorTablesByRoom();
   const quickSeatSuggestions = useQuickSeatSuggestions();
   const floorMap = useFloorStore((state) => state.floorMap);
-  const { seatParty, clearTable, markClean, blockTable, unblockTable } = useFloorActions();
+  const { seatParty, seatWalkIn, clearTable, markClean, blockTable, unblockTable } =
+    useFloorActions();
   const { connectionState, syncError, lastSnapshotAt, floorId } = useFloorConnectionState();
   const activeWaitlistEntries = useActiveWaitlistEntries();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -111,25 +154,72 @@ export default function FloorPlanScreen() {
   } | null>(null);
   const [popover, setPopover] = useState<{ tableId: string; layout: LayoutRectangle } | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [mapSize, setMapSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [mapSize, setMapSize] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
 
   const handleMapLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
-    setMapSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+    setMapSize((prev) =>
+      prev.width === width && prev.height === height ? prev : { width, height },
+    );
   }, []);
 
   const tableRefs = useRef<Record<string, View | null>>({});
   const liveTable = useTableDetails(popover?.tableId ?? null);
-  const filters = useMemo(
-    () => ['All Rooms', ...new Set(floorMap.rooms.map((room) => room.filterLabel))],
-    [floorMap.rooms],
-  );
   const visibleRooms =
     activeFilter === 'All Rooms'
       ? rooms
       : rooms.filter((room) => room.filterLabel === activeFilter);
 
-  type GlobalTablePos = { table: (typeof visibleRooms)[number]['tables'][number]; x: number; y: number; rotation?: number };
+  const roomOptions = useMemo<FloorRoomOption[]>(() => {
+    const totalTables = rooms.reduce((sum, room) => sum + room.tables.length, 0);
+    const options: FloorRoomOption[] = [
+      { id: 'All Rooms', label: 'All Rooms', tableCount: totalTables },
+    ];
+    const seen = new Set<string>();
+    for (const room of rooms) {
+      if (seen.has(room.filterLabel)) continue;
+      seen.add(room.filterLabel);
+      const count = rooms
+        .filter((other) => other.filterLabel === room.filterLabel)
+        .reduce((sum, other) => sum + other.tables.length, 0);
+      options.push({ id: room.filterLabel, label: room.filterLabel, tableCount: count });
+    }
+    return options;
+  }, [rooms]);
+
+  const waitlistParties = useMemo(
+    () => hostParties.filter((party) => party.source === 'waitlist'),
+    [hostParties],
+  );
+  const reservationParties = useMemo(
+    () => hostParties.filter((party) => party.source === 'reservations'),
+    [hostParties],
+  );
+  const waitlistSizeBuckets = useMemo(() => {
+    let small = 0;
+    let medium = 0;
+    let large = 0;
+    for (const party of waitlistParties) {
+      if (party.size <= 2) small += 1;
+      else if (party.size <= 4) medium += 1;
+      else large += 1;
+    }
+    return { small, medium, large };
+  }, [waitlistParties]);
+  const visibleTablesFlat = useMemo(
+    () => visibleRooms.flatMap((room) => room.tables),
+    [visibleRooms],
+  );
+
+  type GlobalTablePos = {
+    table: (typeof visibleRooms)[number]['tables'][number];
+    x: number;
+    y: number;
+    rotation?: number;
+  };
   const positionedTables = useMemo<GlobalTablePos[]>(() => {
     if (mapSize.width === 0 || mapSize.height === 0) return [];
     const out: GlobalTablePos[] = [];
@@ -175,7 +265,7 @@ export default function FloorPlanScreen() {
   const connectionColor =
     connectionLabel === 'Manual'
       ? colors.status.dirty.text
-      : connectionLabel === 'Live'
+      : connectionLabel === 'Synced'
         ? colors.status.available.text
         : colors.status.reserved.text;
 
@@ -299,19 +389,48 @@ export default function FloorPlanScreen() {
     setPopover(null);
   };
 
-  const handleClear = () => {
+  const handleSeatWalkIn = (size: number, name: string) => {
+    if (!popover || !liveTable) {
+      return;
+    }
+
+    const waiterId = resolveWaiterIdForTable(routing, liveTable.id, liveTable.section);
+    const result = seatWalkIn(liveTable.id, name, size, waiterId ?? undefined);
+
+    if (result.ok) {
+      setPopover(null);
+    }
+  };
+
+  const handleMarkAvailable = () => {
     if (!liveTable) {
       return;
     }
 
-    const didDispatch =
-      liveTable.status === 'occupied'
-        ? clearTable(liveTable.id).ok
-        : liveTable.status === 'dirty'
-          ? markClean(liveTable.id).ok
-          : false;
+    if (liveTable.isBlocked) {
+      if (unblockTable(liveTable.id).ok) setPopover(null);
+      return;
+    }
 
-    if (didDispatch) {
+    if (liveTable.status === 'occupied') {
+      const cleared = clearTable(liveTable.id);
+      if (cleared.ok) {
+        markClean(liveTable.id);
+        setPopover(null);
+      }
+      return;
+    }
+
+    if (liveTable.status === 'dirty') {
+      if (markClean(liveTable.id).ok) setPopover(null);
+    }
+  };
+
+  const handleMarkDirty = () => {
+    if (!liveTable || liveTable.status !== 'occupied') {
+      return;
+    }
+    if (clearTable(liveTable.id).ok) {
       setPopover(null);
     }
   };
@@ -442,7 +561,7 @@ export default function FloorPlanScreen() {
         </View>
       )}
 
-      {(syncError || connectionLabel !== 'Live' || routingError || isRoutingSaving) && (
+      {(syncError || connectionLabel !== 'Synced' || routingError || isRoutingSaving) && (
         <View style={styles.bannerRow}>
           <GlassSurface intensity={35} borderRadius={borderRadius.xl} style={styles.bannerCard}>
             <Ionicons
@@ -508,50 +627,100 @@ export default function FloorPlanScreen() {
 
       <View style={styles.splitLayout}>
         <GlassSurface intensity={45} style={styles.sidebar}>
-          <View style={[styles.sidebarHeader, { borderBottomColor: colors.border.subtle }]}>
-            <View style={styles.sidebarHeaderRow}>
-              <Text style={[styles.sidebarTitle, { color: colors.text.primary }]}>
-                Host Queue ({hostParties.length})
-              </Text>
-              <TouchableOpacity
-                style={[styles.addPartyButton, { backgroundColor: colors.accent }]}
-                activeOpacity={0.8}
-                onPress={() => setShowAddPartyModal(true)}
-                accessibilityLabel="Add party to waitlist"
-              >
-                <Ionicons name="add" size={18} color={colors.white} />
-              </TouchableOpacity>
-            </View>
-            <Text style={[styles.sidebarSubtitle, { color: colors.text.muted }]}>
-              Tap a guest for details, then select them for seating when you are ready.
-            </Text>
-          </View>
+          <AddPartyModal
+            visible={showAddPartyModal}
+            presentation="inline"
+            onClose={() => setShowAddPartyModal(false)}
+            onAdd={async (data) => {
+              try {
+                await createWaitlistEntry({
+                  guestName: data.name,
+                  guestPhone: data.phone,
+                  partySize: data.size,
+                  seatingPreference: data.seatingPreference,
+                  notes: '',
+                  source: 'manual',
+                });
+              } catch (error) {
+                Alert.alert(
+                  'Unable to Add Party',
+                  extractHostRequestErrorMessage(
+                    error,
+                    'The party could not be added to the waitlist.',
+                  ),
+                );
+                throw error;
+              }
+            }}
+          />
 
           <ScrollView style={styles.sidebarScroll} showsVerticalScrollIndicator={false}>
-            {hostParties.map((party, index) => (
-              <WaitlistCard
-                key={party.id}
-                party={party}
-                index={index}
-                isSelected={selectedPartyId === party.id}
-                onPress={() => setDetailTarget({ source: party.source, id: party.id })}
-              />
-            ))}
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
+                Reservations
+              </Text>
+              <Text style={[styles.sectionCount, { color: colors.text.muted }]}>
+                {reservationParties.length}
+              </Text>
+            </View>
+            {reservationParties.length === 0 ? (
+              <Text style={[styles.sectionEmpty, { color: colors.text.muted }]}>
+                No upcoming reservations.
+              </Text>
+            ) : (
+              reservationParties.map((party, index) => (
+                <WaitlistCard
+                  key={party.id}
+                  party={party}
+                  index={index}
+                  isSelected={selectedPartyId === party.id}
+                  onPress={() => setDetailTarget({ source: party.source, id: party.id })}
+                />
+              ))
+            )}
+
+            <View style={[styles.sectionHeader, styles.sectionHeaderSpaced]}>
+              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>
+                Waitlist
+              </Text>
+              <View style={styles.sectionHeaderRight}>
+                <Text style={[styles.sectionCount, { color: colors.text.muted }]}>
+                  {waitlistParties.length}
+                </Text>
+                <TouchableOpacity
+                  style={[styles.addPartyButton, { backgroundColor: colors.accent }]}
+                  activeOpacity={0.8}
+                  onPress={() => setShowAddPartyModal(true)}
+                  accessibilityLabel="Add party to waitlist"
+                >
+                  <Ionicons name="add" size={18} color={colors.white} />
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={styles.bucketRow}>
+              <SizeBucket label="1-2" count={waitlistSizeBuckets.small} />
+              <SizeBucket label="3-4" count={waitlistSizeBuckets.medium} />
+              <SizeBucket label="5+" count={waitlistSizeBuckets.large} />
+            </View>
+            {waitlistParties.length === 0 ? (
+              <Text style={[styles.sectionEmpty, { color: colors.text.muted }]}>
+                No parties on the waitlist.
+              </Text>
+            ) : (
+              waitlistParties.map((party, index) => (
+                <WaitlistCard
+                  key={party.id}
+                  party={party}
+                  index={index}
+                  isSelected={selectedPartyId === party.id}
+                  onPress={() => setDetailTarget({ source: party.source, id: party.id })}
+                />
+              ))
+            )}
           </ScrollView>
         </GlassSurface>
 
         <View style={styles.mainArea}>
-          <View style={styles.filterRow}>
-            {filters.map((filter) => (
-              <FilterPill
-                key={filter}
-                label={filter}
-                isActive={activeFilter === filter}
-                onPress={() => setActiveFilter(filter)}
-              />
-            ))}
-          </View>
-
           <View style={styles.mapContainer} onLayout={handleMapLayout}>
             <View
               style={[
@@ -587,6 +756,19 @@ export default function FloorPlanScreen() {
                 />
               </View>
             ))}
+
+            <View style={styles.mapOverlayBottomLeft} pointerEvents="box-none">
+              <FloorRoomPill
+                rooms={roomOptions}
+                activeRoomId={activeFilter}
+                onSelect={setActiveFilter}
+                onManagePress={() => router.push('/floor-builder' as Href)}
+              />
+            </View>
+
+            <View style={styles.mapOverlayBottomRight} pointerEvents="box-none">
+              <FloorStatusBar tables={visibleTablesFlat} />
+            </View>
           </View>
         </View>
       </View>
@@ -600,6 +782,7 @@ export default function FloorPlanScreen() {
           status={liveTable.status}
           isBlocked={liveTable.isBlocked}
           capacity={liveTable.capacity}
+          sectionLabel={liveTable.section}
           server={liveTable.currentWaiterName ?? popoverResolvedWaiter?.name ?? liveTable.server}
           serverColor={
             popoverResolvedWaiter?.id
@@ -609,12 +792,24 @@ export default function FloorPlanScreen() {
                 : undefined
           }
           partyName={liveTable.partyName}
+          currentPartySize={liveTable.currentPartySize}
           seatedTime={liveTable.seatedTime}
           anchorLayout={popover.layout}
-          onSeat={!selectedParty || liveTable.isBlocked ? undefined : handleSeat}
-          onClear={handleClear}
+          selectedPartyName={selectedParty?.name ?? null}
+          nextUpServer={
+            popoverResolvedWaiter
+              ? {
+                  name: popoverResolvedWaiter.name,
+                  color: waiterColorMap[popoverResolvedWaiter.id],
+                }
+              : null
+          }
+          routingModeLabel={routing?.mode === 'manual_rotation' ? 'rotation' : undefined}
+          onMarkSeated={!selectedParty || liveTable.isBlocked ? undefined : handleSeat}
+          onSeatWalkIn={liveTable.isBlocked ? undefined : handleSeatWalkIn}
+          onMarkAvailable={handleMarkAvailable}
+          onMarkDirty={handleMarkDirty}
           onBlock={handleBlock}
-          blockActionLabel={liveTable.isBlocked ? 'Unblock' : 'Block'}
           seatWarning={seatWarning}
         />
       )}
@@ -691,32 +886,6 @@ export default function FloorPlanScreen() {
           setShowDiagnostics(false);
           endWorkday();
           router.replace(workdayHref);
-        }}
-      />
-
-      <AddPartyModal
-        visible={showAddPartyModal}
-        onClose={() => setShowAddPartyModal(false)}
-        onAdd={async (data) => {
-          try {
-            await createWaitlistEntry({
-              guestName: data.name,
-              guestPhone: data.phone,
-              partySize: data.size,
-              seatingPreference: data.seatingPreference,
-              notes: '',
-              source: 'manual',
-            });
-          } catch (error) {
-            Alert.alert(
-              'Unable to Add Party',
-              extractHostRequestErrorMessage(
-                error,
-                'The party could not be added to the waitlist.',
-              ),
-            );
-            throw error;
-          }
         }}
       />
     </View>
@@ -832,41 +1001,55 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius['2xl'],
     overflow: 'hidden',
   },
-  sidebarHeader: {
-    padding: spacing.lg,
-    borderBottomWidth: 1,
-  },
-  sidebarHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  sidebarTitle: {
-    ...textStyles.label,
-  },
   addPartyButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  sidebarSubtitle: {
-    ...textStyles.caption,
-    marginTop: spacing.xs,
   },
   sidebarScroll: {
     padding: spacing.md,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
+  },
+  sectionHeaderSpaced: {
+    marginTop: spacing.lg,
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  sectionTitle: {
+    ...textStyles.label,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  sectionCount: {
+    ...textStyles.captionMedium,
+    fontWeight: '700',
+  },
+  sectionEmpty: {
+    ...textStyles.caption,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
+  },
+  bucketRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.md,
+  },
   mainArea: {
     flex: 1,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.sm,
-    flexWrap: 'wrap',
   },
   mapContainer: {
     flex: 1,
@@ -875,5 +1058,15 @@ const styles = StyleSheet.create({
   floorTexture: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: borderRadius['2xl'],
+  },
+  mapOverlayBottomLeft: {
+    position: 'absolute',
+    left: spacing.md,
+    bottom: spacing.md,
+  },
+  mapOverlayBottomRight: {
+    position: 'absolute',
+    right: spacing.md,
+    bottom: spacing.md,
   },
 });

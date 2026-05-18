@@ -2,7 +2,6 @@ import { ActivityIndicator, View } from 'react-native';
 import { Redirect, type Href } from 'expo-router';
 import { Icon, Label, NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useAuth } from '@/features/auth';
-import { useTotalUnread } from '@/features/messaging/hooks';
 import { useIsWorkdayActive } from '@/features/workday';
 import { useTheme } from '@/theme';
 
@@ -10,7 +9,6 @@ export default function HostLayout() {
   const { colors } = useTheme();
   const { isInitializing, isAuthenticated, currentLocation } = useAuth();
   const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
-  const totalUnread = useTotalUnread();
   const workdayHref = '/workday' as Href;
 
   if (isInitializing) {
@@ -74,10 +72,9 @@ export default function HostLayout() {
         <Label>Reservations</Label>
         <Icon sf="calendar" />
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="inbox">
-        <Label>{totalUnread > 0 ? `Inbox (${totalUnread})` : 'Inbox'}</Label>
-        <Icon sf="bubble.left.and.bubble.right.fill" />
-      </NativeTabs.Trigger>
+      {/* Inbox tab intentionally omitted — Toast Tables pattern: messaging is
+          surfaced contextually from the party detail sheet, not as a top-level
+          destination. The (host)/inbox/* routes remain for direct navigation. */}
     </NativeTabs>
   );
 }

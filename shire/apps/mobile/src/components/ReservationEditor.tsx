@@ -249,6 +249,7 @@ export function ReservationEditor({
 
   useEffect(() => {
     if (
+      hasAutoDefaultedTime &&
       !selectedSlot &&
       !hasAnyOpenAlts &&
       !showAllTimes &&
@@ -256,7 +257,13 @@ export function ReservationEditor({
     ) {
       setShowAllTimes(true);
     }
-  }, [selectedSlot, hasAnyOpenAlts, showAllTimes, availability?.slots.length]);
+  }, [
+    hasAutoDefaultedTime,
+    selectedSlot,
+    hasAnyOpenAlts,
+    showAllTimes,
+    availability?.slots.length,
+  ]);
 
   const canSubmit =
     guestName.trim().length > 0 &&
