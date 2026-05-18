@@ -45,8 +45,10 @@ import {
 import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
 import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import {
+  getWaiterById,
   resolveWaiterForTable,
   resolveWaiterIdForTable,
+  useWaiterChips,
   useWaiterColorMap,
   useWaiterRoutingState,
 } from '@/features/routing';
@@ -195,6 +197,7 @@ export default function FloorPlanScreen() {
     isSaving: isRoutingSaving,
   } = useWaiterRoutingState();
   const waiterColorMap = useWaiterColorMap();
+  const waiterChips = useWaiterChips();
   const endWorkday = useWorkdayStore((state) => state.endWorkday);
   const workdayHref = '/workday' as Href;
   const rooms = useFloorTablesByRoom();
@@ -215,6 +218,7 @@ export default function FloorPlanScreen() {
 
   const [activeFilter, setActiveFilter] = useState('All Rooms');
   const [sizeFilters, setSizeFilters] = useState<TableSizeBucket[]>([]);
+  const [seatWaiterId, setSeatWaiterId] = useState<string | null>(null);
   const [selectedPartyId, setSelectedPartyId] = useState<string | null>(null);
   const [detailTarget, setDetailTarget] = useState<{
     source: HostSidebarParty['source'];
@@ -443,6 +447,29 @@ export default function FloorPlanScreen() {
     return resolveWaiterForTable(routing, popover.tableId, liveTable.section);
   }, [liveTable, popover, routing]);
 
+  // Reset the per-seating waiter override whenever a different table is opened.
+  useEffect(() => {
+    setSeatWaiterId(null);
+  }, [popover?.tableId]);
+
+  const isRotationMode = routing?.mode === 'manual_rotation';
+  const activeWaiterChips = useMemo(
+    () => waiterChips.filter((chip) => chip.isActive),
+    [waiterChips],
+  );
+  // Effective waiter for the open table: the host's override, else next-up rotation.
+  const seatWaiterIdEffective =
+    seatWaiterId ??
+    (popover && liveTable
+      ? resolveWaiterIdForTable(routing, popover.tableId, liveTable.section)
+      : null);
+  const seatWaiterEffective = getWaiterById(routing, seatWaiterIdEffective);
+  // The waiter picker is offered only when seating in rotation mode — in section
+  // mode the section dictates the waiter, so there is nothing to choose.
+  const canPickSeatWaiter = Boolean(
+    isRotationMode && liveTable && liveTable.status === 'available' && !liveTable.isBlocked,
+  );
+
   const handleTablePress = (tableId: string, ref: View | null | undefined) => {
     if (!ref) {
       return;
@@ -464,7 +491,8 @@ export default function FloorPlanScreen() {
     }
 
     const tableId = popover.tableId;
-    const waiterId = resolveWaiterIdForTable(routing, tableId, liveTable.section);
+    const waiterId =
+      seatWaiterId ?? resolveWaiterIdForTable(routing, tableId, liveTable.section);
 
     if (selectedParty.source === 'reservations') {
       const commandId = createReservationSeatCommandId();
@@ -513,7 +541,8 @@ export default function FloorPlanScreen() {
       return;
     }
 
-    const waiterId = resolveWaiterIdForTable(routing, liveTable.id, liveTable.section);
+    const waiterId =
+      seatWaiterId ?? resolveWaiterIdForTable(routing, liveTable.id, liveTable.section);
     const result = seatWalkIn(liveTable.id, name, size, waiterId ?? undefined);
 
     if (result.ok) {
@@ -810,6 +839,7 @@ export default function FloorPlanScreen() {
                   guestPhone: data.phone,
                   partySize: data.size,
                   seatingPreference: data.seatingPreference,
+                  quotedWaitMinutes: data.quotedWaitMinutes,
                   notes: '',
                   source: 'manual',
                 });
@@ -1003,13 +1033,23 @@ export default function FloorPlanScreen() {
           isBlocked={liveTable.isBlocked}
           capacity={liveTable.capacity}
           sectionLabel={liveTable.section}
-          server={liveTable.currentWaiterName ?? popoverResolvedWaiter?.name ?? liveTable.server}
+          server={
+            canPickSeatWaiter
+              ? (seatWaiterEffective?.name ?? 'Assign waiter')
+              : (liveTable.currentWaiterName ??
+                popoverResolvedWaiter?.name ??
+                liveTable.server)
+          }
           serverColor={
-            popoverResolvedWaiter?.id
-              ? waiterColorMap[popoverResolvedWaiter.id]
-              : liveTable.serverId
-                ? waiterColorMap[liveTable.serverId]
+            canPickSeatWaiter
+              ? seatWaiterEffective
+                ? waiterColorMap[seatWaiterEffective.id]
                 : undefined
+              : popoverResolvedWaiter?.id
+                ? waiterColorMap[popoverResolvedWaiter.id]
+                : liveTable.serverId
+                  ? waiterColorMap[liveTable.serverId]
+                  : undefined
           }
           partyName={liveTable.partyName}
           currentPartySize={liveTable.currentPartySize}
@@ -1025,6 +1065,9 @@ export default function FloorPlanScreen() {
               : null
           }
           routingModeLabel={routing?.mode === 'manual_rotation' ? 'rotation' : undefined}
+          servers={canPickSeatWaiter ? activeWaiterChips : undefined}
+          currentServerId={canPickSeatWaiter ? (seatWaiterIdEffective ?? undefined) : undefined}
+          onChangeServer={canPickSeatWaiter ? (id) => setSeatWaiterId(id) : undefined}
           onMarkSeated={!selectedParty || liveTable.isBlocked ? undefined : handleSeat}
           onSeatWalkIn={liveTable.isBlocked ? undefined : handleSeatWalkIn}
           onMarkAvailable={handleMarkAvailable}

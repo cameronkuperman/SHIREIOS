@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { textStyles, spacing, borderRadius, shadows, useTheme } from '@/theme';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
 
+const QUOTE_PRESETS = [15, 30, 45, 60];
+
 type AddPartyModalProps = {
   visible: boolean;
   onClose: () => void;
@@ -23,6 +25,7 @@ type AddPartyModalProps = {
     size: number;
     phone: string;
     seatingPreference: SeatingPref;
+    quotedWaitMinutes: number | null;
   }) => Promise<void> | void;
   presentation?: 'modal' | 'inline';
 };
@@ -37,12 +40,14 @@ export function AddPartyModal({
   const [name, setName] = useState('');
   const [size, setSize] = useState('2');
   const [phone, setPhone] = useState('');
+  const [quoteMinutes, setQuoteMinutes] = useState('30');
   const [preference, setPreference] = useState<SeatingPref>('none');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isInline = presentation === 'inline';
 
   const handleAdd = async () => {
     if (!name.trim()) return;
+    const parsedQuote = parseInt(quoteMinutes, 10);
     setIsSubmitting(true);
     try {
       await onAdd({
@@ -50,10 +55,13 @@ export function AddPartyModal({
         size: parseInt(size, 10) || 2,
         phone: phone.trim(),
         seatingPreference: preference,
+        quotedWaitMinutes:
+          Number.isFinite(parsedQuote) && parsedQuote > 0 ? parsedQuote : null,
       });
       setName('');
       setSize('2');
       setPhone('');
+      setQuoteMinutes('30');
       setPreference('none');
       onClose();
     } finally {
@@ -150,6 +158,63 @@ export function AddPartyModal({
               />
             </View>
           </View>
+        </View>
+
+        <Text
+          style={[
+            styles.inputLabel,
+            { color: colors.text.muted, marginTop: isInline ? spacing.xs : 0 },
+          ]}
+        >
+          Quoted Wait
+        </Text>
+        <View style={styles.quotePresetRow}>
+          {QUOTE_PRESETS.map((minutes) => {
+            const active = quoteMinutes === String(minutes);
+            return (
+              <TouchableOpacity
+                key={minutes}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                style={[
+                  styles.quotePreset,
+                  {
+                    backgroundColor: active ? colors.accent : colors.surface.level2,
+                    borderColor: active ? colors.accent : colors.glass.borderSubtle,
+                  },
+                ]}
+                onPress={() => setQuoteMinutes(String(minutes))}
+              >
+                <Text
+                  style={[
+                    styles.quotePresetText,
+                    { color: active ? colors.white : colors.text.secondary },
+                  ]}
+                >
+                  {minutes}m
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <View
+          style={[
+            styles.inputWrapper,
+            isInline && styles.inlineInputWrapper,
+            { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+          ]}
+        >
+          <Ionicons name="timer-outline" size={18} color={colors.text.muted} />
+          <TextInput
+            style={[styles.input, { color: colors.text.primary }]}
+            placeholder="Minutes quoted"
+            placeholderTextColor={colors.text.muted}
+            keyboardType="number-pad"
+            value={quoteMinutes}
+            onChangeText={setQuoteMinutes}
+          />
+          <Text style={[styles.inputSuffix, { color: colors.text.muted }]}>min</Text>
         </View>
 
         <Text
@@ -276,6 +341,26 @@ const styles = StyleSheet.create({
   },
   halfInput: {
     flex: 1,
+  },
+  quotePresetRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  quotePreset: {
+    flex: 1,
+    alignItems: 'center',
+    borderRadius: borderRadius.pill,
+    borderWidth: 1,
+    paddingVertical: spacing.sm,
+  },
+  quotePresetText: {
+    ...textStyles.captionMedium,
+    fontWeight: '800',
+  },
+  inputSuffix: {
+    ...textStyles.captionMedium,
+    fontWeight: '700',
   },
   addBtn: {
     flexDirection: 'row',

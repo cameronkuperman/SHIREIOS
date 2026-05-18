@@ -604,6 +604,7 @@ export default function WaitlistScreen() {
               guestPhone: data.phone,
               partySize: data.size,
               seatingPreference: data.seatingPreference,
+              quotedWaitMinutes: data.quotedWaitMinutes,
               notes: '',
               source: 'manual',
             });

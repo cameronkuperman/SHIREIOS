@@ -32,14 +32,14 @@ export type ReservationListFilters = {
 
 export type CreateWaitlistInput = Pick<
   WaitlistEntry,
-  'partySize' | 'seatingPreference' | 'notes' | 'source'
+  'partySize' | 'seatingPreference' | 'notes' | 'source' | 'quotedWaitMinutes'
 > & {
   guestName: string;
   guestPhone: string;
 };
 
 export type UpdateWaitlistInput = Partial<
-  Pick<WaitlistEntry, 'partySize' | 'seatingPreference' | 'notes'>
+  Pick<WaitlistEntry, 'partySize' | 'seatingPreference' | 'notes' | 'quotedWaitMinutes'>
 >;
 
 export type CreateReservationInput = {
@@ -107,6 +107,13 @@ type BackendUpdateReservationPayload = {
   notesInternal?: string;
   overridePacing?: boolean;
 };
+type WaitlistListResponseDto =
+  | WaitlistEntryDto[]
+  | {
+      waitlist?: WaitlistEntryDto[];
+      entries?: WaitlistEntryDto[];
+      waitlistEntries?: WaitlistEntryDto[];
+    };
 
 function toBackendReservationSource(source: Reservation['source']): BackendReservationSource {
   switch (source) {
@@ -208,9 +215,17 @@ function toUpdateReservationPayload(
   };
 }
 
+function unwrapWaitlistResponse(response: WaitlistListResponseDto): WaitlistEntryDto[] {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  return response.waitlist ?? response.entries ?? response.waitlistEntries ?? [];
+}
+
 export async function fetchWaitlist(locationId: string): Promise<WaitlistEntry[]> {
-  const response = await apiClient.get<WaitlistEntryDto[]>(`/locations/${locationId}/waitlist`);
-  return response.data.map(adaptWaitlistEntry);
+  const response = await apiClient.get<WaitlistListResponseDto>(`/locations/${locationId}/waitlist`);
+  return unwrapWaitlistResponse(response.data).map(adaptWaitlistEntry);
 }
 
 export async function createWaitlistEntry(

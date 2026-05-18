@@ -50,75 +50,74 @@ export type Colors = {
 };
 
 export const lightColors: Colors = {
-  // Cool warm-neutral surfaces (greige — only a whisper of warmth)
-  background: '#EBEBE9', // page
-  backgroundDark: '#1F1E1C', // legacy field — unused in light-only
+  // Premium iOS / Airbnb Vibe
+  background: '#F2F2F7', // iOS System Gray 6
+  backgroundDark: '#1C1C1E', // Unused in light-only
 
   surface: {
-    level1: '#FFFFFF', // cards & table tiles
-    level2: '#F4F4F2', // sidebar & side panels
-    level3: '#FBFBFA', // floor canvas
-    level4: '#F0F0EE', // inset wells / segmented-control track
+    level1: '#FFFFFF', // Pure white cards
+    level2: '#F9F9F9', // Very subtle off-white for sidebars/panels
+    level3: '#F2F2F7', // Floor canvas
+    level4: '#E5E5EA', // Inset wells
   },
 
   // Ink
   text: {
-    primary: '#1F1E1C',
-    secondary: '#67655F',
-    muted: '#9A988F',
+    primary: '#1C1C1E', // Absolute dark slate
+    secondary: '#8E8E93', // Crisp medium-gray
+    muted: '#C7C7CC', // Lighter gray
     inverse: '#FFFFFF',
   },
 
-  // Functional status spectrum — fill = faint tile tint, border = the
-  // canonical hue (legend dots / rings), text = a readable darker variant.
+  // Functional status spectrum
   status: {
     available: {
-      fill: '#ECF1E8',
-      border: '#3F7A4E',
-      text: '#2F6B40',
+      fill: '#E8F5E9',
+      border: '#34C759',
+      text: '#248A3D',
     },
     occupied: {
-      fill: '#E9EFF4',
-      border: '#3E6E9E',
-      text: '#2E5C88',
+      fill: '#E3F2FD',
+      border: '#007AFF',
+      text: '#0055B3',
     },
     dirty: {
-      fill: '#F6E7E5',
-      border: '#C24238',
-      text: '#A5392F',
+      fill: '#FFEBEE',
+      border: '#FF3B30',
+      text: '#B3261E',
     },
     reserved: {
-      fill: '#FBF1DF',
-      border: '#BE8A2A',
-      text: '#94681B',
+      fill: '#FFF8E1',
+      border: '#FF9500',
+      text: '#B36800',
     },
   },
 
   blocked: {
-    fill: '#ECEAE6',
-    border: '#9AA0A2',
-    text: '#6F6A62',
+    fill: '#F2F2F7',
+    border: '#AEAEB2',
+    text: '#8E8E93',
   },
 
-  // Brand accent — blue, rationed
-  accent: '#2F6CAE',
-  accentLight: '#E7EEF6',
+  // Brand accent — vibrant Airbnb/Yelp red
+  accent: '#FF385C',
+  accentLight: '#FFF0F2',
 
-  // Surface tokens (GlassSurface is now a solid surface)
+  // Glass/surface tokens
   glass: {
     tint: '#FFFFFF',
-    border: '#E5E4E1',
-    borderSubtle: '#EDEDEA',
-    shadow: 'rgba(28, 28, 26, 0.06)',
+    border: '#E5E5EA',
+    borderSubtle: '#F2F2F7',
+    shadow: 'rgba(0, 0, 0, 0.08)',
     innerHighlight: '#FFFFFF',
   },
 
   // Hairline borders
   border: {
-    default: '#E5E4E1',
-    subtle: '#EDEDEA',
-    strong: '#D6D5D0',
-    warm: '#E5E4E1',
+    default: '#E5E5EA',
+    subtle: '#F2F2F7',
+    strong: '#C7C7CC',
+    warm: '#E5E5EA',
   },
 
   white: '#FFFFFF',

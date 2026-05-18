@@ -216,12 +216,17 @@ function isWaitlistDirty(
   waitlistEntry: WaitlistEntry,
   values: {
     partySize: string;
+    quotedWaitMinutes: string;
     notes: string;
     seatingPreference: SeatingPref;
   },
 ): boolean {
+  const parsedQuote = parseInt(values.quotedWaitMinutes, 10);
+  const nextQuote = Number.isFinite(parsedQuote) && parsedQuote > 0 ? parsedQuote : null;
+
   return (
     waitlistEntry.partySize !== Math.max(1, parseInt(values.partySize, 10) || 1) ||
+    waitlistEntry.quotedWaitMinutes !== nextQuote ||
     waitlistEntry.notes !== values.notes.trim() ||
     waitlistEntry.seatingPreference !== values.seatingPreference
   );
@@ -243,6 +248,7 @@ export function HostPersonDetailSheet({
 }: HostPersonDetailSheetProps) {
   const { colors, isDark } = useTheme();
   const [waitlistPartySize, setWaitlistPartySize] = useState('2');
+  const [waitlistQuoteMinutes, setWaitlistQuoteMinutes] = useState('');
   const [waitlistNotes, setWaitlistNotes] = useState('');
   const [waitlistPreference, setWaitlistPreference] = useState<SeatingPref>('none');
   const [reservationGuestName, setReservationGuestName] = useState('');
@@ -258,6 +264,9 @@ export function HostPersonDetailSheet({
     }
 
     setWaitlistPartySize(String(waitlistEntry.partySize));
+    setWaitlistQuoteMinutes(
+      waitlistEntry.quotedWaitMinutes != null ? String(waitlistEntry.quotedWaitMinutes) : '',
+    );
     setWaitlistNotes(waitlistEntry.notes);
     setWaitlistPreference(waitlistEntry.seatingPreference);
   }, [waitlistEntry]);
@@ -300,6 +309,7 @@ export function HostPersonDetailSheet({
   const waitlistIsDirty = waitlistEntry
     ? isWaitlistDirty(waitlistEntry, {
         partySize: waitlistPartySize,
+          quotedWaitMinutes: waitlistQuoteMinutes,
         notes: waitlistNotes,
         seatingPreference: waitlistPreference,
       })
@@ -355,10 +365,13 @@ export function HostPersonDetailSheet({
     if (!waitlistEntry || !onSaveWaitlist || !waitlistIsDirty) {
       return;
     }
+    const parsedQuote = parseInt(waitlistQuoteMinutes, 10);
 
     try {
       await onSaveWaitlist(waitlistEntry.id, {
         partySize: Math.max(1, parseInt(waitlistPartySize, 10) || 1),
+        quotedWaitMinutes:
+          Number.isFinite(parsedQuote) && parsedQuote > 0 ? parsedQuote : null,
         notes: waitlistNotes.trim(),
         seatingPreference: waitlistPreference,
       });
@@ -535,6 +548,18 @@ export function HostPersonDetailSheet({
                     {reservation?.partySize ?? waitlistEntry?.partySize ?? 0}
                   </Text>
                 </View>
+                {waitlistEntry && (
+                  <View style={styles.infoItem}>
+                    <Text style={[styles.infoLabel, { color: colors.text.muted }]}>
+                      Quoted Wait
+                    </Text>
+                    <Text style={[styles.infoValue, { color: colors.text.primary }]}>
+                      {waitlistEntry.quotedWaitMinutes != null
+                        ? `${waitlistEntry.quotedWaitMinutes} min`
+                        : 'TBD'}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.infoItem}>
                   <Text style={[styles.infoLabel, { color: colors.text.muted }]}>Source</Text>
                   <Text style={[styles.infoValue, { color: colors.text.primary }]}>
@@ -836,6 +861,25 @@ export function HostPersonDetailSheet({
                       keyboardType="number-pad"
                       value={waitlistPartySize}
                       onChangeText={setWaitlistPartySize}
+                    />
+                  </View>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.glass.borderSubtle,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="timer-outline" size={18} color={colors.text.muted} />
+                    <TextInput
+                      style={[styles.input, { color: colors.text.primary }]}
+                      placeholder="Quoted wait minutes"
+                      placeholderTextColor={colors.text.muted}
+                      keyboardType="number-pad"
+                      value={waitlistQuoteMinutes}
+                      onChangeText={setWaitlistQuoteMinutes}
                     />
                   </View>
                   <SeatingPreferencePicker

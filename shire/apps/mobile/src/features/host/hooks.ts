@@ -60,6 +60,7 @@ export interface HostSidebarParty {
   seatingPreference: SeatingPreference;
   joinedAt: string | null;
   waitLabel: string;
+  quotedWaitMinutes: number | null;
   notes: string;
 }
 
@@ -95,6 +96,7 @@ export function waitlistToSidebarParty(entry: WaitlistEntry): HostSidebarParty {
     seatingPreference: entry.seatingPreference,
     joinedAt: entry.joinedAt,
     waitLabel: entry.quotedWaitMinutes != null ? `${entry.quotedWaitMinutes}m` : 'TBD',
+    quotedWaitMinutes: entry.quotedWaitMinutes,
     notes: entry.notes,
   };
 }
@@ -133,6 +135,7 @@ export function reservationToSidebarParty(reservation: Reservation): HostSidebar
     seatingPreference: reservation.seatingPreference,
     joinedAt: null,
     waitLabel: formatReservationWaitLabel(reservation.timeSlot),
+    quotedWaitMinutes: null,
     notes: reservation.internalNotes || reservation.specialRequests || reservation.notes,
   };
 }

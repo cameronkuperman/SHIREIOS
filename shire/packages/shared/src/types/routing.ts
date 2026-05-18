@@ -14,6 +14,7 @@ export interface RoutingWaiter {
   servedTableIds: string[];
   liveTables: number;
   servedSeatingCount: number;
+  currentCovers?: number;
   lastAssignedAt: string | null;
 }
 
@@ -25,6 +26,8 @@ export interface WaiterRoutingState {
   tableAssignments: Record<string, string>;
   rotationOrder: string[];
   nextWaiterId: string | null;
+  nextUpByTable?: Record<string, string>;
+  nextUpBySection?: Record<string, string>;
   updatedAt: string;
 }
 

@@ -14,6 +14,11 @@ function formatRelativeWait(joinedAt: string, now: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
+function elapsedWaitMinutes(joinedAt: string | null, now: number): number | null {
+  if (!joinedAt) return null;
+  return Math.max(0, Math.floor((now - new Date(joinedAt).getTime()) / 60_000));
+}
+
 type WaitlistCardProps = {
   party: HostSidebarParty;
   index: number;
@@ -50,6 +55,18 @@ export function WaitlistCard({
     party.source === 'waitlist' && party.joinedAt
       ? formatRelativeWait(party.joinedAt, now)
       : party.waitLabel;
+  const elapsedMinutes =
+    party.source === 'waitlist' ? elapsedWaitMinutes(party.joinedAt, now) : null;
+  const quotedWaitLabel =
+    party.source === 'waitlist'
+      ? party.quotedWaitMinutes != null
+        ? `${party.quotedWaitMinutes}m`
+        : 'TBD'
+      : party.waitLabel;
+  const isPastQuote =
+    party.quotedWaitMinutes != null &&
+    elapsedMinutes != null &&
+    elapsedMinutes > party.quotedWaitMinutes;
   const showPref = party.seatingPreference !== 'none';
 
   return (
@@ -69,6 +86,34 @@ export function WaitlistCard({
       ]}
     >
       <View style={[styles.priorityStripe, { backgroundColor: statusColor }]} />
+      {party.source === 'waitlist' && (
+        <View
+          style={[
+            styles.quoteBlock,
+            {
+              backgroundColor: isPastQuote ? colors.status.dirty.fill : colors.accentLight,
+              borderColor: isPastQuote ? colors.status.dirty.text : colors.accent,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.quoteLabel,
+              { color: isPastQuote ? colors.status.dirty.text : colors.accent },
+            ]}
+          >
+            Quoted
+          </Text>
+          <Text
+            style={[
+              styles.quoteValue,
+              { color: isPastQuote ? colors.status.dirty.text : colors.accent },
+            ]}
+          >
+            {quotedWaitLabel}
+          </Text>
+        </View>
+      )}
       <View style={styles.info}>
         <View style={styles.nameRow}>
           <Text style={[styles.name, { color: colors.text.primary }]}>
@@ -78,7 +123,7 @@ export function WaitlistCard({
         </View>
         <View style={styles.detailsRow}>
           <Text style={[styles.details, { color: colors.text.secondary }]}>
-            {liveWait} · Party of {party.size}
+            {party.source === 'waitlist' ? `Waited ${liveWait}` : liveWait} · Party of {party.size}
           </Text>
           {showPref && (
             <View style={[styles.prefChip, { backgroundColor: colors.surface.level3 }]}>
@@ -140,6 +185,23 @@ const styles = StyleSheet.create({
   },
   info: {
     flex: 1,
+  },
+  quoteBlock: {
+    width: 78,
+    alignItems: 'center',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingVertical: spacing.sm,
+    marginRight: spacing.md,
+  },
+  quoteLabel: {
+    ...textStyles.tiny,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  quoteValue: {
+    ...textStyles.subtitle,
+    marginTop: 1,
   },
   nameRow: {
     flexDirection: 'row',

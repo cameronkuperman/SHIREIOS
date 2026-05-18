@@ -1,4 +1,4 @@
-# Backend Needed — Shift Setup & Waiter Roster
+# Backend Needed — Shift Setup, Waiter Roster & Waitlist Quotes
 
 This document tracks the backend work required by the mobile changes in the
 "Seat button + Next Up + Shift Setup" round. The mobile app degrades gracefully
@@ -39,7 +39,27 @@ in shift setup).
 Update `name`, `role`, or `is_active`. Used later for archiving a waiter
 without deleting their history. Not required for this round.
 
-## 2. Routing payload extension
+## 2. Waitlist quoted wait support
+
+The mobile waitlist now treats the quoted wait as a central host workflow:
+hosts pick a quick quote when adding a party, every row shows `Quoted` beside
+actual time waited, and quick edit can adjust the quoted minutes later.
+
+Existing waitlist endpoints should accept and return `quotedWaitMinutes`:
+
+- `POST /locations/:id/waitlist` body includes
+  `{ "quotedWaitMinutes": 30 }` or `null` when the host leaves the quote unset.
+- `PATCH /locations/:id/waitlist/:waitlistEntryId` accepts
+  `{ "quotedWaitMinutes": 45 }` or `null` to clear the quote.
+- `GET /locations/:id/waitlist` and all waitlist action responses should return
+  `quotedWaitMinutes` on each entry. The mobile contract already expects this
+  field and falls back to `TBD` only when it is `null`.
+
+If the backend stores a broader quote range later, keep this field as the
+host-facing midpoint/primary quote for V1 compatibility, then add separate
+`quotedWaitMinMinutes` / `quotedWaitMaxMinutes` fields in a follow-up contract.
+
+## 3. Routing payload extension
 
 The existing `PUT /locations/:id/routing` endpoint accepts
 `WaiterRoutingUpdatePayload`. This round adds a new value to `mode`:
@@ -54,7 +74,7 @@ this same endpoint. Roster waiter IDs are real `waiters.id` UUIDs (not the
 `temp-...` IDs used for ad-hoc additions), so the backend can safely join
 routing waiters back to the `waiters` table.
 
-## 3. Schema usage (no migrations required)
+## 4. Schema usage (no migrations required)
 
 The following existing tables back these features:
 
@@ -62,20 +82,22 @@ The following existing tables back these features:
 - `sections` — V1 derives section names from the floor map, so no endpoint is
   strictly required. If a `GET /locations/:id/sections` is cheap to add it
   would let hosts pre-create sections that have no tables yet. **Optional.**
+- `waitlist_entries.quoted_wait_minutes` / equivalent — source of truth for the
+  quoted wait shown to hosts and sent in waitlist guest messaging.
 - `shifts` — not written in V1. V2 should insert a `shifts` row on clock-in and
   close it on clock-out, linking `waiter_id` + `section_id`.
 - `schedule_shifts`, `staff_metrics_daily`, `demand_forecasts` — intended data
   sources for the shift-summary hour grid. V1 builds the grid from reservation
   data only; wiring real projected/served covers is V2.
 
-## 4. Auth + RLS
+## 5. Auth + RLS
 
 - All new endpoints sit behind the existing Supabase bearer token.
 - RLS on the new `waiters` endpoints must scope rows to the host's restaurant.
   Reuse the policy already on `waiters` if one exists; otherwise mirror the
   policy used for `tables`.
 
-## 5. Error contracts
+## 6. Error contracts
 
 - `GET /locations/:id/waiters`: the mobile client treats a `404` as "no roster
   yet" and shows an empty list (see `fetchWaiters`). Once the endpoint exists it
@@ -84,8 +106,11 @@ The following existing tables back these features:
   `{ "error": { "code": "...", "message": "..." } }`. The mobile app surfaces
   `message` in an alert. On failure the app falls back to a session-only
   temporary waiter so shift setup is never blocked.
+- `POST`/`PATCH /locations/:id/waitlist`: validate `quotedWaitMinutes` as a
+  positive integer number of minutes or `null`. On validation failure, return
+  `{ "error": { "code": "VALIDATION_ERROR", "message": "Quoted wait must be a positive number of minutes." } }`.
 
-## 6. Open questions for backend
+## 7. Open questions for backend
 
 - **Duplicate waiter names:** `POST /waiters` should probably dedupe — if
   `(restaurant_id, lower(name))` already exists, return the existing row
