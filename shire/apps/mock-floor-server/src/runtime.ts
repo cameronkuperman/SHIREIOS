@@ -354,6 +354,10 @@ export function applyTableCommand(
     return rejectCommand(runtime, command, 'Only occupied tables can be cleared.');
   }
 
+  if (command.type === 'mark_dirty' && currentTable.displayStatus !== 'available') {
+    return rejectCommand(runtime, command, 'Only open tables can be marked dirty.');
+  }
+
   if (command.type === 'mark_clean' && currentTable.displayStatus !== 'dirty') {
     return rejectCommand(runtime, command, 'Only dirty tables can be marked clean.');
   }
@@ -393,6 +397,7 @@ export function applyTableCommand(
         command.commandId,
       );
     case 'clear_table':
+    case 'mark_dirty':
       return updateTableMessage(
         runtime,
         command.tableId,

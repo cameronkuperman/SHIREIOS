@@ -23,9 +23,11 @@ import {
   fetchReservationDensity,
   fetchReservationSettings,
   fetchReservations,
+  fetchShiftAnalytics,
   restoreReservation,
   runReservationAction,
   fetchWaitlist,
+  updateReservationSchedule,
   updateReservation,
   runWaitlistAction,
   updateWaitlistEntry,
@@ -33,8 +35,10 @@ import {
   type ArchiveReservationInput,
   type CreateReservationInput,
   type CreateWaitlistInput,
+  type HostAnalyticsRange,
   type ReservationAvailabilityInput,
   type ReservationListFilters,
+  type ReservationScheduleInput,
   type UpdateReservationInput,
   type UpdateWaitlistInput,
   type WaitlistAction,
@@ -45,6 +49,7 @@ import { getReservationSourceLabel } from './source';
 
 const FALLBACK_WAITLIST_REFETCH_MS = 15_000;
 const FALLBACK_RESERVATIONS_REFETCH_MS = 60_000;
+const FALLBACK_ANALYTICS_REFETCH_MS = 30_000;
 
 export type HostSidebarStatus = 'Waiting' | 'Arrived' | 'Booked' | 'Confirmed' | 'Checked In';
 export type HostSidebarSource = 'waitlist' | 'reservations';
@@ -178,6 +183,20 @@ export function useWaitlist() {
   }, [isWorkdayActive, locationId, queryClient]);
 
   return query;
+}
+
+export function useHostShiftAnalytics(range: HostAnalyticsRange) {
+  const locationId = useLocationId();
+
+  return useQuery({
+    queryKey: locationId
+      ? queryKeys.analytics.shift(locationId, range)
+      : ['analytics', 'shift', 'disabled', range],
+    queryFn: () => fetchShiftAnalytics(locationId!, range),
+    enabled: !!locationId,
+    refetchInterval: FALLBACK_ANALYTICS_REFETCH_MS,
+    refetchOnReconnect: true,
+  });
 }
 
 function invalidateWaitlistQuery(
@@ -509,6 +528,25 @@ export function useReservationSettings(): ReservationSettings | null {
   });
 
   return query.data ?? null;
+}
+
+export function useUpdateReservationSchedule() {
+  const locationId = useLocationId();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: ReservationScheduleInput) => {
+      if (!locationId) {
+        throw new Error('No location selected');
+      }
+      return updateReservationSchedule(locationId, input);
+    },
+    onSuccess: () => {
+      if (locationId) {
+        invalidateReservationQueries(queryClient, locationId);
+      }
+    },
+  });
 }
 
 export function useActiveWaitlistEntries(): WaitlistEntry[] {

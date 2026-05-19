@@ -47,6 +47,14 @@ export function useFloorActions() {
         tableId,
         requestedAt: new Date().toISOString(),
       }),
+    markDirty: (tableId: string) =>
+      dispatchTableCommand({
+        type: 'mark_dirty',
+        commandId: createCommandId('mark-dirty'),
+        floorId,
+        tableId,
+        requestedAt: new Date().toISOString(),
+      }),
     markClean: (tableId: string) =>
       dispatchTableCommand({
         type: 'mark_clean',

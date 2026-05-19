@@ -1,11 +1,7 @@
 import React, { type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useTheme } from '@/theme';
 
 type BuilderCanvasProps = {
@@ -18,7 +14,7 @@ const MIN_SCALE = 0.4;
 const MAX_SCALE = 3;
 
 export function BuilderCanvas({ children, width, height }: BuilderCanvasProps) {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
 
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -72,13 +68,7 @@ export function BuilderCanvas({ children, width, height }: BuilderCanvasProps) {
         <View style={StyleSheet.absoluteFill}>
           <GridDots width={width} height={height} isDark={isDark} />
         </View>
-        <Animated.View
-          style={[
-            styles.canvas,
-            { width, height },
-            animatedStyle,
-          ]}
-        >
+        <Animated.View style={[styles.canvas, { width, height }, animatedStyle]}>
           {children}
         </Animated.View>
       </View>

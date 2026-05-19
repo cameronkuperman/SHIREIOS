@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Text, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { textStyles, spacing, borderRadius } from '@/theme';
 import { useTheme } from '@/theme';
 import { formatSlotLabel, resolveTimeSlotOptions, type TimeSlotOption } from './reservationTimeSlots';
@@ -21,11 +21,7 @@ export function TimeSlotPicker({
   const options = resolveTimeSlotOptions(slots, value);
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.scroll}
-    >
+    <View style={styles.grid}>
       {options.map((slot) => {
         const isActive = value === slot.value;
         const isUnavailable = Boolean(slot.disabled);
@@ -39,7 +35,7 @@ export function TimeSlotPicker({
               }
             }}
             style={[
-              styles.chip,
+              styles.cell,
               {
                 backgroundColor: isActive
                   ? colors.accentLight
@@ -51,38 +47,61 @@ export function TimeSlotPicker({
                   : isUnavailable
                     ? colors.border.subtle
                     : colors.glass.borderSubtle,
-                opacity: isUnavailable && !isActive ? 0.6 : 1,
+                opacity: isUnavailable && !isActive ? 0.55 : 1,
               },
             ]}
           >
             <Text
               style={[
-                styles.chipText,
-                { color: isActive ? colors.accent : colors.text.secondary },
+                styles.cellText,
+                {
+                  color: isActive
+                    ? colors.accent
+                    : isUnavailable
+                      ? colors.text.muted
+                      : colors.text.primary,
+                },
               ]}
+              numberOfLines={1}
             >
               {slot.label ?? formatSlotLabel(slot.value)}
-              {isUnavailable ? ' · Full' : ''}
             </Text>
+            {isUnavailable ? (
+              <Text style={[styles.fullLabel, { color: colors.text.muted }]} numberOfLines={1}>
+                Full
+              </Text>
+            ) : null}
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
-    paddingHorizontal: spacing.sm,
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  chip: {
-    paddingHorizontal: spacing.md,
+  cell: {
+    width: '23%',
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
     paddingVertical: spacing.sm,
-    borderRadius: borderRadius.pill,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
+    gap: 2,
   },
-  chipText: {
+  cellText: {
     ...textStyles.captionMedium,
+    textAlign: 'center',
+  },
+  fullLabel: {
+    ...textStyles.caption,
+    fontSize: 10,
+    textAlign: 'center',
   },
 });

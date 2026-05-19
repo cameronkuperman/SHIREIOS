@@ -36,6 +36,27 @@ test('seat commands emit canonical occupied updates', () => {
   assert.equal(result.runtime.tablesById['2']?.displayStatus, 'occupied');
 });
 
+test('mark dirty command allows manual spill overrides on open tables', () => {
+  const runtime = createRuntime('2026-03-07T12:00:00.000Z');
+  const result = applyTableCommand(runtime, {
+    type: 'mark_dirty',
+    commandId: 'command-spill',
+    floorId: runtime.floorId,
+    tableId: '2',
+    requestedAt: '2026-03-07T12:01:00.000Z',
+  });
+
+  assert.equal(result.message.type, 'table.updated');
+  if (result.message.type !== 'table.updated') {
+    return;
+  }
+
+  assert.equal(result.message.table.state, 'dirty');
+  assert.equal(result.message.source, 'host');
+  assert.equal(result.message.commandId, 'command-spill');
+  assert.equal(result.runtime.tablesById['2']?.displayStatus, 'dirty');
+});
+
 test('snapshot shape stays aligned with runtime tables', () => {
   const runtime = createRuntime('2026-03-07T12:00:00.000Z');
   const snapshot = createSnapshot(runtime, '2026-03-07T12:02:00.000Z');

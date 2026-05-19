@@ -22,6 +22,12 @@ const RAIL_ITEMS: RailItem[] = [
     match: (pathname) => pathname === '/' || pathname === '/index',
   },
   {
+    label: 'Stats',
+    icon: 'stats-chart-outline',
+    href: '/(host)/analytics' as Href,
+    match: (pathname) => pathname.includes('/analytics'),
+  },
+  {
     label: 'Queue',
     icon: 'people-outline',
     href: '/(host)/waitlist' as Href,
@@ -48,9 +54,7 @@ export default function HostLayout() {
 
   if (isInitializing) {
     return (
-      <View
-        style={[styles.fill, styles.center, { backgroundColor: colors.background }]}
-      >
+      <View style={[styles.loading, { backgroundColor: colors.background }]}>
         <ActivityIndicator color={colors.accent} />
       </View>
     );
@@ -68,6 +72,12 @@ export default function HostLayout() {
 
   return (
     <View style={[styles.shell, { backgroundColor: colors.background }]}>
+      {/*
+        TOUCH CONTRACT — HOST SHELL (do not regress):
+        Expo Router screens can paint full-window; without zIndex on the rail and
+        overflow:'hidden' on content, the floor map intercepts rail/footer taps.
+        Keep rail above content. Do not add GestureHandlerRootView at app root.
+      */}
       <View
         style={[
           styles.rail,
@@ -90,10 +100,7 @@ export default function HostLayout() {
                 activeOpacity={0.76}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                style={[
-                  styles.navItem,
-                  active ? { backgroundColor: colors.accentLight } : null,
-                ]}
+                style={[styles.navItem, active ? { backgroundColor: colors.accentLight } : null]}
                 onPress={() => router.push(item.href)}
               >
                 <Ionicons
@@ -103,10 +110,7 @@ export default function HostLayout() {
                 />
                 <Text
                   numberOfLines={1}
-                  style={[
-                    styles.navLabel,
-                    { color: active ? colors.accent : colors.text.muted },
-                  ]}
+                  style={[styles.navLabel, { color: active ? colors.accent : colors.text.muted }]}
                 >
                   {item.label}
                 </Text>
@@ -119,14 +123,9 @@ export default function HostLayout() {
           <TouchableOpacity
             activeOpacity={0.76}
             accessibilityRole="button"
-            accessibilityLabel={
-              unreadCount > 0 ? `Inbox, ${unreadCount} unread` : 'Inbox'
-            }
+            accessibilityLabel={unreadCount > 0 ? `Inbox, ${unreadCount} unread` : 'Inbox'}
             accessibilityState={{ selected: inboxActive }}
-            style={[
-              styles.navItem,
-              inboxActive ? { backgroundColor: colors.accentLight } : null,
-            ]}
+            style={[styles.navItem, inboxActive ? { backgroundColor: colors.accentLight } : null]}
             onPress={() => router.push('/(host)/inbox' as Href)}
           >
             <View>
@@ -165,7 +164,7 @@ export default function HostLayout() {
         </View>
       </View>
 
-      <View style={styles.fill}>
+      <View style={styles.content} pointerEvents="box-none">
         <Slot />
       </View>
     </View>
@@ -173,13 +172,21 @@ export default function HostLayout() {
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  center: { alignItems: 'center', justifyContent: 'center' },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   shell: { flex: 1, flexDirection: 'row' },
+  // Rail must stay above the floor Slot so inbox/settings/footer taps always land.
   rail: {
     width: 80,
     borderRightWidth: 1,
     alignItems: 'center',
+    zIndex: 20,
+    elevation: 20,
+  },
+  // Clip host screens so absolute floor tables cannot spill over the rail.
+  content: {
+    flex: 1,
+    overflow: 'hidden',
+    zIndex: 0,
   },
   brand: {
     fontFamily: fontFamily.display,

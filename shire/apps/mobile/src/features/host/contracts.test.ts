@@ -141,8 +141,32 @@ describe('host reservation contract normalization', () => {
       locationId: 'location-1',
       defaultChannel: 'public_app',
       updatedAt: '2026-04-08T12:00:00.000Z',
+      servicePeriods: [
+        {
+          id: 'period-1',
+          name: 'Dinner',
+          dayOfWeek: 2,
+          startTime: '17:00:00',
+          endTime: '22:00:00',
+          slotIntervalMinutes: 15,
+          leadTimeMinutes: 60,
+          sameDayCutoffTime: null,
+          minPartySize: 1,
+          maxPartySize: 8,
+          defaultDurationMinutes: 90,
+          active: true,
+        },
+      ],
     });
 
     expect(settings.defaultChannel).toBe('app_native');
+    expect(settings.servicePeriods[0]).toEqual(
+      expect.objectContaining({
+        id: 'period-1',
+        dayOfWeek: 2,
+        startTime: '17:00',
+        endTime: '22:00',
+      }),
+    );
   });
 });

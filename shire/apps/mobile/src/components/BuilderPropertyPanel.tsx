@@ -36,6 +36,18 @@ export function BuilderPropertyPanel({ table, rooms, onUpdate }: BuilderProperty
     setTableNumberDraft(table?.tableNumber ?? '');
   }, [table?.tableId, table?.tableNumber]);
 
+  const commitTableNumber = React.useCallback(() => {
+    if (!table) return;
+    const nextTableNumber = tableNumberDraft.trim();
+    if (
+      !nextTableNumber ||
+      (nextTableNumber === table.tableNumber && nextTableNumber === table.tableId)
+    ) {
+      return;
+    }
+    onUpdate({ tableNumber: nextTableNumber, tableId: nextTableNumber });
+  }, [onUpdate, table, tableNumberDraft]);
+
   if (!table) {
     return (
       <GlassSurface intensity={45} borderRadius={borderRadius['2xl']} style={styles.container}>
@@ -51,7 +63,12 @@ export function BuilderPropertyPanel({ table, rooms, onUpdate }: BuilderProperty
 
   return (
     <GlassSurface intensity={45} borderRadius={borderRadius['2xl']} style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.scroll}
+      >
         <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>PROPERTIES</Text>
 
         {/* Table Number */}
@@ -66,12 +83,12 @@ export function BuilderPropertyPanel({ table, rooms, onUpdate }: BuilderProperty
             },
           ]}
           value={tableNumberDraft}
-          onChangeText={setTableNumberDraft}
-          onEndEditing={() => {
-            if (tableNumberDraft !== table.tableNumber) {
-              onUpdate({ tableNumber: tableNumberDraft, tableId: tableNumberDraft });
-            }
+          onChangeText={(text) => {
+            setTableNumberDraft(text);
+            onUpdate({ tableNumber: text });
           }}
+          onBlur={commitTableNumber}
+          onSubmitEditing={commitTableNumber}
           placeholder="e.g. 7"
           placeholderTextColor={colors.text.muted}
           returnKeyType="done"
@@ -97,11 +114,12 @@ export function BuilderPropertyPanel({ table, rooms, onUpdate }: BuilderProperty
 
         {/* Room Assignment */}
         <Text style={[styles.fieldLabel, { color: colors.text.secondary }]}>Room</Text>
-        <View style={styles.chipRow}>
+        <View style={styles.roomGrid}>
           {rooms.map((room) => (
             <ChipButton
               key={room.roomId}
               label={room.label}
+              compact
               isActive={table.roomId === room.roomId}
               onPress={() => onUpdate({ roomId: room.roomId })}
             />
@@ -193,17 +211,19 @@ export function BuilderPropertyPanel({ table, rooms, onUpdate }: BuilderProperty
 function ChipButton({
   label,
   isActive,
+  compact,
   onPress,
 }: {
   label: string;
   isActive: boolean;
+  compact?: boolean;
   onPress: () => void;
 }) {
   const { colors } = useTheme();
   return (
     <TouchableOpacity
       style={[
-        styles.chip,
+        compact ? styles.roomChip : styles.chip,
         {
           backgroundColor: isActive ? colors.accentLight : 'transparent',
           borderColor: isActive ? colors.accent : colors.border.default,
@@ -211,7 +231,13 @@ function ChipButton({
       ]}
       onPress={onPress}
     >
-      <Text style={[styles.chipLabel, { color: isActive ? colors.accent : colors.text.secondary }]}>
+      <Text
+        numberOfLines={1}
+        style={[
+          compact ? styles.roomChipLabel : styles.chipLabel,
+          { color: isActive ? colors.accent : colors.text.secondary },
+        ]}
+      >
         {label}
       </Text>
     </TouchableOpacity>
@@ -220,11 +246,17 @@ function ChipButton({
 
 const styles = StyleSheet.create({
   container: {
-    width: 240,
+    width: 260,
+    flex: 1,
+    alignSelf: 'stretch',
     overflow: 'hidden',
+  },
+  scrollView: {
+    flex: 1,
   },
   scroll: {
     padding: spacing.lg,
+    paddingBottom: spacing['2xl'],
     gap: spacing.sm,
   },
   emptyState: {
@@ -260,15 +292,36 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.xs,
   },
+  roomGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
   chip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: borderRadius.pill,
     borderWidth: 1,
   },
+  roomChip: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    maxWidth: '48%',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
   chipLabel: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  roomChipLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   shapeChip: {
     flexDirection: 'row',

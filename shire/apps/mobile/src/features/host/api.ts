@@ -4,6 +4,7 @@ import type {
   ReservationAvailability,
   ReservationDensityResponse,
   ReservationSettings,
+  ReservationServicePeriod,
   WaitlistEntry,
 } from '@shire/shared';
 import { apiClient } from '@/services/api/client';
@@ -74,6 +75,10 @@ export type ReservationAvailabilityInput = {
   channel: Reservation['source'];
 };
 
+export type ReservationScheduleInput = {
+  servicePeriods: ReservationServicePeriod[];
+};
+
 export type ReservationActionInput = {
   commandId?: string;
   tableId?: string;
@@ -82,6 +87,59 @@ export type ReservationActionInput = {
 
 export type ArchiveReservationInput = {
   reason?: string;
+};
+
+export type HostAnalyticsRange = 'current_shift' | 'today' | 'week';
+export type HostAnalyticsWaiterSignal = 'load_watch' | 'fastest_flow' | 'needs_support' | 'steady';
+export type HostAnalyticsInsightTone = 'info' | 'watch' | 'good';
+
+export type HostShiftAnalyticsResponse = {
+  range: HostAnalyticsRange;
+  generatedAt: string;
+  windowStart: string;
+  windowEnd: string;
+  summary: {
+    covers: number;
+    parties: number;
+    tablesTurned: number;
+    avgTurnTimeMinutes: number | null;
+    peakBucketLabel: string | null;
+  };
+  hourly: {
+    bucketStart: string;
+    bucketLabel: string;
+    covers: number;
+    parties: number;
+    tablesTurned: number;
+    avgTurnTimeMinutes: number | null;
+  }[];
+  waiters: {
+    waiterId: string;
+    waiterName: string;
+    covers: number;
+    tablesServed: number;
+    liveTables: number;
+    avgTurnTimeMinutes: number | null;
+    signal: HostAnalyticsWaiterSignal;
+  }[];
+  bottlenecks: {
+    longOccupiedTables: {
+      tableId: string;
+      tableLabel: string;
+      waiterId: string | null;
+      waiterName: string | null;
+      partySize: number | null;
+      occupiedMinutes: number;
+      targetMinutes: number;
+      seatedAt: string;
+    }[];
+  };
+  insights: {
+    id: string;
+    tone: HostAnalyticsInsightTone;
+    title: string;
+    detail: string;
+  }[];
 };
 
 type BackendReservationSource = 'host' | 'phone' | 'public_web' | 'public_app' | 'google';
@@ -177,6 +235,28 @@ function toBackendReservationTime(timeValue: string): string {
   return trimmed;
 }
 
+function toBackendServicePeriodTime(timeValue: string | null): string | null {
+  if (timeValue === null) return null;
+  return toBackendReservationTime(timeValue);
+}
+
+function toBackendServicePeriod(period: ReservationServicePeriod) {
+  return {
+    ...(period.id ? { id: period.id } : {}),
+    name: period.name.trim() || 'Service',
+    dayOfWeek: period.dayOfWeek,
+    startTime: toBackendReservationTime(period.startTime),
+    endTime: toBackendReservationTime(period.endTime),
+    slotIntervalMinutes: period.slotIntervalMinutes,
+    leadTimeMinutes: period.leadTimeMinutes,
+    sameDayCutoffTime: toBackendServicePeriodTime(period.sameDayCutoffTime),
+    minPartySize: period.minPartySize,
+    maxPartySize: period.maxPartySize,
+    defaultDurationMinutes: period.defaultDurationMinutes,
+    active: period.active,
+  };
+}
+
 function toCreateReservationPayload(
   input: CreateReservationInput,
 ): BackendCreateReservationPayload {
@@ -224,7 +304,9 @@ function unwrapWaitlistResponse(response: WaitlistListResponseDto): WaitlistEntr
 }
 
 export async function fetchWaitlist(locationId: string): Promise<WaitlistEntry[]> {
-  const response = await apiClient.get<WaitlistListResponseDto>(`/locations/${locationId}/waitlist`);
+  const response = await apiClient.get<WaitlistListResponseDto>(
+    `/locations/${locationId}/waitlist`,
+  );
   return unwrapWaitlistResponse(response.data).map(adaptWaitlistEntry);
 }
 
@@ -405,4 +487,33 @@ export async function fetchReservationSettings(locationId: string): Promise<Rese
     ...response.data,
     locationId: response.data.locationId ?? locationId,
   });
+}
+
+export async function updateReservationSchedule(
+  locationId: string,
+  input: ReservationScheduleInput,
+): Promise<ReservationSettings> {
+  const response = await apiClient.patch<ReservationSettingsDto>(
+    `/locations/${locationId}/reservation-schedule`,
+    {
+      servicePeriods: input.servicePeriods.map(toBackendServicePeriod),
+    },
+  );
+  return adaptReservationSettings({
+    ...response.data,
+    locationId: response.data.locationId ?? locationId,
+  });
+}
+
+export async function fetchShiftAnalytics(
+  locationId: string,
+  range: HostAnalyticsRange,
+): Promise<HostShiftAnalyticsResponse> {
+  const response = await apiClient.get<HostShiftAnalyticsResponse>(
+    `/locations/${locationId}/analytics/shift`,
+    {
+      params: { range },
+    },
+  );
+  return response.data;
 }

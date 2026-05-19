@@ -1,7 +1,9 @@
 import {
   createReservation,
+  fetchShiftAnalytics,
   fetchReservationAvailability,
   runReservationAction,
+  updateReservationSchedule,
   updateReservation,
 } from './api';
 import { apiClient } from '@/services/api/client';
@@ -200,5 +202,106 @@ describe('reservation API request normalization', () => {
       '/locations/location-1/reservations/reservation-1/actions/cancel',
       {},
     );
+  });
+
+  it('saves reservation schedule through the schedule-only endpoint', async () => {
+    mockedApiClient.patch.mockResolvedValue({
+      data: {
+        locationId: 'location-1',
+        bookingHorizonDays: 30,
+        gracePeriodMinutes: 15,
+        servicePeriods: [
+          {
+            id: 'period-1',
+            name: 'Dinner',
+            dayOfWeek: 2,
+            startTime: '17:00:00',
+            endTime: '22:00:00',
+            slotIntervalMinutes: 15,
+            leadTimeMinutes: 60,
+            sameDayCutoffTime: null,
+            minPartySize: 1,
+            maxPartySize: 8,
+            defaultDurationMinutes: 90,
+            active: true,
+          },
+        ],
+        pacingRules: [],
+        channelRules: [],
+        updatedAt: '2026-04-08T12:00:00.000Z',
+      },
+    });
+
+    const settings = await updateReservationSchedule('location-1', {
+      servicePeriods: [
+        {
+          id: null,
+          name: 'Dinner',
+          dayOfWeek: 2,
+          startTime: '17:00',
+          endTime: '22:00',
+          slotIntervalMinutes: 15,
+          leadTimeMinutes: 60,
+          sameDayCutoffTime: null,
+          minPartySize: 1,
+          maxPartySize: 8,
+          defaultDurationMinutes: 90,
+          active: true,
+        },
+      ],
+    });
+
+    expect(mockedApiClient.patch).toHaveBeenCalledWith(
+      '/locations/location-1/reservation-schedule',
+      {
+        servicePeriods: [
+          expect.objectContaining({
+            name: 'Dinner',
+            dayOfWeek: 2,
+            startTime: '17:00:00',
+            endTime: '22:00:00',
+            leadTimeMinutes: 60,
+          }),
+        ],
+      },
+    );
+    expect(settings.servicePeriods[0]?.startTime).toBe('17:00');
+  });
+
+  it('fetches live shift analytics for the selected range', async () => {
+    mockedApiClient.get.mockResolvedValue({
+      data: {
+        range: 'today',
+        generatedAt: '2026-05-18T23:00:00.000Z',
+        windowStart: '2026-05-18T04:00:00.000Z',
+        windowEnd: '2026-05-18T23:00:00.000Z',
+        summary: {
+          covers: 0,
+          parties: 0,
+          tablesTurned: 0,
+          avgTurnTimeMinutes: null,
+          peakBucketLabel: null,
+        },
+        hourly: [],
+        waiters: [],
+        bottlenecks: { longOccupiedTables: [] },
+        insights: [
+          {
+            id: 'steady-shift',
+            tone: 'good',
+            title: 'Shift flow',
+            detail: 'Service flow is steady against the current shift targets.',
+          },
+        ],
+      },
+    });
+
+    const analytics = await fetchShiftAnalytics('location-1', 'today');
+
+    expect(mockedApiClient.get).toHaveBeenCalledWith('/locations/location-1/analytics/shift', {
+      params: { range: 'today' },
+    });
+    expect(analytics.summary.covers).toBe(0);
+    expect(JSON.stringify(analytics).toLowerCase()).not.toContain('mock');
   });
 });

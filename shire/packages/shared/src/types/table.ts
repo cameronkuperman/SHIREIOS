@@ -27,6 +27,7 @@ export type TableCommandType =
   | "seat_party"
   | "seat_walk_in"
   | "clear_table"
+  | "mark_dirty"
   | "mark_clean"
   | "block_table"
   | "unblock_table";
@@ -74,11 +75,28 @@ export interface FloorMapRoom {
   layoutMode?: "grid" | "freeform"; // default 'grid' for backward compat
 }
 
+export interface FloorMapSectionDefinition {
+  sectionId: string;
+  tableIds: string[];
+}
+
+export interface FloorMapSectionPlan {
+  planId: string;
+  name: string;
+  waiterCount: number;
+  sections: FloorMapSectionDefinition[];
+  isDefault?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface FloorMap {
   floorId: string;
   mapVersion: string;
   rooms: FloorMapRoom[];
   tables: Record<string, FloorMapTable>;
+  sectionPlans?: FloorMapSectionPlan[];
+  activeSectionPlanId?: string | null;
 }
 
 export interface TableParty {
@@ -149,6 +167,10 @@ export interface MarkCleanCommand extends BaseTableCommand {
   type: "mark_clean";
 }
 
+export interface MarkDirtyCommand extends BaseTableCommand {
+  type: "mark_dirty";
+}
+
 export interface BlockTableCommand extends BaseTableCommand {
   type: "block_table" | "unblock_table";
 }
@@ -157,6 +179,7 @@ export type TableCommand =
   | SeatTableCommand
   | ClearTableCommand
   | MarkCleanCommand
+  | MarkDirtyCommand
   | BlockTableCommand;
 
 export interface FloorSnapshotMessage {

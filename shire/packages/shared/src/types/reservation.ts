@@ -90,6 +90,21 @@ export interface ReservationAvailability {
   slots: ReservationAvailabilitySlot[];
 }
 
+export interface ReservationServicePeriod {
+  id: string | null;
+  name: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  slotIntervalMinutes: number;
+  leadTimeMinutes: number;
+  sameDayCutoffTime: string | null;
+  minPartySize: number;
+  maxPartySize: number;
+  defaultDurationMinutes: number;
+  active: boolean;
+}
+
 export interface ReservationSettings {
   locationId: string;
   bookingHorizonDays: number;
@@ -97,6 +112,7 @@ export interface ReservationSettings {
   leadTimeMinutes: number;
   sameDayCutoffMinutes: number | null;
   defaultChannel: ReservationSource;
+  servicePeriods: ReservationServicePeriod[];
   updatedAt: string | null;
 }
 

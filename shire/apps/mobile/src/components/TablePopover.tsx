@@ -19,6 +19,7 @@ type PillKey = 'available' | 'occupied' | 'dirty' | 'blocked';
 
 type TablePopoverProps = {
   visible: boolean;
+  presentation?: 'floating' | 'panel';
   onClose: () => void;
   tableId: string;
   tableLabel?: string;
@@ -32,8 +33,10 @@ type TablePopoverProps = {
   currentPartySize?: number | null;
   seatedTime?: string;
   anchorLayout?: LayoutRectangle;
+  initialWalkInMode?: boolean;
   selectedPartyName?: string | null;
   nextUpServer?: { name: string; color?: string } | null;
+  autoAssignmentLabel?: string | null;
   routingModeLabel?: string;
   onMarkSeated?: () => void;
   onSeatWalkIn?: (size: number, name: string) => void;
@@ -42,6 +45,7 @@ type TablePopoverProps = {
   onBlock?: () => void;
   servers?: WaiterChipData[];
   currentServerId?: string;
+  serverOverrideActive?: boolean;
   onChangeServer?: (serverId: string) => void;
   onClearServerAssignment?: () => void;
   seatWarning?: string;
@@ -64,6 +68,7 @@ function currentPill(status: StatusKey, isBlocked: boolean): PillKey {
 
 export function TablePopover({
   visible,
+  presentation = 'floating',
   onClose,
   tableId,
   tableLabel,
@@ -77,8 +82,10 @@ export function TablePopover({
   currentPartySize,
   seatedTime,
   anchorLayout,
+  initialWalkInMode = false,
   selectedPartyName,
   nextUpServer,
+  autoAssignmentLabel,
   routingModeLabel,
   onMarkSeated,
   onSeatWalkIn,
@@ -87,6 +94,7 @@ export function TablePopover({
   onBlock,
   servers,
   currentServerId,
+  serverOverrideActive = false,
   onChangeServer,
   onClearServerAssignment,
   seatWarning,
@@ -100,15 +108,14 @@ export function TablePopover({
   const [walkInCustomText, setWalkInCustomText] = useState('');
 
   useEffect(() => {
-    if (!visible) {
-      setWalkInMode(false);
-      setWalkInSize(null);
-      setWalkInName('');
-      setWalkInCustomOpen(false);
-      setWalkInCustomText('');
-      setServerPickerOpen(false);
-    }
-  }, [visible]);
+    if (!visible) return;
+    setWalkInMode(initialWalkInMode);
+    setWalkInSize(null);
+    setWalkInName('');
+    setWalkInCustomOpen(false);
+    setWalkInCustomText('');
+    setServerPickerOpen(false);
+  }, [initialWalkInMode, tableId, visible]);
 
   const activePill = currentPill(status, isBlocked);
 
@@ -160,7 +167,7 @@ export function TablePopover({
     }
 
     if (target === 'dirty') {
-      if (!isOccupied) return;
+      if (!isAvailable && !isOccupied) return;
       onMarkDirty?.();
       return;
     }
@@ -178,7 +185,7 @@ export function TablePopover({
     if (isBlockedActive) return target === 'available';
     if (target === 'blocked') return !isOccupied;
     if (target === 'occupied') return isAvailable;
-    if (target === 'dirty') return isOccupied;
+    if (target === 'dirty') return isAvailable || isOccupied;
     if (target === 'available') return isOccupied || isDirty;
     return false;
   };
@@ -191,38 +198,66 @@ export function TablePopover({
 
   const walkInSubmitSize = walkInCustomOpen ? parseInt(walkInCustomText, 10) : walkInSize;
   const canSubmitWalkIn = Boolean(walkInSubmitSize && walkInSubmitSize >= 1);
+  const isPanel = presentation === 'panel';
 
-  return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <View
-          style={[
-            styles.popover,
-            {
+  const handleQuickseatCancel = () => {
+    if (isPanel) {
+      onClose();
+      return;
+    }
+    setWalkInMode(false);
+    setWalkInSize(null);
+    setWalkInName('');
+    setWalkInCustomOpen(false);
+    setWalkInCustomText('');
+  };
+  const popoverCard = (
+    <View
+      style={[
+        styles.popover,
+        isPanel
+          ? styles.panelPopover
+          : {
               top: popoverTop,
               left: popoverLeft,
-              borderColor: colors.glass.border,
             },
-          ]}
-          onStartShouldSetResponder={() => true}
-        >
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: popoverBg }]} />
-          <View style={styles.content}>
-            <View
-              style={[
-                styles.arrow,
-                {
-                  left: anchorLayout
-                    ? anchorLayout.width / 2 + (anchorLayout.x - popoverLeft) - 8
-                    : 152,
-                  backgroundColor: isDark ? '#1E1E22' : colors.surface.level1,
-                  borderColor: colors.glass.border,
-                },
-              ]}
-            />
+        {
+          borderColor: colors.glass.border,
+        },
+      ]}
+      onStartShouldSetResponder={() => true}
+    >
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: popoverBg }]} />
+      <View style={styles.content}>
+        {!isPanel && (
+          <View
+            style={[
+              styles.arrow,
+              {
+                left: anchorLayout
+                  ? anchorLayout.width / 2 + (anchorLayout.x - popoverLeft) - 8
+                  : 152,
+                backgroundColor: isDark ? '#1E1E22' : colors.surface.level1,
+                borderColor: colors.glass.border,
+              },
+            ]}
+          />
+        )}
 
             <View style={styles.header}>
               <View style={styles.headerLeft}>
+                {isPanel ? (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back to waitlist and reservations"
+                    onPress={onClose}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={styles.headerBackBtn}
+                  >
+                    <Ionicons name="chevron-back" size={22} color={colors.text.secondary} />
+                  </TouchableOpacity>
+                ) : null}
                 <Text style={[styles.title, { color: colors.text.primary }]}>
                   Table {tableLabel ?? tableId}
                 </Text>
@@ -304,10 +339,26 @@ export function TablePopover({
             {walkInMode ? (
               <View style={styles.walkInPanel}>
                 <Text style={[styles.walkInTitle, { color: colors.text.primary }]}>
-                  How many?
+                  Add quickseat party
                 </Text>
+                {autoAssignmentLabel && (
+                  <View
+                    style={[
+                      styles.autoRouteRow,
+                      {
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.border.subtle,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="git-branch-outline" size={14} color={colors.text.muted} />
+                    <Text style={[styles.autoRouteText, { color: colors.text.secondary }]}>
+                      {autoAssignmentLabel}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.sizeGrid}>
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => {
+                  {[1, 2, 3, 4].map((n) => {
                     const isSel = !walkInCustomOpen && walkInSize === n;
                     return (
                       <TouchableOpacity
@@ -351,18 +402,13 @@ export function TablePopover({
                       },
                     ]}
                   >
-                    <Ionicons
-                      name="keypad-outline"
-                      size={16}
-                      color={walkInCustomOpen ? colors.white : colors.text.secondary}
-                    />
                     <Text
                       style={[
-                        styles.sizeTileMore,
-                        { color: walkInCustomOpen ? colors.white : colors.text.secondary },
+                        styles.sizeTileText,
+                        { color: walkInCustomOpen ? colors.white : colors.text.primary },
                       ]}
                     >
-                      More
+                      5+
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -409,6 +455,94 @@ export function TablePopover({
                   />
                 </View>
 
+                {canEditServer && servers && (
+                  <View
+                    style={[
+                      styles.walkInServerPanel,
+                      {
+                        borderColor: colors.border.subtle,
+                        backgroundColor: colors.surface.level2,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
+                      WAITER
+                    </Text>
+                    {onClearServerAssignment && (
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={onClearServerAssignment}
+                        style={[
+                          styles.serverPickerRow,
+                          {
+                            backgroundColor: !serverOverrideActive
+                              ? isDark
+                                ? 'rgba(255,255,255,0.06)'
+                                : 'rgba(0,0,0,0.03)'
+                              : 'transparent',
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="sparkles-outline"
+                          size={16}
+                          color={!serverOverrideActive ? colors.accent : colors.text.muted}
+                        />
+                        <Text
+                          style={[
+                            styles.infoText,
+                            { color: colors.text.secondary, flex: 1 },
+                            !serverOverrideActive && {
+                              color: colors.text.primary,
+                              fontWeight: '600',
+                            },
+                          ]}
+                        >
+                          Auto route
+                        </Text>
+                        {!serverOverrideActive && (
+                          <Ionicons name="checkmark" size={16} color={colors.accent} />
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    {servers.map((s) => (
+                      <TouchableOpacity
+                        key={s.id}
+                        activeOpacity={0.7}
+                        onPress={() => onChangeServer?.(s.id)}
+                        style={[
+                          styles.serverPickerRow,
+                          {
+                            backgroundColor:
+                              serverOverrideActive && s.id === currentServerId
+                                ? isDark
+                                  ? 'rgba(255,255,255,0.06)'
+                                  : 'rgba(0,0,0,0.03)'
+                                : 'transparent',
+                          },
+                        ]}
+                      >
+                        <View style={[styles.serverDotSmall, { backgroundColor: s.color }]} />
+                        <Text
+                          style={[
+                            styles.infoText,
+                            { color: colors.text.secondary, flex: 1 },
+                            serverOverrideActive && s.id === currentServerId && {
+                              color: colors.text.primary,
+                              fontWeight: '600',
+                            },
+                          ]}
+                        >
+                          {s.name}
+                        </Text>
+                        {serverOverrideActive && s.id === currentServerId && (
+                          <Ionicons name="checkmark" size={16} color={colors.accent} />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
                 <View style={styles.walkInActions}>
                   <TouchableOpacity
                     style={[
@@ -419,13 +553,7 @@ export function TablePopover({
                         borderWidth: 1,
                       },
                     ]}
-                    onPress={() => {
-                      setWalkInMode(false);
-                      setWalkInSize(null);
-                      setWalkInName('');
-                      setWalkInCustomOpen(false);
-                      setWalkInCustomText('');
-                    }}
+                    onPress={handleQuickseatCancel}
                   >
                     <Text style={[styles.walkInBtnText, { color: colors.text.secondary }]}>
                       Cancel
@@ -665,8 +793,16 @@ export function TablePopover({
                 )}
               </>
             )}
-          </View>
-        </View>
+      </View>
+    </View>
+  );
+
+  if (isPanel) return popoverCard;
+
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        {popoverCard}
       </Pressable>
     </Modal>
   );
@@ -683,6 +819,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     ...shadows.elevated,
+  },
+  panelPopover: {
+    position: 'relative',
+    width: '100%',
+    borderRadius: borderRadius.md,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   content: {
     padding: spacing.lg,
@@ -708,7 +851,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    flex: 1,
     flexShrink: 1,
+  },
+  headerBackBtn: {
+    marginLeft: -4,
+    marginRight: -2,
   },
   title: {
     ...textStyles.subtitle,
@@ -849,13 +997,26 @@ const styles = StyleSheet.create({
     ...textStyles.label,
     marginBottom: 2,
   },
+  autoRouteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+    borderWidth: 1,
+    borderRadius: borderRadius.sm,
+  },
+  autoRouteText: {
+    ...textStyles.tiny,
+    flex: 1,
+  },
   sizeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
   },
   sizeTile: {
-    width: '22%',
+    width: '18%',
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -898,6 +1059,13 @@ const styles = StyleSheet.create({
     flex: 1,
     ...textStyles.body,
     padding: 0,
+  },
+  walkInServerPanel: {
+    gap: 2,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
   },
   walkInActions: {
     flexDirection: 'row',

@@ -66,8 +66,7 @@ export default function WorkdayScreen() {
         <Text style={[styles.eyebrow, { color: colors.text.muted }]}>PRE-SHIFT</Text>
         <Text style={[styles.title, { color: colors.text.primary }]}>Start Workday</Text>
         <Text style={[styles.subtitle, { color: colors.text.secondary }]}>
-          Connect the host stand to live floor state and waitlist updates for {currentLocation.name}
-          .
+          Connect the host stand to live floor state and waitlist updates for {currentLocation.name}.
         </Text>
 
         <GlassSurface intensity={45} borderRadius={borderRadius['2xl']} style={styles.card}>

@@ -15,7 +15,18 @@ export interface RoutingWaiter {
   liveTables: number;
   servedSeatingCount: number;
   currentCovers?: number;
+  recentHourCovers?: number;
+  shiftClockIn?: string | null;
+  gratCountToday?: number;
+  lastGratAt?: string | null;
   lastAssignedAt: string | null;
+}
+
+export interface ShiftStartGroup {
+  id: string;
+  name: string;
+  startTime: string;
+  waiterIds: string[];
 }
 
 export interface WaiterRoutingState {
@@ -28,6 +39,12 @@ export interface WaiterRoutingState {
   nextWaiterId: string | null;
   nextUpByTable?: Record<string, string>;
   nextUpBySection?: Record<string, string>;
+  shiftStartGroups?: ShiftStartGroup[];
+  gratThreshold?: number;
+  gratRotationState?: { rotationOrder?: string[] };
+  nextGratWaiterId?: string | null;
+  nextGratByTable?: Record<string, string>;
+  nextGratBySection?: Record<string, string>;
   updatedAt: string;
 }
 
@@ -41,4 +58,7 @@ export interface WaiterRoutingUpdatePayload {
   tableAssignments: Record<string, string>;
   rotationOrder: string[];
   nextWaiterId: string | null;
+  shiftStartGroups?: ShiftStartGroup[];
+  gratThreshold?: number;
+  gratRotationState?: { rotationOrder?: string[] };
 }

@@ -33,6 +33,8 @@ export interface FloorStoreData {
   lastAppliedSequence: number;
   pendingCommands: Record<string, PendingCommandEntry>;
   syncError: string | null;
+  /** When false, live table updates with source=ml (CCTV) are ignored. */
+  cctvSyncEnabled: boolean;
 }
 
 export interface FloorTableViewModel {
@@ -250,6 +252,7 @@ function applyOptimisticCommandToTable(
         currentWaitlistEntryId: command.party.source === 'waitlist' ? command.party.id : null,
       };
     case 'clear_table':
+    case 'mark_dirty':
       return {
         ...baseTable,
         displayStatus: 'dirty',
@@ -400,6 +403,13 @@ export function applyFloorStreamMessageState(
         return state;
       }
 
+      if (message.source === 'ml' && !state.cctvSyncEnabled) {
+        return {
+          lastAppliedSequence: message.sequence,
+          syncError: null,
+        };
+      }
+
       if (
         message.source === 'ml' &&
         hasPendingCommandForTable(state.pendingCommands, message.table.tableId)
@@ -428,6 +438,13 @@ export function applyFloorStreamMessageState(
     case 'table.batch_updated': {
       if (message.floorId !== state.floorId || message.sequence <= state.lastAppliedSequence) {
         return state;
+      }
+
+      if (message.source === 'ml' && !state.cctvSyncEnabled) {
+        return {
+          lastAppliedSequence: message.sequence,
+          syncError: null,
+        };
       }
 
       const nextTablesById = { ...state.tablesById };

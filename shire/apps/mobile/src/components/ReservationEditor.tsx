@@ -11,7 +11,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { format, parseISO } from 'date-fns';
 import type { Reservation, ReservationAction, ReservationSource } from '@shire/shared';
@@ -27,7 +29,6 @@ import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
 import { CalendarGrid } from './CalendarGrid';
 import { GlassSurface } from './GlassSurface';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
-import { TimeSlotPicker } from './TimeSlotPicker';
 import { TimeWheelField } from './TimeWheelField';
 import { findNearbyOpenSlots } from './findNearbyOpenSlots';
 import {
@@ -37,6 +38,10 @@ import {
 } from './reservationTimeSlots';
 
 export type ReservationFormValues = CreateReservationInput;
+
+/** RN Web needs explicit overflow + bounded flex height for trackpad / mouse wheel scrolling. */
+const WEB_SCROLL_VIEW_STYLE: ViewStyle =
+  Platform.OS === 'web' ? ({ overflow: 'scroll', height: '100%' } as ViewStyle) : {};
 
 type ReservationEditorProps = {
   mode: 'create' | 'edit';
@@ -110,7 +115,9 @@ export function ReservationEditor({
   onMessageGuest,
 }: ReservationEditorProps) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const settings = useReservationSettings();
+  const [footerHeight, setFooterHeight] = useState(96);
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
   const [partySize, setPartySize] = useState('2');
@@ -122,7 +129,6 @@ export function ReservationEditor({
   const [specialRequests, setSpecialRequests] = useState('');
   const [internalNotes, setInternalNotes] = useState('');
   const [pacingOverride, setPacingOverride] = useState(false);
-  const [showAllTimes, setShowAllTimes] = useState(false);
   const [hasAutoDefaultedTime, setHasAutoDefaultedTime] = useState(mode === 'edit');
 
   useEffect(() => {
@@ -139,7 +145,6 @@ export function ReservationEditor({
       setSpecialRequests('');
       setInternalNotes('');
       setPacingOverride(false);
-      setShowAllTimes(false);
       setHasAutoDefaultedTime(false);
       return;
     }
@@ -155,7 +160,6 @@ export function ReservationEditor({
     setSpecialRequests(reservation.specialRequests);
     setInternalNotes(reservation.internalNotes || reservation.notes);
     setPacingOverride(reservation.pacingOverrideApplied);
-    setShowAllTimes(false);
     setHasAutoDefaultedTime(true);
   }, [initialDate, reservation]);
 
@@ -169,39 +173,16 @@ export function ReservationEditor({
       : null,
   );
 
-  const slotOptions = useMemo(() => {
-    const options =
-      availability?.slots.map((slot) => ({
-        value: slot.timeSlot,
-        disabled: !slot.available,
-        reason: slot.reason,
-      })) ?? [];
-
-    if (timeSlot && !options.find((slot) => slot.value === timeSlot)) {
-      options.push({
-        value: timeSlot,
-        disabled: false,
-        reason: null,
-      });
-    }
-
-    return options.sort((left, right) => left.value.localeCompare(right.value));
-  }, [availability?.slots, timeSlot]);
-
   const selectedSlot = useMemo(
     () => availability?.slots.find((slot) => slot.timeSlot === timeSlot) ?? null,
     [availability?.slots, timeSlot],
   );
   const editableSource = toStaffReservationSource(source);
   const sourceLabel = getReservationSourceLabel(source) ?? 'Host';
-  const isUsingFallbackTimeSlots = slotOptions.length === 0;
-
   const nearby = useMemo(
     () => findNearbyOpenSlots(availability?.slots, timeSlot, 2),
     [availability?.slots, timeSlot],
   );
-  const hasAnyOpenAlts = nearby.earlier.length + nearby.later.length > 0;
-
   const statusLine = useMemo<
     { kind: 'open' | 'closed'; text: string } | null
   >(() => {
@@ -246,24 +227,6 @@ export function ReservationEditor({
       setHasAutoDefaultedTime(true);
     }
   }, [hasAutoDefaultedTime, timeSlot, availability?.slots, selectedDate]);
-
-  useEffect(() => {
-    if (
-      hasAutoDefaultedTime &&
-      !selectedSlot &&
-      !hasAnyOpenAlts &&
-      !showAllTimes &&
-      (availability?.slots.length ?? 0) > 0
-    ) {
-      setShowAllTimes(true);
-    }
-  }, [
-    hasAutoDefaultedTime,
-    selectedSlot,
-    hasAnyOpenAlts,
-    showAllTimes,
-    availability?.slots.length,
-  ]);
 
   const canSubmit =
     guestName.trim().length > 0 &&
@@ -320,37 +283,40 @@ export function ReservationEditor({
     reservation.archivedAt == null &&
     ['completed', 'canceled', 'no_show'].includes(reservation.status);
 
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.iconButton}>
-            <Ionicons name="close" size={24} color={colors.text.primary} />
-          </TouchableOpacity>
-          <View style={styles.headerText}>
-            <Text style={[styles.title, { color: colors.text.primary }]}>
-              {mode === 'create' ? 'New Reservation' : (reservation?.guestName ?? 'Reservation')}
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.text.muted }]}>
-              {formatDisplayDate(selectedDate)}
-            </Text>
-          </View>
-          {isSaving ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <View style={styles.headerSpacer} />
-          )}
-        </View>
+  const scrollBottomInset = footerHeight + spacing.lg;
+  const isWeb = Platform.OS === 'web';
 
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
+  const formBody = (
+        <View style={styles.body}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onClose} style={styles.iconButton}>
+              <Ionicons name="close" size={24} color={colors.text.primary} />
+            </TouchableOpacity>
+            <View style={styles.headerText}>
+              <Text style={[styles.title, { color: colors.text.primary }]}>
+                {mode === 'create' ? 'New Reservation' : (reservation?.guestName ?? 'Reservation')}
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.text.muted }]}>
+                {formatDisplayDate(selectedDate)}
+              </Text>
+            </View>
+            {isSaving ? (
+              <ActivityIndicator color={colors.accent} />
+            ) : (
+              <View style={styles.headerSpacer} />
+            )}
+          </View>
+
+          <ScrollView
+            style={[styles.scroll, WEB_SCROLL_VIEW_STYLE]}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomInset }]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={isWeb ? undefined : 'on-drag'}
+            canCancelContentTouches
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={isWeb}
+            alwaysBounceVertical={!isWeb}
+          >
           {reservation && (
             <GlassSurface style={styles.section}>
               <View style={styles.statusHeader}>
@@ -561,47 +527,6 @@ export function ReservationEditor({
               </View>
             )}
 
-            {hasAnyOpenAlts && (
-              <View style={styles.quickChipsRow}>
-                {nearby.earlier.map((slot) => (
-                  <TouchableOpacity
-                    key={`earlier-${slot.timeSlot}`}
-                    onPress={() => setTimeSlot(slot.timeSlot)}
-                    activeOpacity={0.7}
-                    style={[
-                      styles.quickChip,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.glass.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.quickChipText, { color: colors.accent }]}>
-                      {formatSlotLabel(slot.timeSlot)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                {nearby.later.map((slot) => (
-                  <TouchableOpacity
-                    key={`later-${slot.timeSlot}`}
-                    onPress={() => setTimeSlot(slot.timeSlot)}
-                    activeOpacity={0.7}
-                    style={[
-                      styles.quickChip,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.glass.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.quickChipText, { color: colors.accent }]}>
-                      {formatSlotLabel(slot.timeSlot)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
             {selectedSlot && !selectedSlot.available && (
               <View
                 style={[
@@ -633,37 +558,6 @@ export function ReservationEditor({
               </View>
             )}
 
-            <TouchableOpacity
-              onPress={() => setShowAllTimes((v) => !v)}
-              style={styles.disclosureRow}
-              accessibilityRole="button"
-            >
-              <Text style={[styles.disclosureLabel, { color: colors.text.secondary }]}>
-                {showAllTimes ? 'Hide all open times' : 'Browse all open times'}
-              </Text>
-              <Ionicons
-                name={showAllTimes ? 'chevron-up' : 'chevron-down'}
-                size={16}
-                color={colors.text.secondary}
-              />
-            </TouchableOpacity>
-
-            {showAllTimes && (
-              <>
-                <TimeSlotPicker
-                  value={timeSlot}
-                  onChange={setTimeSlot}
-                  slots={slotOptions}
-                  allowUnavailableSelection
-                />
-                {isUsingFallbackTimeSlots && (
-                  <Text style={[styles.helperText, { color: colors.text.muted }]}>
-                    Live availability did not return any time slots, so standard service times
-                    are shown.
-                  </Text>
-                )}
-              </>
-            )}
           </GlassSurface>
 
           <GlassSurface style={styles.section}>
@@ -704,14 +598,24 @@ export function ReservationEditor({
               onChangeText={setInternalNotes}
             />
           </GlassSurface>
-        </ScrollView>
+          </ScrollView>
 
-        <View
-          style={[
-            styles.footer,
-            { backgroundColor: colors.surface.level1, borderTopColor: colors.border.subtle },
-          ]}
-        >
+          <View
+            onLayout={(event) => {
+              const nextHeight = event.nativeEvent.layout.height;
+              if (nextHeight > 0 && nextHeight !== footerHeight) {
+                setFooterHeight(nextHeight);
+              }
+            }}
+            style={[
+              styles.footer,
+              {
+                backgroundColor: colors.surface.level1,
+                borderTopColor: colors.border.subtle,
+                paddingBottom: Math.max(insets.bottom, spacing.xl),
+              },
+            ]}
+          >
           {reservation?.archivedAt && onRestore && (
             <TouchableOpacity
               style={[styles.secondaryFooterButton, { borderColor: colors.glass.border }]}
@@ -747,8 +651,23 @@ export function ReservationEditor({
               {mode === 'create' ? 'Create Reservation' : 'Save Changes'}
             </Text>
           </TouchableOpacity>
+          </View>
         </View>
-      </KeyboardAvoidingView>
+  );
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      {Platform.OS === 'ios' ? (
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior="padding"
+          keyboardVerticalOffset={insets.top}
+        >
+          {formBody}
+        </KeyboardAvoidingView>
+      ) : (
+        <View style={styles.container}>{formBody}</View>
+      )}
     </SafeAreaView>
   );
 }
@@ -756,6 +675,11 @@ export function ReservationEditor({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    minHeight: 0,
+  },
+  body: {
+    flex: 1,
+    minHeight: 0,
   },
   header: {
     flexDirection: 'row',
@@ -786,10 +710,11 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+    flexShrink: 1,
+    minHeight: 0,
   },
   scrollContent: {
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing['3xl'],
     gap: spacing.lg,
   },
   section: {
@@ -863,7 +788,6 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.md,
-    paddingBottom: spacing.xl,
     borderTopWidth: 1,
     gap: spacing.sm,
   },
@@ -946,31 +870,5 @@ const styles = StyleSheet.create({
   statusLineText: {
     ...textStyles.caption,
     flex: 1,
-  },
-  quickChipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  quickChip: {
-    borderWidth: 1,
-    borderRadius: borderRadius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  quickChipText: {
-    ...textStyles.captionMedium,
-  },
-  disclosureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  disclosureLabel: {
-    ...textStyles.captionMedium,
   },
 });

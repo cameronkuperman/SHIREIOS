@@ -605,7 +605,7 @@ export default function WaitlistScreen() {
               partySize: data.size,
               seatingPreference: data.seatingPreference,
               quotedWaitMinutes: data.quotedWaitMinutes,
-              notes: '',
+              notes: data.notes,
               source: 'manual',
             });
           } catch (error) {

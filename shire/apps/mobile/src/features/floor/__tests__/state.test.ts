@@ -12,7 +12,7 @@ import {
 } from '../state';
 import { DEFAULT_FLOOR_ID, DEFAULT_FLOOR_MAP } from '../floorMap';
 
-function createBaseState(): FloorStoreData {
+function createBaseState(overrides: Partial<FloorStoreData> = {}): FloorStoreData {
   return {
     floorId: DEFAULT_FLOOR_ID,
     mapVersion: DEFAULT_FLOOR_MAP.mapVersion,
@@ -21,6 +21,8 @@ function createBaseState(): FloorStoreData {
     lastAppliedSequence: 0,
     pendingCommands: {},
     syncError: null,
+    cctvSyncEnabled: true,
+    ...overrides,
   };
 }
 
@@ -177,6 +179,52 @@ describe('floor state reducers', () => {
     expect(Object.keys(nextState.pendingCommands)).toContain('command-ml-check');
     expect(nextState.tablesById['2']?.displayStatus).toBe('dirty');
     expect(nextState.tablesById['2']?.lastUpdateSource).toBe('ml');
+  });
+
+  it('ignores ML updates when CCTV sync is disabled', () => {
+    const state = createBaseState({ cctvSyncEnabled: false });
+    const nextState = {
+      ...state,
+      ...applyFloorStreamMessageState(state, {
+        type: 'table.updated',
+        floorId: DEFAULT_FLOOR_ID,
+        sequence: 2,
+        commandId: null,
+        source: 'ml',
+        table: {
+          ...state.tablesById['2']!,
+          displayStatus: 'dirty',
+          sensedState: 'empty_dirty',
+          party: null,
+          currentPartySize: null,
+          currentWaitlistEntryId: null,
+          lastUpdateSource: 'ml',
+          sequence: 2,
+        },
+      }),
+    };
+
+    expect(nextState.lastAppliedSequence).toBe(2);
+    expect(nextState.tablesById['2']?.displayStatus).toBe('available');
+  });
+
+  it('optimistically marks an open table dirty for manual spill overrides', () => {
+    const state = createBaseState();
+    const nextState = {
+      ...state,
+      ...queuePendingCommandState(state, {
+        type: 'mark_dirty',
+        commandId: 'command-spill',
+        floorId: DEFAULT_FLOOR_ID,
+        tableId: '2',
+        requestedAt: '2026-03-07T12:00:00.000Z',
+      }),
+    };
+
+    expect(nextState.tablesById['2']?.displayStatus).toBe('dirty');
+    expect(nextState.tablesById['2']?.sensedState).toBe('empty_dirty');
+    expect(nextState.tablesById['2']?.override?.commandType).toBe('mark_dirty');
+    expect(Object.keys(nextState.pendingCommands)).toContain('command-spill');
   });
 
   it('rolls back optimistic state when a command is rejected', () => {

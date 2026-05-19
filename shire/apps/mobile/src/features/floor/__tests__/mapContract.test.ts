@@ -90,4 +90,50 @@ describe('normalizeFloorMap', () => {
     expect(normalized.tables['12']?.tableNumber).toBe('12');
     expect(normalized.rooms[0]?.rows[0]?.[0]).toBe('12');
   });
+
+  it('preserves section plans and remaps plan table ids to canonical table numbers', () => {
+    const normalized = normalizeFloorMap({
+      floorId: 'builder-floor',
+      mapVersion: 'v2',
+      rooms: [
+        {
+          roomId: 'main',
+          label: 'MAIN',
+          filterLabel: 'Main',
+          rows: [['draft-table-101']],
+          layoutMode: 'freeform',
+        },
+      ],
+      tables: {
+        'draft-table-101': {
+          tableId: 'draft-table-101',
+          tableNumber: '12',
+          roomId: 'main',
+          section: 'A',
+          capacity: 4,
+          shape: 'circle',
+          type: 'regular',
+        },
+      },
+      sectionPlans: [
+        {
+          planId: 'plan-2',
+          name: '2 Waiters',
+          waiterCount: 2,
+          isDefault: true,
+          sections: [
+            {
+              sectionId: 'Front',
+              tableIds: ['draft-table-101', 'missing-table'],
+            },
+          ],
+        },
+      ],
+      activeSectionPlanId: 'plan-2',
+    });
+
+    expect(normalized.sectionPlans?.[0]?.sections[0]?.tableIds).toEqual(['12']);
+    expect(normalized.sectionPlans?.[0]?.waiterCount).toBe(2);
+    expect(normalized.activeSectionPlanId).toBe('plan-2');
+  });
 });

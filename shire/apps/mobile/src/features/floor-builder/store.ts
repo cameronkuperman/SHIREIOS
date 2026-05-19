@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { FloorMap, FloorMapTable, FloorMapRoom } from '@shire/shared';
 import { zustandStorage } from '@/lib/storage';
+import { applySectionPlanToFloorMap, buildSectionPlanFromFloorMap } from '@/features/floor/sectionPlans';
 
 export interface BuilderState {
   draftMap: FloorMap | null;
@@ -17,6 +18,16 @@ export interface BuilderState {
   removeTable: (tableId: string) => void;
   renameTable: (tableId: string, nextTableId: string, updates: Partial<FloorMapTable>) => void;
   updateTable: (tableId: string, updates: Partial<FloorMapTable>) => void;
+  setTableSection: (tableId: string, section: string) => void;
+  clearSection: (section: string) => void;
+  saveCurrentSectionPlan: (input: {
+    planId?: string;
+    name: string;
+    waiterCount: number;
+    isDefault?: boolean;
+  }) => void;
+  applySectionPlan: (planId: string) => void;
+  deleteSectionPlan: (planId: string) => void;
   moveTable: (tableId: string, x: number, y: number) => void;
   selectTable: (tableId: string | null) => void;
   addRoom: (room: FloorMapRoom) => void;
@@ -42,6 +53,10 @@ const GRID_SNAP = 0.025; // ~2.5% increments
 function snapValue(val: number, snap: boolean): number {
   if (!snap) return val;
   return Math.round(val / GRID_SNAP) * GRID_SNAP;
+}
+
+function normalizeSectionName(section: string): string {
+  return section.trim().replace(/\s+/g, ' ');
 }
 
 export const useBuilderStore = create<BuilderState>()(
@@ -160,12 +175,141 @@ export const useBuilderStore = create<BuilderState>()(
         });
       },
 
+      setTableSection: (tableId, section) => {
+        set((state) => {
+          const table = state.draftMap?.tables[tableId];
+          const nextSection = normalizeSectionName(section);
+          if (
+            !state.draftMap ||
+            !table ||
+            normalizeSectionName(table.section ?? '') === nextSection
+          ) {
+            return state;
+          }
+          const undo = pushUndo(state);
+          return {
+            ...undo,
+            isDirty: true,
+            draftMap: {
+              ...state.draftMap,
+              tables: {
+                ...state.draftMap.tables,
+                [tableId]: { ...table, section: nextSection },
+              },
+            },
+          };
+        });
+      },
+
+      clearSection: (section) => {
+        set((state) => {
+          if (!state.draftMap) return state;
+          const matchingTables = Object.values(state.draftMap.tables).filter(
+            (table) => normalizeSectionName(table.section) === section,
+          );
+          if (matchingTables.length === 0) return state;
+
+          const undo = pushUndo(state);
+          const tables = { ...state.draftMap.tables };
+          for (const table of matchingTables) {
+            tables[table.tableId] = { ...table, section: '' };
+          }
+
+          return {
+            ...undo,
+            isDirty: true,
+            draftMap: {
+              ...state.draftMap,
+              tables,
+            },
+          };
+        });
+      },
+
+      saveCurrentSectionPlan: (input) => {
+        set((state) => {
+          if (!state.draftMap) return state;
+          const waiterCount = Math.max(1, Math.round(input.waiterCount || 1));
+          const existingPlan = input.planId
+            ? state.draftMap.sectionPlans?.find((plan) => plan.planId === input.planId)
+            : null;
+          const plan = {
+            ...buildSectionPlanFromFloorMap(state.draftMap, {
+              planId: existingPlan?.planId,
+              name: input.name,
+              waiterCount,
+              isDefault: input.isDefault ?? existingPlan?.isDefault,
+            }),
+            createdAt: existingPlan?.createdAt ?? new Date().toISOString(),
+          };
+          const undo = pushUndo(state);
+          const sectionPlans = [
+            ...(state.draftMap.sectionPlans ?? []).filter((current) => current.planId !== plan.planId),
+            plan,
+          ]
+            .map((current) =>
+              plan.isDefault && current.waiterCount === plan.waiterCount
+                ? { ...current, isDefault: current.planId === plan.planId }
+                : current,
+            )
+            .sort((left, right) => left.waiterCount - right.waiterCount || left.name.localeCompare(right.name));
+
+          return {
+            ...undo,
+            isDirty: true,
+            draftMap: {
+              ...state.draftMap,
+              sectionPlans,
+              activeSectionPlanId: plan.planId,
+            },
+          };
+        });
+      },
+
+      applySectionPlan: (planId) => {
+        set((state) => {
+          if (!state.draftMap) return state;
+          const plan = state.draftMap.sectionPlans?.find((current) => current.planId === planId);
+          if (!plan) return state;
+          const undo = pushUndo(state);
+          return {
+            ...undo,
+            isDirty: true,
+            draftMap: applySectionPlanToFloorMap(state.draftMap, plan),
+          };
+        });
+      },
+
+      deleteSectionPlan: (planId) => {
+        set((state) => {
+          if (!state.draftMap) return state;
+          const currentPlans = state.draftMap.sectionPlans ?? [];
+          if (!currentPlans.some((plan) => plan.planId === planId)) return state;
+          const undo = pushUndo(state);
+          const sectionPlans = currentPlans.filter((plan) => plan.planId !== planId);
+          return {
+            ...undo,
+            isDirty: true,
+            draftMap: {
+              ...state.draftMap,
+              sectionPlans,
+              activeSectionPlanId:
+                state.draftMap.activeSectionPlanId === planId
+                  ? (sectionPlans[0]?.planId ?? null)
+                  : state.draftMap.activeSectionPlanId,
+            },
+          };
+        });
+      },
+
       moveTable: (tableId, x, y) => {
         set((state) => {
           if (!state.draftMap || !state.draftMap.tables[tableId]) return state;
           const snappedX = snapValue(Math.max(0, Math.min(1, x)), state.snapToGrid);
           const snappedY = snapValue(Math.max(0, Math.min(1, y)), state.snapToGrid);
+          const undo = pushUndo(state);
           return {
+            ...undo,
             isDirty: true,
             draftMap: {
               ...state.draftMap,

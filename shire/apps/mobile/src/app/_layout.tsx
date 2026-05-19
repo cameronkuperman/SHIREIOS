@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -56,6 +57,7 @@ export default function RootLayout() {
     return null;
   }
 
+  // Do not wrap the app in GestureHandlerRootView — it breaks TouchableOpacity on iPad host UI.
   return (
     <SafeAreaProvider>
       <ThemeProvider>
@@ -68,7 +70,15 @@ export default function RootLayout() {
                   <Stack.Screen name="(auth)" options={{ headerShown: false }} />
                   <Stack.Screen
                     name="reservation-modal"
-                    options={{ headerShown: false, presentation: 'fullScreenModal' }}
+                    options={{
+                      headerShown: false,
+                      presentation: 'fullScreenModal',
+                      // Swipe-to-dismiss steals vertical drags from the form ScrollView on iPad.
+                      gestureEnabled: false,
+                      ...(Platform.OS === 'web'
+                        ? { contentStyle: { flex: 1, height: '100%' } }
+                        : {}),
+                    }}
                   />
                   <Stack.Screen
                     name="settings"

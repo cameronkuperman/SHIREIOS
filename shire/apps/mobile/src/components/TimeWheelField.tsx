@@ -1,12 +1,20 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import DateTimePicker, {
   DateTimePickerAndroid,
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
-import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
+import { borderRadius, fontFamily, spacing, textStyles, useTheme } from '@/theme';
 import { formatSlotLabel, roundUpToInterval } from './reservationTimeSlots';
 
 type MinuteInterval = 1 | 2 | 3 | 4 | 5 | 6 | 10 | 12 | 15 | 20 | 30;
@@ -35,7 +43,8 @@ export function TimeWheelField({
   testID,
 }: TimeWheelFieldProps) {
   const { colors, isDark } = useTheme();
-  const [isOpen, setIsOpen] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [draft, setDraft] = useState(() => toAnchorDate(value, minuteInterval));
 
   const label = useMemo(
     () => (value ? formatSlotLabel(value) : 'Select a time'),
@@ -49,6 +58,11 @@ export function TimeWheelField({
     },
     [onChange],
   );
+
+  const openPicker = useCallback(() => {
+    setDraft(toAnchorDate(value, minuteInterval));
+    setPickerVisible(true);
+  }, [value, minuteInterval]);
 
   const handleAndroidPress = useCallback(() => {
     DateTimePickerAndroid.open({
@@ -68,15 +82,21 @@ export function TimeWheelField({
       handleAndroidPress();
       return;
     }
-    setIsOpen((open) => !open);
-  }, [disabled, handleAndroidPress]);
+    openPicker();
+  }, [disabled, handleAndroidPress, openPicker]);
 
-  const handleSpinnerChange = useCallback(
-    (_event: DateTimePickerEvent, date?: Date) => {
-      commit(date);
-    },
-    [commit],
-  );
+  const handleDraftChange = useCallback((_event: DateTimePickerEvent, date?: Date) => {
+    if (date) setDraft(date);
+  }, []);
+
+  const handleConfirm = useCallback(() => {
+    commit(draft);
+    setPickerVisible(false);
+  }, [commit, draft]);
+
+  const handleCancel = useCallback(() => {
+    setPickerVisible(false);
+  }, []);
 
   const accessibilityLabel =
     `Time, ${value ? formatSlotLabel(value) : 'unset'}` +
@@ -87,7 +107,7 @@ export function TimeWheelField({
       <TouchableOpacity
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
-        accessibilityState={{ disabled, expanded: isOpen }}
+        accessibilityState={{ disabled }}
         onPress={handlePress}
         activeOpacity={0.7}
         disabled={disabled}
@@ -95,7 +115,7 @@ export function TimeWheelField({
           styles.field,
           {
             backgroundColor: colors.surface.level2,
-            borderColor: isOpen ? colors.accent : colors.glass.borderSubtle,
+            borderColor: colors.glass.borderSubtle,
             opacity: disabled ? 0.5 : 1,
           },
         ]}
@@ -109,24 +129,43 @@ export function TimeWheelField({
         >
           {label}
         </Text>
-        <Ionicons
-          name={isOpen ? 'chevron-up' : 'chevron-down'}
-          size={18}
-          color={colors.text.muted}
-        />
+        <Ionicons name="chevron-forward" size={18} color={colors.text.muted} />
       </TouchableOpacity>
 
-      {isOpen && Platform.OS === 'ios' && (
-        <View style={styles.wheelWrap}>
-          <DateTimePicker
-            mode="time"
-            display="spinner"
-            themeVariant={isDark ? 'dark' : 'light'}
-            value={toAnchorDate(value, minuteInterval)}
-            minuteInterval={minuteInterval}
-            onChange={handleSpinnerChange}
-          />
-        </View>
+      {Platform.OS === 'ios' && (
+        <Modal
+          visible={pickerVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={handleCancel}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={handleCancel}>
+            <Pressable
+              style={[styles.modalSheet, { backgroundColor: colors.surface.level1 }]}
+              onPress={(event) => event.stopPropagation()}
+            >
+              <View style={[styles.modalHeader, { borderBottomColor: colors.border.subtle }]}>
+                <TouchableOpacity onPress={handleCancel} hitSlop={8}>
+                  <Text style={[styles.modalAction, { color: colors.text.secondary }]}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+                <Text style={[styles.modalTitle, { color: colors.text.primary }]}>Time</Text>
+                <TouchableOpacity onPress={handleConfirm} hitSlop={8}>
+                  <Text style={[styles.modalAction, { color: colors.accent }]}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                mode="time"
+                display="spinner"
+                themeVariant={isDark ? 'dark' : 'light'}
+                value={draft}
+                minuteInterval={minuteInterval}
+                onChange={handleDraftChange}
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
       )}
     </View>
   );
@@ -146,7 +185,31 @@ const styles = StyleSheet.create({
     ...textStyles.body,
     flex: 1,
   },
-  wheelWrap: {
-    marginTop: spacing.sm,
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  modalSheet: {
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    paddingBottom: spacing.xl,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  modalTitle: {
+    fontFamily: fontFamily.sansSemibold,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalAction: {
+    ...textStyles.body,
+    minWidth: 56,
   },
 });

@@ -11,6 +11,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="templates/new" />
       <Stack.Screen name="templates/[id]" />
       <Stack.Screen name="reservation-settings/index" />
+      <Stack.Screen name="team/index" />
     </Stack>
   );
 }

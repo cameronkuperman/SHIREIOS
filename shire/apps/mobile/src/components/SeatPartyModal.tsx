@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   Modal,
+  Pressable,
   TouchableOpacity,
   TextInput,
 } from 'react-native';
@@ -71,13 +72,25 @@ export function SeatPartyModal({ visible, onClose }: SeatPartyModalProps) {
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
-        <View
+      <Pressable
+        style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.35)' }]}
+        onPress={handleClose}
+      >
+        <Pressable
+          onPress={(event) => event.stopPropagation()}
           style={[styles.sheet, { backgroundColor: bgColor, borderColor: colors.glass.border }]}
         >
           <View style={[styles.header, { borderBottomColor: colors.border.subtle }]}>
             <Text style={[styles.title, { color: colors.text.primary }]}>Seat Party</Text>
-            <TouchableOpacity onPress={handleClose} accessibilityLabel="Close" hitSlop={8}>
+            <TouchableOpacity
+              onPress={handleClose}
+              accessibilityLabel="Close"
+              hitSlop={12}
+              style={[
+                styles.closeButton,
+                { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
+              ]}
+            >
               <Ionicons name="close" size={24} color={colors.text.primary} />
             </TouchableOpacity>
           </View>
@@ -215,8 +228,8 @@ export function SeatPartyModal({ visible, onClose }: SeatPartyModalProps) {
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </View>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
@@ -240,6 +253,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing['2xl'],
     paddingVertical: spacing.lg,
     borderBottomWidth: 1,
+  },
+  closeButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    elevation: 10,
   },
   title: {
     ...textStyles.title,

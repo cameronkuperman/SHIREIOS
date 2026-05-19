@@ -43,6 +43,7 @@ type FloorStoreState = FloorStoreData & {
   setConnectionState: (connectionState: ConnectionState) => void;
   setSyncError: (syncError: string | null) => void;
   setFloorMap: (floorMap: FloorMap) => void;
+  setCctvSyncEnabled: (enabled: boolean) => void;
   touchStaleClock: () => void;
   resetSessionState: () => void;
   resetVolatileState: () => void;
@@ -61,6 +62,7 @@ export const useFloorStore = create<FloorStoreState>()(
       lastAppliedSequence: 0,
       pendingCommands: {},
       syncError: null,
+      cctvSyncEnabled: true,
       connectionState: 'idle',
       staleCheckAt: Date.now(),
       applySnapshot: (snapshot) => {
@@ -94,6 +96,9 @@ export const useFloorStore = create<FloorStoreState>()(
       },
       setSyncError: (syncError) => {
         set({ syncError });
+      },
+      setCctvSyncEnabled: (cctvSyncEnabled) => {
+        set({ cctvSyncEnabled });
       },
       setFloorMap: (floorMap) => {
         const normalizedFloorMap = normalizeFloorMap(floorMap);
@@ -167,6 +172,7 @@ export const useFloorStore = create<FloorStoreState>()(
           tablesById,
           pendingCommands: {},
           syncError: null,
+          cctvSyncEnabled: nextState.cctvSyncEnabled ?? true,
           connectionState: 'idle',
         };
       },
@@ -177,6 +183,7 @@ export const useFloorStore = create<FloorStoreState>()(
         tablesById: state.tablesById,
         lastSnapshotAt: state.lastSnapshotAt,
         lastAppliedSequence: state.lastAppliedSequence,
+        cctvSyncEnabled: state.cctvSyncEnabled,
       }),
     },
   ),

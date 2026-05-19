@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Pressable,
   View,
   Text,
   StyleSheet,
@@ -10,12 +11,19 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { textStyles, spacing, borderRadius, shadows, useTheme } from '@/theme';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
 
-const QUOTE_PRESETS = [15, 30, 45, 60];
+/** Modal dismiss: backdrop Pressable is a sibling of the sheet (wrapping steals X / instant-close). */
+
+const QUOTE_OPTIONS = ['', '15', '30', '45', '60'];
+
+function quoteOptionLabel(value: string): string {
+  return value ? `${value} min` : 'Quoted Wait Time';
+}
 
 type AddPartyModalProps = {
   visible: boolean;
@@ -26,6 +34,7 @@ type AddPartyModalProps = {
     phone: string;
     seatingPreference: SeatingPref;
     quotedWaitMinutes: number | null;
+    notes: string;
   }) => Promise<void> | void;
   presentation?: 'modal' | 'inline';
 };
@@ -37,32 +46,40 @@ export function AddPartyModal({
   presentation = 'modal',
 }: AddPartyModalProps) {
   const { colors, isDark } = useTheme();
+  const { width: windowWidth } = useWindowDimensions();
   const [name, setName] = useState('');
-  const [size, setSize] = useState('2');
+  const [size, setSize] = useState('');
   const [phone, setPhone] = useState('');
-  const [quoteMinutes, setQuoteMinutes] = useState('30');
+  const [quoteMinutes, setQuoteMinutes] = useState('');
+  const [notes, setNotes] = useState('');
   const [preference, setPreference] = useState<SeatingPref>('none');
+  const [quoteMenuOpen, setQuoteMenuOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isInline = presentation === 'inline';
+  const modalWidth = Math.min(640, Math.max(320, windowWidth - spacing['3xl'] * 2));
+  const parsedSize = parseInt(size, 10);
+  const canSubmit = name.trim().length > 0 && Number.isFinite(parsedSize) && parsedSize > 0;
 
   const handleAdd = async () => {
-    if (!name.trim()) return;
+    if (!canSubmit) return;
     const parsedQuote = parseInt(quoteMinutes, 10);
     setIsSubmitting(true);
     try {
       await onAdd({
         name: name.trim(),
-        size: parseInt(size, 10) || 2,
+        size: parsedSize,
         phone: phone.trim(),
         seatingPreference: preference,
-        quotedWaitMinutes:
-          Number.isFinite(parsedQuote) && parsedQuote > 0 ? parsedQuote : null,
+        quotedWaitMinutes: Number.isFinite(parsedQuote) && parsedQuote > 0 ? parsedQuote : null,
+        notes: notes.trim(),
       });
       setName('');
-      setSize('2');
+      setSize('');
       setPhone('');
-      setQuoteMinutes('30');
+      setQuoteMinutes('');
+      setNotes('');
       setPreference('none');
+      setQuoteMenuOpen(false);
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -78,6 +95,7 @@ export function AddPartyModal({
         {
           backgroundColor: isInline ? colors.surface.level1 : bgColor,
           borderColor: isInline ? colors.border.subtle : colors.glass.border,
+          width: isInline ? undefined : modalWidth,
         },
       ]}
     >
@@ -88,8 +106,13 @@ export function AddPartyModal({
           { borderBottomColor: colors.border.subtle },
         ]}
       >
-        <Text style={[styles.title, { color: colors.text.primary }]}>Add to Waitlist</Text>
-        <TouchableOpacity onPress={onClose}>
+        <Text style={[styles.title, { color: colors.text.primary }]}>Add Party</Text>
+        <TouchableOpacity
+          onPress={onClose}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close add party form"
+        >
           <Ionicons name="close" size={isInline ? 20 : 24} color={colors.text.secondary} />
         </TouchableOpacity>
       </View>
@@ -99,6 +122,144 @@ export function AddPartyModal({
         contentContainerStyle={[styles.content, isInline && styles.inlineContent]}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={[styles.segmentedControl, { borderColor: colors.glass.borderSubtle }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: true }}
+            style={[styles.segment, { backgroundColor: colors.surface.level2 }]}
+          >
+            <Text style={[styles.segmentText, { color: colors.text.primary }]}>Waitlist</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled
+            style={[styles.segment, styles.segmentDisabled]}
+          >
+            <Text style={[styles.segmentText, { color: colors.text.muted }]}>Reservation</Text>
+          </Pressable>
+        </View>
+
+        <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Party Details</Text>
+
+        <View style={[styles.row, isInline && styles.inlineRow]}>
+          <View style={styles.halfInput}>
+            <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Size</Text>
+            <View
+              style={[
+                styles.inputWrapper,
+                isInline && styles.inlineInputWrapper,
+                { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+              ]}
+            >
+              <Ionicons name="people-outline" size={18} color={colors.text.muted} />
+              <TextInput
+                style={[styles.input, { color: colors.text.primary }]}
+                placeholder="Size"
+                placeholderTextColor={colors.text.muted}
+                keyboardType="number-pad"
+                value={size}
+                onChangeText={setSize}
+              />
+            </View>
+          </View>
+          <View style={styles.halfInput}>
+            <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Quoted Wait Time</Text>
+            <View style={styles.selectField}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: quoteMenuOpen }}
+                onPress={() => setQuoteMenuOpen((open) => !open)}
+                style={[
+                  styles.dropdownButton,
+                  isInline && styles.inlineInputWrapper,
+                  {
+                    backgroundColor: colors.surface.level2,
+                    borderColor: colors.glass.borderSubtle,
+                  },
+                ]}
+              >
+                <Ionicons name="time-outline" size={18} color={colors.text.muted} />
+                <Text
+                  style={[
+                    styles.input,
+                    { color: quoteMinutes ? colors.text.primary : colors.text.muted },
+                  ]}
+                >
+                  {quoteOptionLabel(quoteMinutes)}
+                </Text>
+                <Ionicons
+                  name={quoteMenuOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={colors.text.muted}
+                />
+              </Pressable>
+              {quoteMenuOpen && (
+                <View
+                  style={[
+                    styles.quoteMenu,
+                    {
+                      backgroundColor: colors.surface.level1,
+                      borderColor: colors.glass.borderSubtle,
+                    },
+                  ]}
+                >
+                  {QUOTE_OPTIONS.map((option) => {
+                    const active = quoteMinutes === option;
+                    return (
+                      <Pressable
+                        key={option || 'first-available'}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        onPress={() => {
+                          setQuoteMinutes(option);
+                          setQuoteMenuOpen(false);
+                        }}
+                        style={[
+                          styles.quoteOption,
+                          active && { backgroundColor: colors.surface.level2 },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.quoteOptionText,
+                            { color: active ? colors.text.primary : colors.text.secondary },
+                          ]}
+                        >
+                          {quoteOptionLabel(option)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+
+        <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Seating Preference</Text>
+        <View style={styles.preferenceRow}>
+          <SeatingPreferencePicker value={preference} onChange={setPreference} />
+        </View>
+
+        <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Guest Phone</Text>
+        <View
+          style={[
+            styles.inputWrapper,
+            isInline && styles.inlineInputWrapper,
+            { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+          ]}
+        >
+          <Ionicons name="call-outline" size={18} color={colors.text.muted} />
+          <TextInput
+            style={[styles.input, { color: colors.text.primary }]}
+            placeholder="Guest Phone"
+            placeholderTextColor={colors.text.muted}
+            keyboardType="phone-pad"
+            value={phone}
+            onChangeText={setPhone}
+          />
+        </View>
+
         <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Guest Name</Text>
         <View
           style={[
@@ -110,132 +271,40 @@ export function AddPartyModal({
           <Ionicons name="person-outline" size={18} color={colors.text.muted} />
           <TextInput
             style={[styles.input, { color: colors.text.primary }]}
-            placeholder="Name"
+            placeholder="Guest Name"
             placeholderTextColor={colors.text.muted}
             value={name}
             onChangeText={setName}
           />
         </View>
 
-        <View style={[styles.row, isInline && styles.inlineRow]}>
-          <View style={styles.halfInput}>
-            <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Party Size</Text>
-            <View
-              style={[
-                styles.inputWrapper,
-                isInline && styles.inlineInputWrapper,
-                { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
-              ]}
-            >
-              <Ionicons name="people-outline" size={18} color={colors.text.muted} />
-              <TextInput
-                style={[styles.input, { color: colors.text.primary }]}
-                placeholder="2"
-                placeholderTextColor={colors.text.muted}
-                keyboardType="number-pad"
-                value={size}
-                onChangeText={setSize}
-              />
-            </View>
-          </View>
-          <View style={styles.halfInput}>
-            <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Phone</Text>
-            <View
-              style={[
-                styles.inputWrapper,
-                isInline && styles.inlineInputWrapper,
-                { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
-              ]}
-            >
-              <Ionicons name="call-outline" size={18} color={colors.text.muted} />
-              <TextInput
-                style={[styles.input, { color: colors.text.primary }]}
-                placeholder="555-0100"
-                placeholderTextColor={colors.text.muted}
-                keyboardType="phone-pad"
-                value={phone}
-                onChangeText={setPhone}
-              />
-            </View>
-          </View>
-        </View>
-
-        <Text
-          style={[
-            styles.inputLabel,
-            { color: colors.text.muted, marginTop: isInline ? spacing.xs : 0 },
-          ]}
-        >
-          Quoted Wait
-        </Text>
-        <View style={styles.quotePresetRow}>
-          {QUOTE_PRESETS.map((minutes) => {
-            const active = quoteMinutes === String(minutes);
-            return (
-              <TouchableOpacity
-                key={minutes}
-                activeOpacity={0.75}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                style={[
-                  styles.quotePreset,
-                  {
-                    backgroundColor: active ? colors.accent : colors.surface.level2,
-                    borderColor: active ? colors.accent : colors.glass.borderSubtle,
-                  },
-                ]}
-                onPress={() => setQuoteMinutes(String(minutes))}
-              >
-                <Text
-                  style={[
-                    styles.quotePresetText,
-                    { color: active ? colors.white : colors.text.secondary },
-                  ]}
-                >
-                  {minutes}m
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Visit Notes</Text>
         <View
           style={[
-            styles.inputWrapper,
-            isInline && styles.inlineInputWrapper,
+            styles.notesWrapper,
             { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
           ]}
         >
-          <Ionicons name="timer-outline" size={18} color={colors.text.muted} />
           <TextInput
-            style={[styles.input, { color: colors.text.primary }]}
-            placeholder="Minutes quoted"
+            style={[styles.notesInput, { color: colors.text.primary }]}
+            placeholder="Visit Notes"
             placeholderTextColor={colors.text.muted}
-            keyboardType="number-pad"
-            value={quoteMinutes}
-            onChangeText={setQuoteMinutes}
+            value={notes}
+            onChangeText={setNotes}
+            multiline
+            textAlignVertical="top"
           />
-          <Text style={[styles.inputSuffix, { color: colors.text.muted }]}>min</Text>
         </View>
-
-        <Text
-          style={[
-            styles.inputLabel,
-            { color: colors.text.muted, marginTop: isInline ? spacing.sm : spacing.lg },
-          ]}
-        >
-          Seating Preference
-        </Text>
-        <SeatingPreferencePicker value={preference} onChange={setPreference} />
 
         <TouchableOpacity
           style={[
             styles.addBtn,
             isInline && styles.inlineAddBtn,
             { backgroundColor: colors.accent },
-            (!name.trim() || isSubmitting) && styles.disabled,
+            (!canSubmit || isSubmitting) && styles.disabled,
           ]}
           activeOpacity={0.8}
-          disabled={!name.trim() || isSubmitting}
+          disabled={!canSubmit || isSubmitting}
           onPress={() => void handleAdd()}
         >
           {isSubmitting ? (
@@ -243,7 +312,7 @@ export function AddPartyModal({
           ) : (
             <>
               <Ionicons name="add-circle" size={22} color={colors.white} />
-              <Text style={styles.addBtnText}>Add to Waitlist</Text>
+              <Text style={styles.addBtnText}>Add</Text>
             </>
           )}
         </TouchableOpacity>
@@ -256,11 +325,24 @@ export function AddPartyModal({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      presentationStyle="overFullScreen"
+      onRequestClose={onClose}
+    >
       <KeyboardAvoidingView
-        style={styles.overlay}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.overlay}
       >
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss add party form"
+        />
         {form}
       </KeyboardAvoidingView>
     </Modal>
@@ -270,14 +352,19 @@ export function AddPartyModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+    backgroundColor: 'rgba(0, 0, 0, 0.12)',
   },
   sheet: {
-    borderTopLeftRadius: borderRadius['2xl'],
-    borderTopRightRadius: borderRadius['2xl'],
+    zIndex: 1,
+    elevation: 1,
+    borderRadius: borderRadius['2xl'],
     borderWidth: 1,
-    borderBottomWidth: 0,
-    maxHeight: '85%',
+    maxHeight: '86%',
+    overflow: 'hidden',
+    ...shadows.medium,
   },
   inlinePanel: {
     borderTopLeftRadius: 0,
@@ -301,7 +388,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.xl,
-    paddingBottom: spacing['3xl'] + 20,
+    paddingBottom: spacing.xl,
   },
   inlineContent: {
     padding: spacing.lg,
@@ -310,6 +397,34 @@ const styles = StyleSheet.create({
   inputLabel: {
     ...textStyles.caption,
     marginBottom: spacing.sm,
+  },
+  sectionTitle: {
+    ...textStyles.subtitle,
+    marginBottom: spacing.lg,
+  },
+  segmentedControl: {
+    alignSelf: 'flex-end',
+    flexDirection: 'row',
+    width: 320,
+    maxWidth: '100%',
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    marginBottom: spacing.xl,
+    overflow: 'hidden',
+  },
+  segment: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  segmentDisabled: {
+    opacity: 0.58,
+  },
+  segmentText: {
+    ...textStyles.captionMedium,
+    fontWeight: '800',
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -342,34 +457,59 @@ const styles = StyleSheet.create({
   halfInput: {
     flex: 1,
   },
-  quotePresetRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  quotePreset: {
-    flex: 1,
-    alignItems: 'center',
-    borderRadius: borderRadius.pill,
-    borderWidth: 1,
-    paddingVertical: spacing.sm,
-  },
-  quotePresetText: {
-    ...textStyles.captionMedium,
-    fontWeight: '800',
-  },
   inputSuffix: {
     ...textStyles.captionMedium,
     fontWeight: '700',
+  },
+  selectField: {
+    marginBottom: spacing.lg,
+  },
+  dropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+  },
+  quoteMenu: {
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    marginTop: spacing.xs,
+    overflow: 'hidden',
+  },
+  quoteOption: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  quoteOptionText: {
+    ...textStyles.body,
+  },
+  preferenceRow: {
+    marginBottom: spacing.lg,
+  },
+  notesWrapper: {
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    minHeight: 104,
+    marginBottom: spacing.lg,
+    padding: spacing.md,
+  },
+  notesInput: {
+    flex: 1,
+    ...textStyles.body,
+    minHeight: 88,
+    padding: 0,
   },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.md,
     borderRadius: borderRadius.lg,
-    marginTop: spacing['2xl'],
+    marginTop: spacing.sm,
     ...shadows.medium,
   },
   inlineAddBtn: {

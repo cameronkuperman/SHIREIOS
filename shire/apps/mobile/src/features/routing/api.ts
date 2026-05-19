@@ -30,6 +30,9 @@ export function toWaiterRoutingUpdatePayload(
     tableAssignments: state.tableAssignments,
     rotationOrder: state.rotationOrder,
     nextWaiterId: state.nextWaiterId,
+    shiftStartGroups: state.shiftStartGroups ?? [],
+    gratThreshold: state.gratThreshold ?? 6,
+    gratRotationState: state.gratRotationState ?? {},
   };
 }
 
@@ -68,6 +71,8 @@ export interface RosterWaiter {
   id: string;
   name: string;
   role: string | null;
+  tier?: string | null;
+  isActive?: boolean;
 }
 
 type WaitersListResponse = { waiters: RosterWaiter[] } | RosterWaiter[];

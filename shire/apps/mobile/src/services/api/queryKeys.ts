@@ -77,4 +77,9 @@ export const queryKeys = {
     all: ['waiters'] as const,
     list: (locationId: string) => [...queryKeys.waiters.all, 'list', locationId] as const,
   },
+  analytics: {
+    all: ['analytics'] as const,
+    shift: (locationId: string, range: string) =>
+      [...queryKeys.analytics.all, 'shift', locationId, range] as const,
+  },
 } as const;

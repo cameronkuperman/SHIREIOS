@@ -1,4 +1,11 @@
-import type { FloorMap, FloorMapRoom, FloorMapTable, TableShape, TableType } from '@shire/shared';
+import type {
+  FloorMap,
+  FloorMapRoom,
+  FloorMapSectionPlan,
+  FloorMapTable,
+  TableShape,
+  TableType,
+} from '@shire/shared';
 import { DEFAULT_FLOOR_MAP } from './floorMap';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -175,6 +182,87 @@ function normalizeRooms(
   return rooms.length > 0 ? rooms : deriveRoomsFromTables(tables);
 }
 
+function normalizeWaiterCount(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.round(value);
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return Math.max(1, fallback);
+}
+
+function normalizeSectionPlans(
+  value: unknown,
+  tableAliases: Record<string, string>,
+): FloorMapSectionPlan[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((plan, index): FloorMapSectionPlan | null => {
+      if (!isRecord(plan)) {
+        return null;
+      }
+      const rawSections = Array.isArray(plan.sections) ? plan.sections : [];
+      const sections = rawSections
+        .map((section): FloorMapSectionPlan['sections'][number] | null => {
+          if (!isRecord(section)) {
+            return null;
+          }
+          const rawSectionId =
+            typeof section.sectionId === 'string' && section.sectionId.trim()
+              ? section.sectionId.trim()
+              : typeof section.name === 'string' && section.name.trim()
+                ? section.name.trim()
+                : '';
+          if (!rawSectionId) {
+            return null;
+          }
+          const tableIds = Array.isArray(section.tableIds)
+            ? [
+                ...new Set(
+                  section.tableIds
+                    .filter((tableId): tableId is string => typeof tableId === 'string')
+                    .map((tableId) => tableAliases[tableId])
+                    .filter((tableId): tableId is string => typeof tableId === 'string'),
+                ),
+              ]
+            : [];
+          return {
+            sectionId: rawSectionId,
+            tableIds,
+          };
+        })
+        .filter((section): section is FloorMapSectionPlan['sections'][number] => section != null);
+
+      const waiterCount = normalizeWaiterCount(plan.waiterCount, sections.length || index + 1);
+      const planId =
+        typeof plan.planId === 'string' && plan.planId.trim()
+          ? plan.planId.trim()
+          : `section-plan-${waiterCount}-${index + 1}`;
+      const name =
+        typeof plan.name === 'string' && plan.name.trim()
+          ? plan.name.trim()
+          : `${waiterCount} Waiters`;
+
+      return {
+        planId,
+        name,
+        waiterCount,
+        sections,
+        isDefault: Boolean(plan.isDefault),
+        createdAt: typeof plan.createdAt === 'string' ? plan.createdAt : undefined,
+        updatedAt: typeof plan.updatedAt === 'string' ? plan.updatedAt : undefined,
+      };
+    })
+    .filter((plan): plan is FloorMapSectionPlan => plan != null);
+}
+
 export function normalizeFloorMap(value: unknown): FloorMap {
   const candidate =
     isRecord(value) && 'map_data' in value && isRecord(value.map_data) ? value.map_data : value;
@@ -185,6 +273,12 @@ export function normalizeFloorMap(value: unknown): FloorMap {
 
   const { tables, aliases } = normalizeTables(candidate.tables);
   const rooms = normalizeRooms(candidate.rooms, tables, aliases);
+  const sectionPlans = normalizeSectionPlans(candidate.sectionPlans, aliases);
+  const activeSectionPlanId =
+    typeof candidate.activeSectionPlanId === 'string' &&
+    sectionPlans.some((plan) => plan.planId === candidate.activeSectionPlanId)
+      ? candidate.activeSectionPlanId
+      : null;
 
   return {
     floorId:
@@ -197,5 +291,7 @@ export function normalizeFloorMap(value: unknown): FloorMap {
         : DEFAULT_FLOOR_MAP.mapVersion,
     rooms,
     tables,
+    sectionPlans,
+    activeSectionPlanId,
   };
 }

@@ -14,6 +14,7 @@ import { useAuth } from '@/features/auth';
 import { useReservationSettings } from '@/features/host/hooks';
 import { useTemplates } from '@/features/messaging/hooks';
 import { useBlackouts } from '@/features/blackouts/hooks';
+import { useWaiters } from '@/features/routing';
 import { useWorkdayStore } from '@/features/workday';
 import { borderRadius, shadows, spacing, textStyles, useTheme } from '@/theme';
 
@@ -100,6 +101,7 @@ export default function SettingsHomeScreen() {
   const reservationSettings = useReservationSettings();
   const templates = useTemplates();
   const blackouts = useBlackouts(true);
+  const waiters = useWaiters(currentLocation?.id);
 
   const activeTemplates = (templates.data ?? []).filter((template) => template.active).length;
   const activeBlackouts = (blackouts.data ?? []).filter((blackout) => !blackout.archivedAt).length;
@@ -224,6 +226,13 @@ export default function SettingsHomeScreen() {
             icon="map-outline"
             href="/floor-builder"
             value={currentLocation?.floorId ? 'Configured' : 'Starter'}
+          />
+          <SettingsRow
+            label="Team / Waiters"
+            sub="Create and manage the saved service roster"
+            icon="people-circle-outline"
+            href="/settings/team"
+            value={`${waiters.waiters.length} saved`}
           />
           <SettingsRow
             label="Reservation Settings"

@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { RoutingWaiter, WaiterRoutingState } from '@shire/shared';
+import type { RoutingWaiter, ShiftStartGroup, WaiterRoutingState } from '@shire/shared';
 import { create } from 'zustand';
 import { queryKeys } from '@/services/api/queryKeys';
 import { toWaiterRoutingUpdatePayload, updateWaiterRouting } from './api';
@@ -99,6 +99,8 @@ function sanitizeRoutingState(routing: WaiterRoutingState): WaiterRoutingState {
   const tableAssignments = pruneAssignments(routing.tableAssignments, validWaiterIds);
   const nextUpByTable = pruneAssignments(routing.nextUpByTable ?? {}, validWaiterIds);
   const nextUpBySection = pruneAssignments(routing.nextUpBySection ?? {}, validWaiterIds);
+  const nextGratByTable = pruneAssignments(routing.nextGratByTable ?? {}, validWaiterIds);
+  const nextGratBySection = pruneAssignments(routing.nextGratBySection ?? {}, validWaiterIds);
   const baseRotationOrder = routing.rotationOrder.filter((waiterId) =>
     activeWaiterIdSet.has(waiterId),
   );
@@ -110,6 +112,13 @@ function sanitizeRoutingState(routing: WaiterRoutingState): WaiterRoutingState {
     routing.nextWaiterId && activeWaiterIdSet.has(routing.nextWaiterId)
       ? routing.nextWaiterId
       : rotationOrder[0] ?? activeWaiterIds[0] ?? null;
+  const shiftStartGroups = (routing.shiftStartGroups ?? []).map((group) => ({
+    ...group,
+    waiterIds: group.waiterIds.filter((waiterId) => activeWaiterIdSet.has(waiterId)),
+  }));
+  const gratRotationOrder = (routing.gratRotationState?.rotationOrder ?? []).filter((waiterId) =>
+    activeWaiterIdSet.has(waiterId),
+  );
   const coverage = buildCoverage({
     ...routing,
     activeWaiterIds,
@@ -126,6 +135,15 @@ function sanitizeRoutingState(routing: WaiterRoutingState): WaiterRoutingState {
     tableAssignments,
     nextUpByTable,
     nextUpBySection,
+    nextGratByTable,
+    nextGratBySection,
+    shiftStartGroups,
+    gratThreshold: Math.max(1, Math.min(20, routing.gratThreshold ?? 6)),
+    gratRotationState: { rotationOrder: dedupe([...gratRotationOrder, ...activeWaiterIds]) },
+    nextGratWaiterId:
+      routing.nextGratWaiterId && activeWaiterIdSet.has(routing.nextGratWaiterId)
+        ? routing.nextGratWaiterId
+        : null,
     rotationOrder,
     nextWaiterId,
     waiters: routing.waiters.map((waiter) => {
@@ -159,6 +177,10 @@ function nextTemporaryWaiter(name: string): RoutingWaiter {
     servedTableIds: [],
     liveTables: 0,
     servedSeatingCount: 0,
+    recentHourCovers: 0,
+    shiftClockIn: null,
+    gratCountToday: 0,
+    lastGratAt: null,
     lastAssignedAt: null,
   };
 }
@@ -517,6 +539,24 @@ export function useWaiterRoutingActions() {
     [persistRouting],
   );
 
+  const setShiftStartGroups = useCallback(
+    async (shiftStartGroups: ShiftStartGroup[]) =>
+      persistRouting((current) => ({
+        ...current,
+        shiftStartGroups,
+      })),
+    [persistRouting],
+  );
+
+  const setGratThreshold = useCallback(
+    async (gratThreshold: number) =>
+      persistRouting((current) => ({
+        ...current,
+        gratThreshold: Math.max(1, Math.min(20, Math.round(gratThreshold))),
+      })),
+    [persistRouting],
+  );
+
   const addTemporaryWaiter = useCallback(
     async (name: string) => {
       const trimmedName = name.trim();
@@ -582,6 +622,8 @@ export function useWaiterRoutingActions() {
     setWaiterActive,
     setNextWaiter,
     moveWaiter,
+    setShiftStartGroups,
+    setGratThreshold,
     addTemporaryWaiter,
     removeTemporaryWaiter,
   };

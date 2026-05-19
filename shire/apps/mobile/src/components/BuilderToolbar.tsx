@@ -9,6 +9,8 @@ type BuilderToolbarProps = {
   onAddRoom: () => void;
   onDelete: () => void;
   onToggleGrid: () => void;
+  mode: 'layout' | 'sections';
+  onChangeMode: (mode: 'layout' | 'sections') => void;
   snapToGrid: boolean;
   hasSelection: boolean;
 };
@@ -18,6 +20,8 @@ export function BuilderToolbar({
   onAddRoom,
   onDelete,
   onToggleGrid,
+  mode,
+  onChangeMode,
   snapToGrid,
   hasSelection,
 }: BuilderToolbarProps) {
@@ -38,6 +42,23 @@ export function BuilderToolbar({
         label="Room"
         onPress={onAddRoom}
         color={colors.text.primary}
+      />
+
+      <View style={[styles.divider, { backgroundColor: colors.border.subtle }]} />
+
+      <ToolButton
+        icon="move-outline"
+        label="Layout"
+        onPress={() => onChangeMode('layout')}
+        color={mode === 'layout' ? colors.accent : colors.text.muted}
+        active={mode === 'layout'}
+      />
+      <ToolButton
+        icon="color-palette-outline"
+        label="Sections"
+        onPress={() => onChangeMode('sections')}
+        color={mode === 'sections' ? colors.accent : colors.text.muted}
+        active={mode === 'sections'}
       />
 
       <View style={[styles.divider, { backgroundColor: colors.border.subtle }]} />

@@ -8,6 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { type StatusKey, shadows, textStyles, useTheme } from '@/theme';
+import { sectionColorWithAlpha } from '@/features/floor';
 import { ServerAvatar } from './ServerAvatar';
 
 type TableShape = 'circle' | 'square' | 'horizontal';
@@ -27,7 +28,6 @@ type TableProps = {
   /** The server who owns this table — shown as a corner avatar badge. */
   server?: { initials: string; color: string };
   dimmed?: boolean;
-  /** @deprecated superseded by `server` */
   sectionColor?: string;
 };
 
@@ -60,6 +60,7 @@ export function Table({
   liveDatum,
   server,
   dimmed,
+  sectionColor,
 }: TableProps) {
   const { colors } = useTheme();
   const palette = isBlocked ? colors.blocked : colors.status[status];
@@ -68,11 +69,15 @@ export function Table({
   // Occupied / dirty / reserved / blocked are solid color blocks — the
   // crisp, glance-readable Yelp host-floor treatment.
   const isSolid = isBlocked || status !== 'available';
-  const bg = isSolid ? palette.border : palette.fill;
+  const bg = isSolid
+    ? palette.border
+    : sectionColor
+      ? sectionColorWithAlpha(sectionColor, 0.16)
+      : palette.fill;
   const numberColor = isSolid ? '#FFFFFF' : colors.text.primary;
   const subColor = isSolid ? 'rgba(255,255,255,0.82)' : colors.text.muted;
   const datumColor = isSolid ? 'rgba(255,255,255,0.92)' : palette.text;
-  const edgeColor = isSolid ? palette.text : palette.border;
+  const edgeColor = isSolid ? palette.text : (sectionColor ?? palette.border);
 
   return (
     <TouchableOpacity
@@ -100,6 +105,9 @@ export function Table({
           <ServerAvatar initials={server.initials} color={server.color} size={22} />
         </View>
       )}
+      {sectionColor ? (
+        <View style={[viewStyles.sectionStripe, { backgroundColor: sectionColor }]} />
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -115,6 +123,14 @@ const viewStyles = StyleSheet.create({
     position: 'absolute',
     top: -8,
     right: -8,
+  },
+  sectionStripe: {
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    bottom: 5,
+    height: 4,
+    borderRadius: 2,
   },
 });
 

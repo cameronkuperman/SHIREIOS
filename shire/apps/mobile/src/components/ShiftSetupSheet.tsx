@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -10,9 +10,25 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { RoutingWaiter, WaiterRoutingMode } from '@shire/shared';
+import { useRouter, type Href } from 'expo-router';
+import type {
+  FloorMap,
+  FloorMapSectionPlan,
+  FloorMapTable,
+  RoutingWaiter,
+  ShiftStartGroup,
+  WaiterRoutingMode,
+  WaiterRoutingState,
+} from '@shire/shared';
 import { borderRadius, shadows, spacing, textStyles, useTheme } from '@/theme';
-import { useFloorStore } from '@/features/floor';
+import {
+  applySectionPlanToFloorMap,
+  normalizeSectionName,
+  sectionColorWithAlpha,
+  sectionNamesForPlan,
+  useFloorStore,
+} from '@/features/floor';
+import { saveFloorMapLayout, upsertHostFloorMap } from '@/features/floor-builder';
 import {
   useWaiterColorMap,
   useWaiterRoutingActions,
@@ -61,21 +77,25 @@ export function ShiftSetupSheet({
   presentation = 'modal',
 }: ShiftSetupSheetProps) {
   const { colors, isDark } = useTheme();
+  const router = useRouter();
   const isInline = presentation === 'inline';
   const { routing, locationId, isSaving } = useWaiterRoutingState();
-  const { persistRouting, setWaiterActive, assignSection } = useWaiterRoutingActions();
-  const { waiters: roster, addWaiter } = useWaiters(locationId);
+  const { persistRouting, setWaiterActive, assignSection, setShiftStartGroups, setGratThreshold } =
+    useWaiterRoutingActions();
+  const { waiters: roster } = useWaiters(locationId);
   const waiterColorMap = useWaiterColorMap();
   const floorMap = useFloorStore((state) => state.floorMap);
+  const setFloorMap = useFloorStore((state) => state.setFloorMap);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const reservations = useReservationDayBook(today);
 
-  const [newWaiterName, setNewWaiterName] = useState('');
-  const [newSectionName, setNewSectionName] = useState('');
-  const [extraSections, setExtraSections] = useState<string[]>([]);
-  const [showAddWaiter, setShowAddWaiter] = useState(false);
-  const [showAddSection, setShowAddSection] = useState(false);
+  const [selectedSectionPlanId, setSelectedSectionPlanId] = useState<string | null>(
+    floorMap.activeSectionPlanId ?? null,
+  );
+  const [targetWaiterCountText, setTargetWaiterCountText] = useState('');
+  const [newGroupName, setNewGroupName] = useState('9am');
+  const [newGroupTime, setNewGroupTime] = useState('09:00');
 
   const shiftWaiters = useMemo(() => {
     const map = new Map<
@@ -99,18 +119,45 @@ export function ShiftSetupSheet({
   }, [routing, roster]);
 
   const activeWaiters = useMemo(() => shiftWaiters.filter((w) => w.isActive), [shiftWaiters]);
+  const targetWaiterCount = useMemo(() => {
+    const parsed = Number.parseInt(targetWaiterCountText, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : Math.max(1, activeWaiters.length);
+  }, [activeWaiters.length, targetWaiterCountText]);
+
+  const sectionPlans = useMemo(() => floorMap.sectionPlans ?? [], [floorMap.sectionPlans]);
+  const selectedSectionPlan = useMemo(() => {
+    return (
+      sectionPlans.find((plan) => plan.planId === selectedSectionPlanId) ??
+      sectionPlans.find((plan) => plan.waiterCount === targetWaiterCount && plan.isDefault) ??
+      sectionPlans.find((plan) => plan.waiterCount === targetWaiterCount) ??
+      sectionPlans.find((plan) => plan.planId === floorMap.activeSectionPlanId) ??
+      sectionPlans[0] ??
+      null
+    );
+  }, [floorMap.activeSectionPlanId, sectionPlans, selectedSectionPlanId, targetWaiterCount]);
+
+  useEffect(() => {
+    if (selectedSectionPlan?.planId && selectedSectionPlan.planId !== selectedSectionPlanId) {
+      setSelectedSectionPlanId(selectedSectionPlan.planId);
+    }
+  }, [selectedSectionPlan?.planId, selectedSectionPlanId]);
 
   const sections = useMemo(() => {
+    const planSections = sectionNamesForPlan(selectedSectionPlan);
+    if (planSections.length > 0) {
+      return planSections;
+    }
+
     const set = new Set<string>();
     Object.values(floorMap.tables).forEach((table) => {
-      if (table.section) set.add(table.section);
+      const section = normalizeSectionName(table.section);
+      if (section) set.add(section);
     });
     if (routing) {
       Object.keys(routing.sectionAssignments).forEach((s) => set.add(s));
     }
-    extraSections.forEach((s) => set.add(s));
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  }, [floorMap.tables, routing, extraSections]);
+  }, [floorMap.tables, routing, selectedSectionPlan]);
 
   const hourSlots = useMemo<ShiftHourSlot[]>(() => {
     const byHour = new Map<number, { parties: number; covers: number }>();
@@ -167,51 +214,6 @@ export function ShiftSetupSheet({
     }).catch(reportError('Could not add the waiter to the shift.'));
   };
 
-  const handleAddWaiter = async () => {
-    const name = newWaiterName.trim();
-    if (!name) return;
-    setNewWaiterName('');
-    setShowAddWaiter(false);
-    try {
-      const created = await addWaiter({ name });
-      await persistRouting((current) => {
-        if (current.waiters.some((w) => w.id === created.id)) {
-          return {
-            ...current,
-            activeWaiterIds: [...current.activeWaiterIds, created.id],
-            rotationOrder: [...current.rotationOrder, created.id],
-          };
-        }
-        const next = makeRoutingWaiter(created.id, created.name);
-        return {
-          ...current,
-          waiters: [...current.waiters, next],
-          activeWaiterIds: [...current.activeWaiterIds, next.id],
-          rotationOrder: [...current.rotationOrder, next.id],
-          nextWaiterId: current.nextWaiterId ?? next.id,
-        };
-      });
-    } catch {
-      // Backend roster unavailable — fall back to a temporary waiter so the
-      // shift can still be set up. It just won't persist past this session.
-      try {
-        await persistRouting((current) => {
-          const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          const next = { ...makeRoutingWaiter(tempId, name), isTemporary: true };
-          return {
-            ...current,
-            waiters: [...current.waiters, next],
-            activeWaiterIds: [...current.activeWaiterIds, next.id],
-            rotationOrder: [...current.rotationOrder, next.id],
-            nextWaiterId: current.nextWaiterId ?? next.id,
-          };
-        });
-      } catch (error) {
-        reportError('Could not add the waiter.')(error);
-      }
-    }
-  };
-
   const handleAssignSection = (sectionId: string, waiterId: string) => {
     if (!routing) return;
     const current = routing.sectionAssignments[sectionId];
@@ -220,12 +222,66 @@ export function ShiftSetupSheet({
     );
   };
 
-  const handleAddSection = () => {
-    const name = newSectionName.trim();
-    if (!name) return;
-    setExtraSections((prev) => (prev.includes(name) ? prev : [...prev, name]));
-    setNewSectionName('');
-    setShowAddSection(false);
+  const handleSelectSectionPlan = useCallback(
+    (plan: FloorMapSectionPlan) => {
+      const appliedMap = applySectionPlanToFloorMap(floorMap, plan);
+      setSelectedSectionPlanId(plan.planId);
+      setTargetWaiterCountText(String(plan.waiterCount));
+      setFloorMap(appliedMap);
+
+      if (!locationId) return;
+      upsertHostFloorMap(locationId, appliedMap)
+        .then((result) => {
+          const mapToPersist =
+            result.floorId && result.floorId !== appliedMap.floorId
+              ? { ...appliedMap, floorId: result.floorId }
+              : appliedMap;
+          setFloorMap(mapToPersist);
+          return saveFloorMapLayout(locationId, mapToPersist.floorId, mapToPersist);
+        })
+        .catch(reportError('Could not save the section preset for today.'));
+    },
+    [floorMap, locationId, setFloorMap],
+  );
+
+  const handleAddStartGroup = () => {
+    if (!routing) return;
+    const name = newGroupName.trim();
+    const startTime = newGroupTime.trim();
+    if (!name || !/^\d{2}:\d{2}$/.test(startTime)) {
+      Alert.alert('Start group needs a name and HH:MM time.');
+      return;
+    }
+    const group: ShiftStartGroup = {
+      id: `${name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+      name,
+      startTime,
+      waiterIds: [],
+    };
+    setShiftStartGroups([...(routing.shiftStartGroups ?? []), group]).catch(
+      reportError('Could not add the start group.'),
+    );
+  };
+
+  const handleToggleGroupWaiter = (groupId: string, waiterId: string) => {
+    if (!routing) return;
+    const groups = (routing.shiftStartGroups ?? []).map((group) => {
+      const waiterIds = new Set(group.waiterIds);
+      if (group.id === groupId && waiterIds.has(waiterId)) {
+        waiterIds.delete(waiterId);
+      } else if (group.id === groupId) {
+        waiterIds.add(waiterId);
+      } else {
+        waiterIds.delete(waiterId);
+      }
+      return { ...group, waiterIds: [...waiterIds] };
+    });
+    setShiftStartGroups(groups).catch(reportError('Could not update the start group.'));
+  };
+
+  const handleOpenTeamSettings = () => {
+    onClose();
+    router.push('/settings/team' as Href);
   };
 
   const content = (
@@ -247,7 +303,7 @@ export function ShiftSetupSheet({
         <View>
           <Text style={[styles.title, { color: colors.text.primary }]}>Shift Setup</Text>
           <Text style={[styles.subtitle, { color: colors.text.muted }]}>
-            Pick the team, build sections, set the seating mode.
+            Pick the team, choose today's preset, assign the floor.
           </Text>
         </View>
         {!isInline && (
@@ -342,37 +398,251 @@ export function ShiftSetupSheet({
                 </Text>
               </TouchableOpacity>
             ))}
-            {showAddWaiter ? (
-              <View style={styles.addRow}>
-                <TextInput
-                  style={[
-                    styles.addInput,
-                    {
-                      color: colors.text.primary,
-                      backgroundColor: colors.surface.level2,
-                      borderColor: colors.border.subtle,
-                    },
-                  ]}
-                  placeholder="Waiter name"
-                  placeholderTextColor={colors.text.muted}
-                  value={newWaiterName}
-                  onChangeText={setNewWaiterName}
-                  autoFocus
-                  onSubmitEditing={handleAddWaiter}
-                  returnKeyType="done"
-                />
+            <TouchableOpacity style={styles.addLink} onPress={handleOpenTeamSettings}>
+              <Ionicons name="people-circle-outline" size={18} color={colors.accent} />
+              <Text style={[styles.addLinkText, { color: colors.accent }]}>
+                Manage team roster
+              </Text>
+            </TouchableOpacity>
+
+            <Text
+              style={[styles.sectionLabel, { color: colors.text.muted, marginTop: spacing.xl }]}
+            >
+              START GROUPS
+            </Text>
+            {(routing.shiftStartGroups ?? []).map((group) => (
+              <View
+                key={group.id}
+                style={[
+                  styles.groupRow,
+                  { borderColor: colors.border.subtle, backgroundColor: colors.surface.level2 },
+                ]}
+              >
+                <View style={styles.groupHeader}>
+                  <Text style={[styles.sectionName, { color: colors.text.primary }]}>
+                    {group.name}
+                  </Text>
+                  <Text style={[styles.countPill, { color: colors.text.secondary }]}>
+                    {group.startTime}
+                  </Text>
+                </View>
+                <View style={styles.groupChips}>
+                  {activeWaiters.map((waiter) => {
+                    const assigned = group.waiterIds.includes(waiter.id);
+                    return (
+                      <TouchableOpacity
+                        key={waiter.id}
+                        activeOpacity={0.75}
+                        onPress={() => handleToggleGroupWaiter(group.id, waiter.id)}
+                        style={[
+                          styles.chip,
+                          {
+                            backgroundColor: assigned
+                              ? (waiterColorMap[waiter.id] ?? colors.accent)
+                              : colors.surface.level1,
+                            borderColor: assigned
+                              ? (waiterColorMap[waiter.id] ?? colors.accent)
+                              : colors.border.subtle,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            { color: assigned ? colors.white : colors.text.secondary },
+                          ]}
+                        >
+                          {waiter.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+            <View style={styles.addRow}>
+              <TextInput
+                style={[
+                  styles.groupInput,
+                  {
+                    color: colors.text.primary,
+                    backgroundColor: colors.surface.level2,
+                    borderColor: colors.border.subtle,
+                  },
+                ]}
+                placeholder="Group"
+                placeholderTextColor={colors.text.muted}
+                value={newGroupName}
+                onChangeText={setNewGroupName}
+              />
+              <TextInput
+                style={[
+                  styles.timeInput,
+                  {
+                    color: colors.text.primary,
+                    backgroundColor: colors.surface.level2,
+                    borderColor: colors.border.subtle,
+                  },
+                ]}
+                placeholder="09:00"
+                placeholderTextColor={colors.text.muted}
+                value={newGroupTime}
+                onChangeText={setNewGroupTime}
+              />
+              <TouchableOpacity
+                style={[styles.addConfirm, { backgroundColor: colors.accent }]}
+                onPress={handleAddStartGroup}
+              >
+                <Ionicons name="add" size={20} color={colors.white} />
+              </TouchableOpacity>
+            </View>
+
+            <Text
+              style={[styles.sectionLabel, { color: colors.text.muted, marginTop: spacing.xl }]}
+            >
+              GRATUITY
+            </Text>
+            <View
+              style={[
+                styles.sectionRow,
+                { borderColor: colors.border.subtle, backgroundColor: colors.surface.level2 },
+              ]}
+            >
+              <Text style={[styles.sectionName, { color: colors.text.primary }]}>Party size</Text>
+              {[5, 6, 7, 8].map((threshold) => {
+                const active = (routing.gratThreshold ?? 6) === threshold;
+                return (
+                  <TouchableOpacity
+                    key={threshold}
+                    activeOpacity={0.75}
+                    onPress={() =>
+                      setGratThreshold(threshold).catch(
+                        reportError('Could not update the gratuity threshold.'),
+                      )
+                    }
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: active ? colors.accent : colors.surface.level1,
+                        borderColor: active ? colors.accent : colors.border.subtle,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        { color: active ? colors.white : colors.text.secondary },
+                      ]}
+                    >
+                      {threshold}+
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Section plan */}
+            <Text
+              style={[styles.sectionLabel, { color: colors.text.muted, marginTop: spacing.xl }]}
+            >
+              SECTION PLAN
+            </Text>
+            <View style={styles.planCountRow}>
+              <Text style={[styles.helpText, { color: colors.text.muted }]}>
+                Staffing count
+              </Text>
+              <TextInput
+                value={targetWaiterCountText}
+                onChangeText={setTargetWaiterCountText}
+                placeholder={String(Math.max(1, activeWaiters.length))}
+                placeholderTextColor={colors.text.muted}
+                keyboardType="number-pad"
+                style={[
+                  styles.planCountInput,
+                  {
+                    color: colors.text.primary,
+                    backgroundColor: colors.surface.level2,
+                    borderColor: colors.border.subtle,
+                  },
+                ]}
+              />
+            </View>
+            {sectionPlans.length === 0 ? (
+              <View
+                style={[
+                  styles.planEmpty,
+                  { borderColor: colors.border.subtle, backgroundColor: colors.surface.level2 },
+                ]}
+              >
+                <Text style={[styles.empty, { color: colors.text.muted }]}>
+                  No saved section presets yet. Build permanent presets in Floor Builder.
+                </Text>
                 <TouchableOpacity
-                  style={[styles.addConfirm, { backgroundColor: colors.accent }]}
-                  onPress={handleAddWaiter}
+                  style={styles.addLink}
+                  onPress={() => {
+                    onClose();
+                    router.push('/floor-builder' as Href);
+                  }}
                 >
-                  <Ionicons name="checkmark" size={20} color={colors.white} />
+                  <Ionicons name="map-outline" size={18} color={colors.accent} />
+                  <Text style={[styles.addLinkText, { color: colors.accent }]}>
+                    Open Floor Builder
+                  </Text>
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity style={styles.addLink} onPress={() => setShowAddWaiter(true)}>
-                <Ionicons name="add-circle-outline" size={18} color={colors.accent} />
-                <Text style={[styles.addLinkText, { color: colors.accent }]}>Add waiter</Text>
-              </TouchableOpacity>
+              <>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.planChipScroll}
+                >
+                  {sectionPlans.map((plan) => {
+                    const active = plan.planId === selectedSectionPlan?.planId;
+                    return (
+                      <TouchableOpacity
+                        key={plan.planId}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        onPress={() => handleSelectSectionPlan(plan)}
+                        style={[
+                          styles.planChip,
+                          {
+                            backgroundColor: active ? colors.accent : colors.surface.level2,
+                            borderColor: active ? colors.accent : colors.border.subtle,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.planChipTitle,
+                            { color: active ? colors.white : colors.text.primary },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {plan.name}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.planChipMeta,
+                            { color: active ? 'rgba(255,255,255,0.82)' : colors.text.muted },
+                          ]}
+                        >
+                          {plan.waiterCount} waiters · {plan.sections.length} sections
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <SectionFloorPreview
+                  floorMap={floorMap}
+                  routing={routing}
+                  selectedPlan={selectedSectionPlan}
+                  activeWaiterCount={activeWaiters.length}
+                  waiterColorMap={waiterColorMap}
+                />
+              </>
             )}
 
             {/* Sections */}
@@ -444,38 +714,6 @@ export function ShiftSetupSheet({
                 </View>
               );
             })}
-            {showAddSection ? (
-              <View style={styles.addRow}>
-                <TextInput
-                  style={[
-                    styles.addInput,
-                    {
-                      color: colors.text.primary,
-                      backgroundColor: colors.surface.level2,
-                      borderColor: colors.border.subtle,
-                    },
-                  ]}
-                  placeholder="Section name"
-                  placeholderTextColor={colors.text.muted}
-                  value={newSectionName}
-                  onChangeText={setNewSectionName}
-                  autoFocus
-                  onSubmitEditing={handleAddSection}
-                  returnKeyType="done"
-                />
-                <TouchableOpacity
-                  style={[styles.addConfirm, { backgroundColor: colors.accent }]}
-                  onPress={handleAddSection}
-                >
-                  <Ionicons name="checkmark" size={20} color={colors.white} />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity style={styles.addLink} onPress={() => setShowAddSection(true)}>
-                <Ionicons name="add-circle-outline" size={18} color={colors.accent} />
-                <Text style={[styles.addLinkText, { color: colors.accent }]}>Add section</Text>
-              </TouchableOpacity>
-            )}
 
             {/* Hour grid */}
             <Text
@@ -510,6 +748,122 @@ export function ShiftSetupSheet({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>{content}</View>
     </Modal>
+  );
+}
+
+type SectionFloorPreviewProps = {
+  floorMap: FloorMap;
+  routing: WaiterRoutingState;
+  selectedPlan: FloorMapSectionPlan | null;
+  activeWaiterCount: number;
+  waiterColorMap: Record<string, string>;
+};
+
+function getPlanSectionByTable(
+  plan: FloorMapSectionPlan | null,
+  table: FloorMapTable,
+): string {
+  if (!plan) return normalizeSectionName(table.section);
+  for (const section of plan.sections) {
+    if (section.tableIds.includes(table.tableId)) {
+      return normalizeSectionName(section.sectionId);
+    }
+  }
+  return '';
+}
+
+function SectionFloorPreview({
+  floorMap,
+  routing,
+  selectedPlan,
+  activeWaiterCount,
+  waiterColorMap,
+}: SectionFloorPreviewProps) {
+  const { colors } = useTheme();
+  const planSections = sectionNamesForPlan(selectedPlan);
+  const assignedSectionCount = planSections.filter(
+    (sectionId) => routing.sectionAssignments[sectionId],
+  ).length;
+  const unassignedSectionCount = Math.max(0, planSections.length - assignedSectionCount);
+  const roomTables = useMemo(() => {
+    const tablesByRoom = new Map<string, FloorMapTable[]>();
+    for (const table of Object.values(floorMap.tables)) {
+      const list = tablesByRoom.get(table.roomId) ?? [];
+      list.push(table);
+      tablesByRoom.set(table.roomId, list);
+    }
+    return floorMap.rooms.map((room) => ({
+      room,
+      tables: (tablesByRoom.get(room.roomId) ?? []).sort((left, right) =>
+        left.tableNumber.localeCompare(right.tableNumber, undefined, { numeric: true }),
+      ),
+    }));
+  }, [floorMap.rooms, floorMap.tables]);
+
+  return (
+    <View
+      style={[
+        styles.floorPreview,
+        { borderColor: colors.border.subtle, backgroundColor: colors.surface.level2 },
+      ]}
+    >
+      <View style={styles.previewLegendRow}>
+        <Text style={[styles.previewLegendText, { color: colors.text.secondary }]}>
+          {assignedSectionCount} assigned
+        </Text>
+        <Text style={[styles.previewLegendText, { color: colors.text.muted }]}>
+          {unassignedSectionCount} unassigned
+        </Text>
+        <Text style={[styles.previewLegendText, { color: colors.text.muted }]}>
+          {activeWaiterCount} active waiters
+        </Text>
+      </View>
+
+      {roomTables.map(({ room, tables }) => (
+        <View key={room.roomId} style={styles.previewRoom}>
+          <Text style={[styles.previewRoomLabel, { color: colors.text.muted }]}>
+            {room.filterLabel || room.label}
+          </Text>
+          <View style={styles.previewTableGrid}>
+            {tables.map((table) => {
+              const sectionId = getPlanSectionByTable(selectedPlan, table);
+              const assignedWaiterId = sectionId ? routing.sectionAssignments[sectionId] : null;
+              const waiterColor = assignedWaiterId ? waiterColorMap[assignedWaiterId] : null;
+              const hasSection = Boolean(sectionId);
+              const tableBorder = waiterColor ?? (hasSection ? colors.text.muted : colors.border.subtle);
+              return (
+                <View
+                  key={table.tableId}
+                  style={[
+                    styles.previewTable,
+                    {
+                      backgroundColor: waiterColor
+                        ? sectionColorWithAlpha(waiterColor, 0.18)
+                        : colors.surface.level1,
+                      borderColor: tableBorder,
+                      borderStyle: hasSection && !waiterColor ? 'dashed' : 'solid',
+                      opacity: hasSection ? 1 : 0.5,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.previewTableNumber, { color: colors.text.primary }]}>
+                    {table.tableNumber}
+                  </Text>
+                  {sectionId ? (
+                    <Text
+                      style={[styles.previewTableSection, { color: colors.text.muted }]}
+                      numberOfLines={1}
+                    >
+                      {sectionId}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -636,6 +990,119 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
+  groupInput: {
+    flex: 1,
+    ...textStyles.body,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  timeInput: {
+    width: 88,
+    ...textStyles.body,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  planEmpty: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  planCountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  planCountInput: {
+    width: 64,
+    height: 38,
+    ...textStyles.body,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    textAlign: 'center',
+    fontWeight: '800',
+  },
+  planChipScroll: {
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  planChip: {
+    width: 156,
+    minHeight: 56,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    justifyContent: 'center',
+  },
+  planChipTitle: {
+    ...textStyles.label,
+    fontWeight: '800',
+  },
+  planChipMeta: {
+    ...textStyles.tiny,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  floorPreview: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  previewLegendRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  previewLegendText: {
+    ...textStyles.tiny,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums' as const],
+  },
+  previewRoom: {
+    gap: spacing.xs,
+  },
+  previewRoomLabel: {
+    ...textStyles.tiny,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  previewTableGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  previewTable: {
+    width: 54,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: borderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 5,
+  },
+  previewTableNumber: {
+    ...textStyles.captionMedium,
+    fontWeight: '800',
+  },
+  previewTableSection: {
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 1,
+    maxWidth: 46,
+  },
   addConfirm: {
     width: 40,
     height: 40,
@@ -657,6 +1124,24 @@ const styles = StyleSheet.create({
     ...textStyles.label,
     fontWeight: '700',
     minWidth: 44,
+  },
+  groupRow: {
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  groupChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
   },
   chipScroll: {
     gap: spacing.xs,

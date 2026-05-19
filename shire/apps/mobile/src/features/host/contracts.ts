@@ -5,6 +5,7 @@ import type {
   ReservationAvailabilitySlot,
   ReservationDensityResponse,
   ReservationSettings,
+  ReservationServicePeriod,
   ReservationSource,
   ReservationStatus,
   WaitlistEntry,
@@ -119,6 +120,30 @@ export interface ReservationAvailabilityDto {
   slots: ReservationAvailabilitySlotDto[];
 }
 
+export interface ReservationServicePeriodDto {
+  id?: string | null;
+  name?: string | null;
+  dayOfWeek?: number | null;
+  day_of_week?: number | null;
+  startTime?: string | null;
+  start_time?: string | null;
+  endTime?: string | null;
+  end_time?: string | null;
+  slotIntervalMinutes?: number | null;
+  slot_interval_minutes?: number | null;
+  leadTimeMinutes?: number | null;
+  lead_time_minutes?: number | null;
+  sameDayCutoffTime?: string | null;
+  same_day_cutoff_time?: string | null;
+  minPartySize?: number | null;
+  min_party_size?: number | null;
+  maxPartySize?: number | null;
+  max_party_size?: number | null;
+  defaultDurationMinutes?: number | null;
+  default_duration_minutes?: number | null;
+  active?: boolean | null;
+}
+
 export interface ReservationSettingsDto {
   locationId?: string;
   bookingHorizonDays?: number | null;
@@ -126,6 +151,8 @@ export interface ReservationSettingsDto {
   leadTimeMinutes?: number | null;
   sameDayCutoffMinutes?: number | null;
   defaultChannel?: ReservationSourceDto;
+  servicePeriods?: ReservationServicePeriodDto[] | null;
+  service_periods?: ReservationServicePeriodDto[] | null;
   updatedAt?: string | null;
 }
 
@@ -317,7 +344,36 @@ export function adaptReservationAvailability(
   };
 }
 
+function normalizeTime(value: string | null | undefined, fallback: string): string {
+  if (!value) return fallback;
+  return value.slice(0, 5);
+}
+
+export function adaptReservationServicePeriod(
+  period: ReservationServicePeriodDto,
+): ReservationServicePeriod {
+  return {
+    id: period.id ?? null,
+    name: period.name?.trim() || 'Service',
+    dayOfWeek: period.dayOfWeek ?? period.day_of_week ?? 0,
+    startTime: normalizeTime(period.startTime ?? period.start_time, '17:00'),
+    endTime: normalizeTime(period.endTime ?? period.end_time, '22:00'),
+    slotIntervalMinutes: period.slotIntervalMinutes ?? period.slot_interval_minutes ?? 15,
+    leadTimeMinutes: period.leadTimeMinutes ?? period.lead_time_minutes ?? 0,
+    sameDayCutoffTime: normalizeTime(
+      period.sameDayCutoffTime ?? period.same_day_cutoff_time,
+      '',
+    ) || null,
+    minPartySize: period.minPartySize ?? period.min_party_size ?? 1,
+    maxPartySize: period.maxPartySize ?? period.max_party_size ?? 20,
+    defaultDurationMinutes:
+      period.defaultDurationMinutes ?? period.default_duration_minutes ?? 90,
+    active: period.active ?? true,
+  };
+}
+
 export function adaptReservationSettings(settings: ReservationSettingsDto): ReservationSettings {
+  const servicePeriods = settings.servicePeriods ?? settings.service_periods ?? [];
   return {
     locationId: settings.locationId ?? '',
     bookingHorizonDays: settings.bookingHorizonDays ?? 30,
@@ -325,6 +381,7 @@ export function adaptReservationSettings(settings: ReservationSettingsDto): Rese
     leadTimeMinutes: settings.leadTimeMinutes ?? 0,
     sameDayCutoffMinutes: settings.sameDayCutoffMinutes ?? null,
     defaultChannel: normalizeReservationSource(settings.defaultChannel),
+    servicePeriods: servicePeriods.map(adaptReservationServicePeriod),
     updatedAt: settings.updatedAt ?? null,
   };
 }
