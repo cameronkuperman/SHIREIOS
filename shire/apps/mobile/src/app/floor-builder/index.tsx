@@ -20,8 +20,7 @@ import {
   saveFloorMapLayout,
   upsertHostFloorMap,
 } from '@/features/floor-builder';
-import { useFloorStore } from '@/features/floor';
-import { getSectionColor, normalizeSectionName } from '@/features/floor';
+import { useFloorStore, getSectionColor, normalizeSectionName } from '@/features/floor';
 import { useWaiterRoutingActions } from '@/features/routing';
 import { useAuth } from '@/features/auth';
 import { queryKeys } from '@/services/api/queryKeys';
@@ -110,6 +109,7 @@ export default function FloorBuilderScreen() {
   const redo = useBuilderStore((state) => state.redo);
   const markClean = useBuilderStore((state) => state.markClean);
   const setSnapToGrid = useBuilderStore((state) => state.setSnapToGrid);
+  const setMapZoom = useBuilderStore((state) => state.setMapZoom);
   const undoStack = useBuilderStore((state) => state.undoStack);
   const redoStack = useBuilderStore((state) => state.redoStack);
 
@@ -281,6 +281,26 @@ export default function FloorBuilderScreen() {
     addTable(newTable);
   }, [draftMap, addTable]);
 
+  const handleDuplicate = useCallback(() => {
+    if (!draftMap || !selectedTableId) return;
+    const source = draftMap.tables[selectedTableId];
+    if (!source) return;
+    addTable({
+      ...source,
+      tableId: generateTableId(),
+      tableNumber: '',
+      x: Math.min(1, (source.x ?? 0.5) + 0.04),
+      y: Math.min(1, (source.y ?? 0.5) + 0.04),
+    });
+  }, [draftMap, selectedTableId, addTable]);
+
+  const handleResize = useCallback(
+    (tableId: string, width: number, height: number) => {
+      updateTable(tableId, { width, height });
+    },
+    [updateTable],
+  );
+
   const handleAddRoom = useCallback(() => {
     if (!draftMap) return;
     const roomCount = draftMap.rooms.length + 1;
@@ -330,12 +350,7 @@ export default function FloorBuilderScreen() {
       waiterCount,
       isDefault: true,
     });
-  }, [
-    saveCurrentSectionPlan,
-    sectionPlanName,
-    sectionPlanWaiterCount,
-    selectedSectionPlanId,
-  ]);
+  }, [saveCurrentSectionPlan, sectionPlanName, sectionPlanWaiterCount, selectedSectionPlanId]);
 
   const handleNewSectionPlan = useCallback(() => {
     const parsedWaiterCount = Number.parseInt(sectionPlanWaiterCount, 10);
@@ -384,6 +399,17 @@ export default function FloorBuilderScreen() {
       );
     },
     [activeSectionName, draftMap, editingSectionName, setTableSection],
+  );
+
+  const handleCanvasTableSelect = useCallback(
+    (tableId: string) => {
+      if (builderMode === 'sections' && editingSectionName) {
+        handleToggleTableSection(tableId);
+        return;
+      }
+      selectTable(tableId);
+    },
+    [builderMode, editingSectionName, handleToggleTableSection, selectTable],
   );
 
   const handleDeleteSection = useCallback(
@@ -486,6 +512,10 @@ export default function FloorBuilderScreen() {
         ...draftMap,
         floorId: resolveFloorId(draftMap.floorId, currentFloorId),
         mapVersion: `builder-${Date.now()}`,
+        // Record the canvas the layout was designed against so the live Floor
+        // screen can render it with matching proportions (not crammed).
+        canvasWidth: canvasSize.width,
+        canvasHeight: canvasSize.height,
       });
 
       let persistedMap = mapToSave;
@@ -515,6 +545,7 @@ export default function FloorBuilderScreen() {
   }, [
     currentFloorId,
     draftMap,
+    canvasSize,
     currentLocation,
     setFloorMap,
     markClean,
@@ -617,6 +648,7 @@ export default function FloorBuilderScreen() {
         <BuilderToolbar
           onAddTable={handleAddTable}
           onAddRoom={handleAddRoom}
+          onDuplicate={handleDuplicate}
           onDelete={handleDelete}
           onToggleGrid={() => setSnapToGrid(!snapToGrid)}
           mode={builderMode}
@@ -626,7 +658,12 @@ export default function FloorBuilderScreen() {
         />
 
         <View style={styles.canvasContainer} onLayout={handleCanvasLayout}>
-          <BuilderCanvas width={canvasSize.width} height={canvasSize.height}>
+          <BuilderCanvas
+            width={canvasSize.width}
+            height={canvasSize.height}
+            initialZoom={draftMap.zoom ?? 1}
+            onZoomChange={setMapZoom}
+          >
             {allTables.map((table) => (
               <DraggableTable
                 key={table.tableId}
@@ -638,6 +675,8 @@ export default function FloorBuilderScreen() {
                 x={table.x ?? 0.5}
                 y={table.y ?? 0.5}
                 rotation={table.rotation}
+                width={table.width}
+                height={table.height}
                 sectionLabel={
                   builderMode === 'sections' ? normalizeSectionName(table.section) : undefined
                 }
@@ -648,7 +687,8 @@ export default function FloorBuilderScreen() {
                 canvasWidth={canvasSize.width}
                 canvasHeight={canvasSize.height}
                 onMove={moveTable}
-                onSelect={selectTable}
+                onResize={handleResize}
+                onSelect={handleCanvasTableSelect}
               />
             ))}
           </BuilderCanvas>
@@ -754,8 +794,7 @@ function SectionManagerPanel({
   onDeleteSection,
 }: SectionManagerPanelProps) {
   const { colors, isDark } = useTheme();
-  const editingSection =
-    sections.find((section) => section.name === editingSectionName) ?? null;
+  const editingSection = sections.find((section) => section.name === editingSectionName) ?? null;
 
   return (
     <View
@@ -767,6 +806,7 @@ function SectionManagerPanel({
         },
       ]}
     >
+      <View style={styles.sectionPanelTop}>
       <View style={styles.sectionPlanHeader}>
         <View>
           <Text style={[styles.sectionPanelTitle, { color: colors.text.primary }]}>
@@ -984,18 +1024,21 @@ function SectionManagerPanel({
           })}
         </ScrollView>
       ) : null}
+      </View>
 
-      <Text style={[styles.sectionTableHint, { color: colors.text.muted }]}>
-        {editingSectionName
-          ? `Tap tables to add or remove from ${editingSectionName}`
-          : 'Type a section name above, then tap tables'}
-      </Text>
+      <View style={styles.sectionTableArea}>
+        <Text style={[styles.sectionTableHint, { color: colors.text.muted }]}>
+          {editingSectionName
+            ? `Tap chips or floor tables to add/remove from ${editingSectionName}`
+            : 'Type a section name above, then tap tables'}
+        </Text>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.sectionTableGrid}
-      >
+        <ScrollView
+          style={styles.sectionTableScroll}
+          showsVerticalScrollIndicator
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.sectionTableGrid}
+        >
         {tables.map((table) => {
           const isInEditingSection =
             editingSectionName != null &&
@@ -1014,16 +1057,12 @@ function SectionManagerPanel({
               accessibilityRole="button"
               accessibilityState={{ selected: isInEditingSection }}
               accessibilityLabel={`Table ${table.tableNumber || table.tableId}${
-                isInEditingSection && editingSectionName
-                  ? `, in section ${editingSectionName}`
-                  : ''
+                isInEditingSection && editingSectionName ? `, in section ${editingSectionName}` : ''
               }`}
               style={[
                 styles.sectionTableChip,
                 {
-                  backgroundColor: isInEditingSection
-                    ? chipColor
-                    : colors.surface.level4,
+                  backgroundColor: isInEditingSection ? chipColor : colors.surface.level4,
                   borderColor: isInEditingSection
                     ? chipColor
                     : (otherSectionColor ?? colors.border.default),
@@ -1048,7 +1087,8 @@ function SectionManagerPanel({
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -1129,13 +1169,30 @@ const styles = StyleSheet.create({
     width: 260,
     alignSelf: 'stretch',
     gap: spacing.md,
+    minHeight: 0,
   },
   sectionPanel: {
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
     borderWidth: 1,
     borderRadius: borderRadius['2xl'],
     padding: spacing.md,
     gap: spacing.sm,
     ...shadows.subtle,
+  },
+  sectionPanelTop: {
+    gap: spacing.sm,
+    flexShrink: 0,
+  },
+  sectionTableArea: {
+    flex: 1,
+    minHeight: 0,
+    gap: spacing.xs,
+  },
+  sectionTableScroll: {
+    flex: 1,
+    minHeight: 0,
   },
   sectionPlanHeader: {
     flexDirection: 'row',
@@ -1292,7 +1349,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.xs,
     paddingTop: spacing.xs,
-    maxHeight: 160,
+    paddingBottom: spacing.md,
   },
   sectionTableChip: {
     minWidth: 42,

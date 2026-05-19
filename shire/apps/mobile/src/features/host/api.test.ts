@@ -2,6 +2,7 @@ import {
   createReservation,
   fetchShiftAnalytics,
   fetchReservationAvailability,
+  removeDuplicateReservation,
   runReservationAction,
   updateReservationSchedule,
   updateReservation,
@@ -13,6 +14,7 @@ jest.mock('@/services/api/client', () => ({
     get: jest.fn(),
     post: jest.fn(),
     patch: jest.fn(),
+    delete: jest.fn(),
   },
 }));
 
@@ -64,6 +66,35 @@ describe('reservation API request normalization', () => {
         channel: 'host',
         source: 'host',
         overridePacing: false,
+        clientRequestId: undefined,
+      }),
+    );
+  });
+
+  it('sends clientRequestId when creating a reservation', async () => {
+    mockedApiClient.post.mockResolvedValue({
+      data: reservationDto,
+    });
+
+    await createReservation('location-1', {
+      clientRequestId: 'create-123',
+      guestName: 'Taylor',
+      guestPhone: '5551112222',
+      partySize: 2,
+      date: '2026-04-08',
+      timeSlot: '18:30',
+      seatingPreference: 'none',
+      source: 'host_dashboard',
+      notes: '',
+      specialRequests: '',
+      internalNotes: '',
+      pacingOverride: false,
+    });
+
+    expect(mockedApiClient.post).toHaveBeenCalledWith(
+      '/locations/location-1/reservations',
+      expect.objectContaining({
+        clientRequestId: 'create-123',
       }),
     );
   });
@@ -201,6 +232,21 @@ describe('reservation API request normalization', () => {
     expect(mockedApiClient.post).toHaveBeenCalledWith(
       '/locations/location-1/reservations/reservation-1/actions/cancel',
       {},
+    );
+  });
+
+  it('soft-removes duplicate reservations without a mutation body', async () => {
+    mockedApiClient.delete.mockResolvedValue({
+      data: undefined,
+    });
+
+    await removeDuplicateReservation('location-1', 'reservation-1');
+
+    expect(mockedApiClient.delete).toHaveBeenCalledWith(
+      '/locations/location-1/reservations/reservation-1',
+      {
+        params: { reason: 'duplicate' },
+      },
     );
   });
 

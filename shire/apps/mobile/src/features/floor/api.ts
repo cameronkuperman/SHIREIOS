@@ -1,7 +1,12 @@
 import axios, { type AxiosError, type AxiosResponse } from 'axios';
-import type { BackendFloorSnapshotDto, FloorSnapshot } from '@shire/shared';
+import type {
+  BackendFloorSnapshotDto,
+  FloorSnapshot,
+  FloorStreamMessage,
+  TableCommand,
+} from '@shire/shared';
 import { apiClient } from '@/services/api/client';
-import { adaptFloorSnapshot } from './contracts';
+import { adaptFloorSnapshot, adaptRealtimeMessage } from './contracts';
 
 export class FloorSnapshotUnavailableError extends Error {}
 
@@ -100,4 +105,26 @@ export async function fetchFloorSnapshot(
     });
     throw error instanceof Error ? error : new Error('Unable to load live floor snapshot.');
   }
+}
+
+export async function sendFloorCommandHttp(
+  locationId: string,
+  floorId: string,
+  command: TableCommand,
+): Promise<FloorStreamMessage[]> {
+  const response = await apiClient.post<unknown>(
+    `/locations/${locationId}/floors/${floorId}/commands`,
+    command,
+  );
+  const payload = response.data;
+  const rawMessages =
+    payload && typeof payload === 'object' && 'messages' in payload
+      ? (payload as { messages?: unknown }).messages
+      : payload;
+  const messages = Array.isArray(rawMessages) ? rawMessages : [rawMessages];
+
+  return messages.flatMap((message) => {
+    const adapted = adaptRealtimeMessage(message);
+    return adapted ? [adapted] : [];
+  });
 }

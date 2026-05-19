@@ -155,7 +155,7 @@ export function FloorRoomPill({
           },
         ]}
         activeOpacity={0.7}
-        hitSlop={8}
+        hitSlop={12}
         onPress={openMenu}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}

@@ -54,14 +54,16 @@ function normalizeTable(tableKey: string, value: unknown): FloorMapTable | null 
       ? value.tableNumber.trim()
       : rawTableId;
   const tableId = tableNumber;
-  const roomId = typeof value.roomId === 'string' && value.roomId.trim() ? value.roomId : 'main-room';
+  const roomId =
+    typeof value.roomId === 'string' && value.roomId.trim() ? value.roomId : 'main-room';
 
   return {
     tableId,
     tableNumber,
     roomId,
     section: typeof value.section === 'string' ? value.section : '',
-    capacity: typeof value.capacity === 'number' && Number.isFinite(value.capacity) ? value.capacity : 2,
+    capacity:
+      typeof value.capacity === 'number' && Number.isFinite(value.capacity) ? value.capacity : 2,
     shape: normalizeShape(value.shape),
     type: normalizeType(value.type),
     assignedServer: typeof value.assignedServer === 'string' ? value.assignedServer : null,
@@ -70,6 +72,14 @@ function normalizeTable(tableKey: string, value: unknown): FloorMapTable | null 
     rotation:
       typeof value.rotation === 'number' && Number.isFinite(value.rotation)
         ? value.rotation
+        : undefined,
+    width:
+      typeof value.width === 'number' && Number.isFinite(value.width) && value.width > 0
+        ? value.width
+        : undefined,
+    height:
+      typeof value.height === 'number' && Number.isFinite(value.height) && value.height > 0
+        ? value.height
         : undefined,
   };
 }
@@ -87,9 +97,7 @@ function normalizeTables(value: unknown): NormalizedTablesResult {
       }
 
       const rawTableId =
-        isRecord(tableValue) &&
-        typeof tableValue.tableId === 'string' &&
-        tableValue.tableId.trim()
+        isRecord(tableValue) && typeof tableValue.tableId === 'string' && tableValue.tableId.trim()
           ? tableValue.tableId.trim()
           : tableKey;
 
@@ -128,10 +136,7 @@ function deriveRoomsFromTables(tables: Record<string, FloorMapTable>): FloorMapR
   return roomIds.map((roomId) => createDerivedRoom(roomId));
 }
 
-function normalizeRoom(
-  value: unknown,
-  tableAliases: Record<string, string>,
-): FloorMapRoom | null {
+function normalizeRoom(value: unknown, tableAliases: Record<string, string>): FloorMapRoom | null {
   if (!isRecord(value) || typeof value.roomId !== 'string' || !value.roomId.trim()) {
     return null;
   }
@@ -279,6 +284,22 @@ export function normalizeFloorMap(value: unknown): FloorMap {
     sectionPlans.some((plan) => plan.planId === candidate.activeSectionPlanId)
       ? candidate.activeSectionPlanId
       : null;
+  const zoom =
+    typeof candidate.zoom === 'number' && Number.isFinite(candidate.zoom) && candidate.zoom > 0
+      ? candidate.zoom
+      : 1;
+  const canvasWidth =
+    typeof candidate.canvasWidth === 'number' &&
+    Number.isFinite(candidate.canvasWidth) &&
+    candidate.canvasWidth > 0
+      ? candidate.canvasWidth
+      : undefined;
+  const canvasHeight =
+    typeof candidate.canvasHeight === 'number' &&
+    Number.isFinite(candidate.canvasHeight) &&
+    candidate.canvasHeight > 0
+      ? candidate.canvasHeight
+      : undefined;
 
   return {
     floorId:
@@ -293,5 +314,8 @@ export function normalizeFloorMap(value: unknown): FloorMap {
     tables,
     sectionPlans,
     activeSectionPlanId,
+    zoom,
+    canvasWidth,
+    canvasHeight,
   };
 }

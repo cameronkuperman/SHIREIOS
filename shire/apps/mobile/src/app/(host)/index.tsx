@@ -80,8 +80,10 @@ const TABLE_DIMENSIONS = {
   square: { width: 64, height: 64 },
   horizontal: { width: 140, height: 64 },
 } as const;
-/** Keep bottom-row tables from sitting under the room picker / status bar. */
+/** Reserve space so tables + zoom transform cannot cover All Rooms / status chrome. */
 const MAP_BOTTOM_UI_INSET = 72;
+/** Stacking above the tables layer (transform creates a native layer that steals taps). */
+const MAP_CHROME_Z_INDEX = 100;
 const MOCK_NEXT_UP_TABLE_LABELS: string[][] = [
   ['12', '14', '18'],
   ['3', '7'],
@@ -203,6 +205,25 @@ export default function FloorPlanScreen() {
 
   const nextUpRotation = useMemo<NextUpEntry[]>(() => {
     if (!routing) return [];
+    const tableById = new Map(allTablesFlat.map((table) => [table.id, table]));
+    const queueRows = (routing.nextUpQueue ?? [])
+      .slice(0, 4)
+      .map((entry) => {
+        if (!routing.activeWaiterIds.includes(entry.waiterId)) return null;
+        const waiter = routing.waiters.find((w) => w.id === entry.waiterId);
+        if (!waiter) return null;
+        return {
+          waiterId: entry.waiterId,
+          waiterName: waiter.name,
+          tables: entry.tableIds
+            .map((tableId) => tableById.get(tableId))
+            .filter((table): table is NonNullable<typeof table> => Boolean(table))
+            .map((table) => ({ id: table.id, label: table.label })),
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    if (queueRows.length > 0) return queueRows;
+
     const availableTables = allTablesFlat.filter(
       (table) => table.status === 'available' && !table.isBlocked,
     );
@@ -306,6 +327,24 @@ export default function FloorPlanScreen() {
     [colors.status.occupied.text, waiterColorMap],
   );
 
+  // Render the floor at the proportions it was designed with in the builder,
+  // scaled to fit — so the live floor matches the builder instead of cramming.
+  const floorDesign = useMemo(() => {
+    const mapHeight = Math.max(0, mapSize.height - MAP_BOTTOM_UI_INSET);
+    const hasDesign =
+      typeof floorMap.canvasWidth === 'number' &&
+      typeof floorMap.canvasHeight === 'number' &&
+      floorMap.canvasWidth > 0 &&
+      floorMap.canvasHeight > 0;
+    const designWidth = hasDesign ? floorMap.canvasWidth! : mapSize.width;
+    const designHeight = hasDesign ? floorMap.canvasHeight! : mapHeight;
+    const fit =
+      hasDesign && designWidth > 0 && designHeight > 0
+        ? Math.min(mapSize.width / designWidth, mapHeight / designHeight)
+        : 1;
+    return { designWidth, designHeight, fit, mapHeight };
+  }, [mapSize, floorMap.canvasWidth, floorMap.canvasHeight]);
+
   type GlobalTablePos = {
     table: (typeof visibleRooms)[number]['tables'][number];
     x: number;
@@ -327,8 +366,8 @@ export default function FloorPlanScreen() {
         for (const table of room.tables) {
           out.push({
             table,
-            x: (table.x ?? 0.5) * mapSize.width,
-            y: (table.y ?? 0.5) * mapHeight,
+            x: (table.x ?? 0.5) * floorDesign.designWidth,
+            y: (table.y ?? 0.5) * floorDesign.designHeight,
             rotation: table.rotation,
           });
         }
@@ -347,7 +386,7 @@ export default function FloorPlanScreen() {
       }
     }
     return out;
-  }, [visibleRooms, mapSize]);
+  }, [visibleRooms, mapSize, floorDesign]);
 
   const isUsingStarterMap =
     floorMap.floorId === DEFAULT_FLOOR_MAP.floorId &&
@@ -438,27 +477,37 @@ export default function FloorPlanScreen() {
   const canPickSeatWaiter = Boolean(
     isRotationMode && liveTable && liveTable.status === 'available' && !liveTable.isBlocked,
   );
-  const popoverAutoAssignmentLabel = useMemo(() => {
-    if (!popover || !liveTable || !routing) return null;
-    const threshold = routing.gratThreshold ?? 6;
-    const normalWaiter = getWaiterById(
-      routing,
-      resolveDefaultSeatWaiterId(popover.tableId, liveTable.section, null),
-    );
-    const gratWaiter = getWaiterById(
-      routing,
-      resolveDefaultSeatWaiterId(popover.tableId, liveTable.section, threshold),
-    );
-    if (selectedParty?.size && selectedParty.size >= threshold && gratWaiter) {
-      return `Auto route: Next grat ${gratWaiter.name}`;
-    }
-    if (selectedParty && normalWaiter) return `Auto route: Next up ${normalWaiter.name}`;
-    if (normalWaiter && gratWaiter && gratWaiter.id !== normalWaiter.id) {
-      return `Auto route: Next up ${normalWaiter.name}; ${threshold}+ uses Next grat ${gratWaiter.name}`;
-    }
-    if (normalWaiter) return `Auto route: Next up ${normalWaiter.name}`;
-    return null;
-  }, [liveTable, popover, resolveDefaultSeatWaiterId, routing, selectedParty]);
+  const resolveAutoAssignmentLabel = useCallback(
+    (partySize: number | null) => {
+      if (!popover || !liveTable || !routing) return null;
+      const threshold = routing.gratThreshold ?? 6;
+      const effectiveSize = partySize ?? selectedParty?.size ?? null;
+      const normalWaiter = getWaiterById(
+        routing,
+        resolveDefaultSeatWaiterId(popover.tableId, liveTable.section, null),
+      );
+      const gratWaiter = getWaiterById(
+        routing,
+        resolveDefaultSeatWaiterId(popover.tableId, liveTable.section, threshold),
+      );
+      if (effectiveSize != null && effectiveSize >= threshold && gratWaiter) {
+        return `Auto route: Next grat ${gratWaiter.name}`;
+      }
+      if (effectiveSize != null && normalWaiter) {
+        return `Auto route: Next up ${normalWaiter.name}`;
+      }
+      if (normalWaiter && gratWaiter && gratWaiter.id !== normalWaiter.id) {
+        return `Auto route: Next up ${normalWaiter.name}; ${threshold}+ uses Next grat ${gratWaiter.name}`;
+      }
+      if (normalWaiter) return `Auto route: Next up ${normalWaiter.name}`;
+      return null;
+    },
+    [liveTable, popover, resolveDefaultSeatWaiterId, routing, selectedParty?.size],
+  );
+  const popoverAutoAssignmentLabel = useMemo(
+    () => resolveAutoAssignmentLabel(selectedParty?.size ?? null),
+    [resolveAutoAssignmentLabel, selectedParty?.size],
+  );
 
   const handleTablePress = (tableId: string, ref: View | null | undefined) => {
     if (!ref) {
@@ -492,6 +541,7 @@ export default function FloorPlanScreen() {
           tableId,
           source: selectedParty.source,
         });
+        setSeatWaiterId(null);
         setSelectedPartyId(null);
         setPopover(null);
       } catch (error) {
@@ -509,6 +559,7 @@ export default function FloorPlanScreen() {
       tableId,
       source: selectedParty.source,
     });
+    setSeatWaiterId(null);
     setSelectedPartyId(null);
     setPopover(null);
   };
@@ -518,7 +569,10 @@ export default function FloorPlanScreen() {
     const waiterId =
       seatWaiterId ?? resolveDefaultSeatWaiterId(liveTable.id, liveTable.section, size);
     const result = seatWalkIn(liveTable.id, name, size, waiterId ?? undefined);
-    if (result.ok) setPopover(null);
+    if (result.ok) {
+      setSeatWaiterId(null);
+      setPopover(null);
+    }
   };
 
   const handleMarkAvailable = () => {
@@ -564,7 +618,10 @@ export default function FloorPlanScreen() {
       <TablePopover
         visible
         presentation="panel"
-        onClose={() => setPopover(null)}
+        onClose={() => {
+          setSeatWaiterId(null);
+          setPopover(null);
+        }}
         tableId={liveTable.id}
         tableLabel={liveTable.label}
         status={liveTable.status}
@@ -601,6 +658,7 @@ export default function FloorPlanScreen() {
             : null
         }
         autoAssignmentLabel={popoverAutoAssignmentLabel}
+        resolveAutoAssignmentLabel={resolveAutoAssignmentLabel}
         routingModeLabel={routing?.mode === 'manual_rotation' ? 'rotation' : undefined}
         servers={canPickSeatWaiter ? activeWaiterChips : undefined}
         currentServerId={canPickSeatWaiter ? (seatWaiterIdEffective ?? undefined) : undefined}
@@ -689,9 +747,7 @@ export default function FloorPlanScreen() {
           <TouchableOpacity
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel={
-              cctvSyncEnabled ? 'Turn off CCTV sync' : 'Turn on CCTV sync'
-            }
+            accessibilityLabel={cctvSyncEnabled ? 'Turn off CCTV sync' : 'Turn on CCTV sync'}
             onPress={() => setCctvSyncEnabled(!cctvSyncEnabled)}
             style={[
               styles.connectionBadge,
@@ -751,7 +807,7 @@ export default function FloorPlanScreen() {
       {/* ===== NEXT UP STRIP ===== */}
       <View style={styles.nextUpStrip}>
         <View style={styles.routingStripGroup}>
-          {nextUpRows.slice(0, 1).map((entry, idx) => {
+          {nextUpRows.slice(0, 4).map((entry, idx) => {
             const primaryTableId = entry.tables[0]?.id;
             const canOpenTable = primaryTableId ? !primaryTableId.startsWith('mock-') : false;
             return (
@@ -802,7 +858,7 @@ export default function FloorPlanScreen() {
 
       {/* ===== FLOOR BODY ===== */}
       <View style={styles.body}>
-        {/* LEFT PANEL */}
+        {/* LEFT PANEL — keep above center map so Add Walk-in is never covered. */}
         <Panel level="level2" style={styles.leftPanel}>
           <View style={styles.leftPanelBody}>
             {selectedTablePanel ? (
@@ -880,64 +936,84 @@ export default function FloorPlanScreen() {
             { backgroundColor: colors.surface.level3, borderColor: colors.border.default },
           ]}
         >
-          <View
-            style={styles.mapContainer}
-            onLayout={handleMapLayout}
-            pointerEvents="box-none"
-          >
-            {positionedTables.map(({ table, x, y, rotation }) => {
-              const dimensions = TABLE_DIMENSIONS[table.shape] ?? TABLE_DIMENSIONS.square;
-              return (
-                <View
-                  key={table.id}
-                  ref={(ref) => {
-                    tableRefs.current[table.id] = ref;
-                  }}
-                  collapsable={false}
-                  pointerEvents="box-none"
-                  style={{
-                    position: 'absolute',
-                    left: x - dimensions.width / 2,
-                    top: y - dimensions.height / 2,
-                    opacity: tableMatchesSizeFilters(table.capacity, sizeFilters) ? 1 : 0.28,
-                    ...(rotation ? { transform: [{ rotate: `${rotation}deg` }] } : {}),
-                  }}
-                >
-                  <Table
-                    id={table.label}
-                    status={table.status as StatusKey}
-                    shape={table.shape}
-                    capacity={table.capacity}
-                    isBlocked={table.isBlocked}
-                    server={
-                      table.status === 'occupied'
-                        ? serverBadgeForTable(table.server, table.serverId)
-                        : undefined
-                    }
-                    sectionColor={getSectionColor(floorMap.tables[table.id]?.section)}
-                    onPress={() => handleTablePress(table.id, tableRefs.current[table.id] ?? null)}
-                  />
-                </View>
-              );
-            })}
-            {/*
-              TOUCH CONTRACT — MAP OVERLAYS (do not regress):
-              - FloorStatusBar: pointerEvents="none" (display-only; must not steal taps).
-              - FloorRoomPill: keep high zIndex; menu anchors to the pill via measureInWindow.
-              - mapContainer: pointerEvents="box-none" so empty map space does not eat touches.
-              - Do NOT wrap GestureHandlerRootView at app root (breaks RN touchables + rail).
-              - Reserve MAP_BOTTOM_UI_INSET so table hit targets avoid bottom controls.
-            */}
-            <View style={styles.mapOverlayBottomRight} pointerEvents="none">
-              <FloorStatusBar tables={visibleTablesFlat} />
+          <View style={styles.mapContainer} onLayout={handleMapLayout} pointerEvents="box-none">
+            {/* Tables layer: clipped + low zIndex. Do not use absoluteFill here — it blocks
+                bottom chrome taps when combined with transform scale (host map zoom only). */}
+            <View style={styles.mapTablesLayer} pointerEvents="box-none">
+              <View
+                style={{
+                  position: 'absolute',
+                  width: floorDesign.designWidth,
+                  height: floorDesign.designHeight,
+                  left: (mapSize.width - floorDesign.designWidth) / 2,
+                  top: (floorDesign.mapHeight - floorDesign.designHeight) / 2,
+                  transform: [{ scale: floorDesign.fit * (floorMap.zoom ?? 1) }],
+                }}
+                pointerEvents="box-none"
+              >
+                {positionedTables.map(({ table, x, y, rotation }) => {
+                  const baseDim = TABLE_DIMENSIONS[table.shape] ?? TABLE_DIMENSIONS.square;
+                  const mapTable = floorMap.tables[table.id];
+                  const tableWidth = mapTable?.width ?? baseDim.width;
+                  const tableHeight = mapTable?.height ?? baseDim.height;
+                  return (
+                    <View
+                      key={table.id}
+                      ref={(ref) => {
+                        tableRefs.current[table.id] = ref;
+                      }}
+                      collapsable={false}
+                      pointerEvents="box-none"
+                      style={{
+                        position: 'absolute',
+                        left: x - tableWidth / 2,
+                        top: y - tableHeight / 2,
+                        opacity: tableMatchesSizeFilters(table.capacity, sizeFilters) ? 1 : 0.28,
+                        ...(rotation ? { transform: [{ rotate: `${rotation}deg` }] } : {}),
+                      }}
+                    >
+                      <Table
+                        id={table.label}
+                        status={table.status as StatusKey}
+                        shape={table.shape}
+                        capacity={table.capacity}
+                        width={tableWidth}
+                        height={tableHeight}
+                        isBlocked={table.isBlocked}
+                        server={
+                          table.status === 'occupied'
+                            ? serverBadgeForTable(table.server, table.serverId)
+                            : undefined
+                        }
+                        sectionColor={getSectionColor(floorMap.tables[table.id]?.section)}
+                        onPress={() =>
+                          handleTablePress(table.id, tableRefs.current[table.id] ?? null)
+                        }
+                      />
+                    </View>
+                  );
+                })}
+              </View>
             </View>
-            <View style={styles.mapOverlayBottomLeft} pointerEvents="box-none">
-              <FloorRoomPill
-                rooms={roomOptions}
-                activeRoomId={activeFilter}
-                onSelect={setActiveFilter}
-                onManagePress={() => router.push('/floor-builder' as Href)}
-              />
+            {/*
+              TOUCH CONTRACT — MAP CHROME (do not regress):
+              - Render chrome AFTER tables with MAP_CHROME_Z_INDEX (transform steals taps otherwise).
+              - FloorStatusBar: pointerEvents="none" (display-only).
+              - FloorRoomPill: anchors via measureInWindow; backdrop is sibling Pressable.
+              - Tables layer uses marginBottom + overflow hidden, not absoluteFill.
+            */}
+            <View style={styles.mapChromeLayer} pointerEvents="box-none">
+              <View pointerEvents="box-none">
+                <FloorRoomPill
+                  rooms={roomOptions}
+                  activeRoomId={activeFilter}
+                  onSelect={setActiveFilter}
+                  onManagePress={() => router.push('/floor-builder' as Href)}
+                />
+              </View>
+              <View pointerEvents="none">
+                <FloorStatusBar tables={visibleTablesFlat} />
+              </View>
             </View>
           </View>
           {isUsingStarterMap && (
@@ -1147,6 +1223,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignSelf: 'stretch',
     flexDirection: 'column',
+    zIndex: 2,
+    elevation: 2,
   },
   leftPanelBody: { flex: 1, minHeight: 0 },
   leftTabs: { padding: spacing.md },
@@ -1174,20 +1252,29 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     borderWidth: 1,
     overflow: 'hidden',
+    zIndex: 0,
   },
   mapContainer: { flex: 1 },
-  mapOverlayBottomLeft: {
-    position: 'absolute',
-    left: spacing.md,
-    bottom: spacing.md,
-    zIndex: 50,
-    elevation: 50,
+  mapTablesLayer: {
+    flex: 1,
+    marginBottom: MAP_BOTTOM_UI_INSET,
+    overflow: 'hidden',
+    zIndex: 1,
+    elevation: 1,
   },
-  mapOverlayBottomRight: {
+  mapChromeLayer: {
     position: 'absolute',
-    right: spacing.md,
-    bottom: spacing.md,
-    zIndex: 10,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: MAP_BOTTOM_UI_INSET,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    zIndex: MAP_CHROME_Z_INDEX,
+    elevation: MAP_CHROME_Z_INDEX,
   },
   starterBanner: {
     position: 'absolute',

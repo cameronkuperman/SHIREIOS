@@ -22,6 +22,7 @@ function createBaseState(overrides: Partial<FloorStoreData> = {}): FloorStoreDat
     pendingCommands: {},
     syncError: null,
     cctvSyncEnabled: true,
+    tableStateMode: 'hybrid',
     ...overrides,
   };
 }
@@ -136,7 +137,7 @@ describe('floor state reducers', () => {
     expect(nextState.tablesById['2']?.displayStatus).toBe('occupied');
   });
 
-  it('keeps pending commands when an ML update arrives for the same table', () => {
+  it('keeps the optimistic host table state when an ML update arrives for the same table', () => {
     const state = createBaseState();
     const optimisticState = {
       ...state,
@@ -177,7 +178,221 @@ describe('floor state reducers', () => {
     };
 
     expect(Object.keys(nextState.pendingCommands)).toContain('command-ml-check');
-    expect(nextState.tablesById['2']?.displayStatus).toBe('dirty');
+    expect(nextState.tablesById['2']?.displayStatus).toBe('occupied');
+    expect(nextState.tablesById['2']?.lastUpdateSource).toBe('host');
+  });
+
+  it('keeps pending host seating when a stale clean snapshot arrives', () => {
+    const state = createBaseState();
+    const optimisticState = {
+      ...state,
+      ...queuePendingCommandState(state, {
+        type: 'seat_walk_in',
+        commandId: 'command-snapshot-check',
+        floorId: DEFAULT_FLOOR_ID,
+        tableId: '2',
+        requestedAt: '2026-03-07T12:00:00.000Z',
+        party: {
+          id: 'party-2',
+          name: 'Taylor',
+          size: 2,
+          source: 'walk_in',
+        },
+      }),
+    };
+
+    const nextState = {
+      ...optimisticState,
+      ...applyFloorSnapshotState(optimisticState, {
+        floorId: DEFAULT_FLOOR_ID,
+        mapVersion: DEFAULT_FLOOR_MAP.mapVersion,
+        generatedAt: '2026-03-07T12:00:02.000Z',
+        sequence: 2,
+        tables: Object.values({
+          ...optimisticState.tablesById,
+          '2': {
+            ...state.tablesById['2']!,
+            displayStatus: 'available',
+            sensedState: 'empty_clean',
+            sequence: 2,
+          },
+        }),
+      }),
+    };
+
+    expect(Object.keys(nextState.pendingCommands)).toContain('command-snapshot-check');
+    expect(nextState.tablesById['2']?.displayStatus).toBe('occupied');
+    expect(nextState.tablesById['2']?.party?.name).toBe('Taylor');
+    expect(nextState.tablesById['2']?.mlSuppressedReason).toContain('snapshot_conflict');
+  });
+
+  it('lets ML update other tables while one table has pending host intent', () => {
+    const state = createBaseState();
+    const optimisticState = {
+      ...state,
+      ...queuePendingCommandState(state, {
+        type: 'seat_walk_in',
+        commandId: 'command-other-table',
+        floorId: DEFAULT_FLOOR_ID,
+        tableId: '2',
+        requestedAt: '2026-03-07T12:00:00.000Z',
+        party: {
+          id: 'party-2',
+          name: 'Taylor',
+          size: 2,
+          source: 'walk_in',
+        },
+      }),
+    };
+
+    const nextState = {
+      ...optimisticState,
+      ...applyFloorStreamMessageState(optimisticState, {
+        type: 'table.updated',
+        floorId: DEFAULT_FLOOR_ID,
+        sequence: 2,
+        commandId: null,
+        source: 'ml',
+        table: {
+          ...optimisticState.tablesById['3']!,
+          displayStatus: 'dirty',
+          sensedState: 'empty_dirty',
+          lastUpdateSource: 'ml',
+          sequence: 2,
+        },
+      }),
+    };
+
+    expect(nextState.tablesById['2']?.displayStatus).toBe('occupied');
+    expect(nextState.tablesById['3']?.displayStatus).toBe('dirty');
+  });
+
+  it('keeps recent host intent visible across devices when ML contradicts it', () => {
+    const state = createBaseState();
+    const hostIntentUntil = new Date(Date.now() + 60_000).toISOString();
+    const hostState = {
+      ...state,
+      tablesById: {
+        ...state.tablesById,
+        '2': {
+          ...state.tablesById['2']!,
+          displayStatus: 'occupied' as const,
+          sensedState: 'occupied' as const,
+          hostIntentState: 'occupied' as const,
+          hostIntentUntil,
+          hostIntentCommandId: 'seat-from-ipad-a',
+          lastUpdateSource: 'host' as const,
+        },
+      },
+      lastAppliedSequence: 1,
+    };
+
+    const nextState = {
+      ...hostState,
+      ...applyFloorStreamMessageState(hostState, {
+        type: 'table.updated',
+        floorId: DEFAULT_FLOOR_ID,
+        sequence: 2,
+        commandId: null,
+        source: 'ml',
+        table: {
+          ...state.tablesById['2']!,
+          displayStatus: 'available',
+          sensedState: 'empty_clean',
+          lastUpdateSource: 'ml',
+          sequence: 2,
+        },
+      }),
+    };
+
+    expect(nextState.tablesById['2']?.displayStatus).toBe('occupied');
+    expect(nextState.tablesById['2']?.hostIntentCommandId).toBe('seat-from-ipad-a');
+    expect(nextState.tablesById['2']?.mlSuppressedReason).toContain('ml_conflict');
+  });
+
+  it('allows agreeing ML to refresh a table during host intent', () => {
+    const state = createBaseState();
+    const hostIntentUntil = new Date(Date.now() + 60_000).toISOString();
+    const hostState = {
+      ...state,
+      tablesById: {
+        ...state.tablesById,
+        '2': {
+          ...state.tablesById['2']!,
+          displayStatus: 'occupied' as const,
+          sensedState: 'occupied' as const,
+          hostIntentState: 'occupied' as const,
+          hostIntentUntil,
+          hostIntentCommandId: 'seat-from-ipad-a',
+          lastUpdateSource: 'host' as const,
+        },
+      },
+      lastAppliedSequence: 1,
+    };
+
+    const nextState = {
+      ...hostState,
+      ...applyFloorStreamMessageState(hostState, {
+        type: 'table.updated',
+        floorId: DEFAULT_FLOOR_ID,
+        sequence: 2,
+        commandId: null,
+        source: 'ml',
+        table: {
+          ...state.tablesById['2']!,
+          displayStatus: 'occupied',
+          sensedState: 'occupied',
+          currentWaiterName: 'Jamie',
+          lastUpdateSource: 'ml',
+          sequence: 2,
+        },
+      }),
+    };
+
+    expect(nextState.tablesById['2']?.displayStatus).toBe('occupied');
+    expect(nextState.tablesById['2']?.currentWaiterName).toBe('Jamie');
+    expect(nextState.tablesById['2']?.hostIntentCommandId).toBe('seat-from-ipad-a');
+    expect(nextState.tablesById['2']?.mlSuppressedReason).toBeNull();
+  });
+
+  it('allows ML to update after host intent expires', () => {
+    const state = createBaseState();
+    const hostState = {
+      ...state,
+      tablesById: {
+        ...state.tablesById,
+        '2': {
+          ...state.tablesById['2']!,
+          displayStatus: 'occupied' as const,
+          sensedState: 'occupied' as const,
+          hostIntentState: 'occupied' as const,
+          hostIntentUntil: new Date(Date.now() - 1_000).toISOString(),
+          hostIntentCommandId: 'seat-from-ipad-a',
+          lastUpdateSource: 'host' as const,
+        },
+      },
+      lastAppliedSequence: 1,
+    };
+
+    const nextState = {
+      ...hostState,
+      ...applyFloorStreamMessageState(hostState, {
+        type: 'table.updated',
+        floorId: DEFAULT_FLOOR_ID,
+        sequence: 2,
+        commandId: null,
+        source: 'ml',
+        table: {
+          ...state.tablesById['2']!,
+          displayStatus: 'available',
+          sensedState: 'empty_clean',
+          lastUpdateSource: 'ml',
+          sequence: 2,
+        },
+      }),
+    };
+
+    expect(nextState.tablesById['2']?.displayStatus).toBe('available');
     expect(nextState.tablesById['2']?.lastUpdateSource).toBe('ml');
   });
 
@@ -206,6 +421,31 @@ describe('floor state reducers', () => {
 
     expect(nextState.lastAppliedSequence).toBe(2);
     expect(nextState.tablesById['2']?.displayStatus).toBe('available');
+  });
+
+  it('ignores ML operational state in manual mode', () => {
+    const state = createBaseState({ tableStateMode: 'manual' });
+    const nextState = {
+      ...state,
+      ...applyFloorStreamMessageState(state, {
+        type: 'table.updated',
+        floorId: DEFAULT_FLOOR_ID,
+        sequence: 2,
+        commandId: null,
+        source: 'ml',
+        table: {
+          ...state.tablesById['2']!,
+          displayStatus: 'dirty',
+          sensedState: 'empty_dirty',
+          lastUpdateSource: 'ml',
+          sequence: 2,
+        },
+      }),
+    };
+
+    expect(nextState.lastAppliedSequence).toBe(2);
+    expect(nextState.tablesById['2']?.displayStatus).toBe('available');
+    expect(nextState.tableStateMode).toBe('manual');
   });
 
   it('optimistically marks an open table dirty for manual spill overrides', () => {
@@ -318,7 +558,7 @@ describe('floor state reducers', () => {
     expect(nextState.syncError).toBe('Backend still sent a UUID.');
   });
 
-  it('clears the pending command without mutating tables on command.ack', () => {
+  it('keeps the pending command on command.ack until canonical table update arrives', () => {
     const state = createBaseState();
     const optimisticState = {
       ...state,
@@ -342,7 +582,7 @@ describe('floor state reducers', () => {
       }),
     };
 
-    expect(Object.keys(nextState.pendingCommands)).not.toContain('command-ack-1');
+    expect(Object.keys(nextState.pendingCommands)).toContain('command-ack-1');
     expect(nextState.tablesById['4']).toEqual(optimisticTable);
   });
 

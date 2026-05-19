@@ -63,6 +63,7 @@ export const useFloorStore = create<FloorStoreState>()(
       pendingCommands: {},
       syncError: null,
       cctvSyncEnabled: true,
+      tableStateMode: 'hybrid',
       connectionState: 'idle',
       staleCheckAt: Date.now(),
       applySnapshot: (snapshot) => {
@@ -132,6 +133,7 @@ export const useFloorStore = create<FloorStoreState>()(
           lastAppliedSequence: 0,
           pendingCommands: {},
           syncError: null,
+          tableStateMode: state.tableStateMode,
           connectionState: 'idle',
           staleCheckAt: Date.now(),
         }));
@@ -173,6 +175,7 @@ export const useFloorStore = create<FloorStoreState>()(
           pendingCommands: {},
           syncError: null,
           cctvSyncEnabled: nextState.cctvSyncEnabled ?? true,
+          tableStateMode: nextState.tableStateMode ?? 'hybrid',
           connectionState: 'idle',
         };
       },
@@ -184,6 +187,7 @@ export const useFloorStore = create<FloorStoreState>()(
         lastSnapshotAt: state.lastSnapshotAt,
         lastAppliedSequence: state.lastAppliedSequence,
         cctvSyncEnabled: state.cctvSyncEnabled,
+        tableStateMode: state.tableStateMode,
       }),
     },
   ),

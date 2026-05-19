@@ -20,8 +20,21 @@ export default function TeamSettingsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const { currentLocation } = useAuth();
-  const { waiters, isLoading, error, addWaiter, isAdding, refetch } = useWaiters(currentLocation?.id);
+  const {
+    waiters,
+    isLoading,
+    error,
+    addWaiter,
+    editWaiter,
+    removeWaiter,
+    isAdding,
+    isUpdating,
+    isDeleting,
+    refetch,
+  } = useWaiters(currentLocation?.id);
   const [name, setName] = useState('');
+  const [editingWaiterId, setEditingWaiterId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
 
   const handleAddWaiter = async () => {
     const trimmedName = name.trim();
@@ -36,6 +49,65 @@ export default function TeamSettingsScreen() {
       Alert.alert(
         'Unable to Add Waiter',
         createError instanceof Error ? createError.message : 'The waiter could not be saved.',
+      );
+    }
+  };
+
+  const startEditing = (waiter: (typeof waiters)[number]) => {
+    setEditingWaiterId(waiter.id);
+    setEditingName(waiter.name);
+  };
+
+  const cancelEditing = () => {
+    setEditingWaiterId(null);
+    setEditingName('');
+  };
+
+  const handleSaveEdit = async (waiter: (typeof waiters)[number]) => {
+    const trimmedName = editingName.trim();
+    if (!trimmedName) {
+      Alert.alert('Name Required', 'Enter the waiter name before saving.');
+      return;
+    }
+
+    try {
+      await editWaiter({ waiterId: waiter.id, name: trimmedName, role: waiter.role ?? 'server' });
+      cancelEditing();
+    } catch (updateError) {
+      Alert.alert(
+        'Unable to Edit Waiter',
+        updateError instanceof Error ? updateError.message : 'The waiter could not be updated.',
+      );
+    }
+  };
+
+  const confirmRemoveWaiter = (waiter: (typeof waiters)[number]) => {
+    Alert.alert(
+      'Delete Waiter',
+      `Remove ${waiter.name} from the saved roster and today's routing?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void handleRemoveWaiter(waiter);
+          },
+        },
+      ],
+    );
+  };
+
+  const handleRemoveWaiter = async (waiter: (typeof waiters)[number]) => {
+    try {
+      await removeWaiter(waiter.id);
+      if (editingWaiterId === waiter.id) {
+        cancelEditing();
+      }
+    } catch (deleteError) {
+      Alert.alert(
+        'Unable to Delete Waiter',
+        deleteError instanceof Error ? deleteError.message : 'The waiter could not be deleted.',
       );
     }
   };
@@ -120,28 +192,96 @@ export default function TeamSettingsScreen() {
             No waiters saved yet. Add the roster here, then activate them in Shift Setup.
           </Text>
         )}
-        {waiters.map((waiter) => (
-          <View
-            key={waiter.id}
-            style={[
-              styles.waiterRow,
-              { backgroundColor: colors.surface.level1, borderColor: colors.border.subtle },
-            ]}
-          >
-            <View style={[styles.avatar, { backgroundColor: colors.accentLight }]}>
-              <Text style={[styles.avatarText, { color: colors.accent }]}>
-                {waiter.name.slice(0, 1).toUpperCase()}
-              </Text>
+        {waiters.map((waiter) => {
+          const isEditing = editingWaiterId === waiter.id;
+          const rowBusy = isEditing && isUpdating;
+          return (
+            <View
+              key={waiter.id}
+              style={[
+                styles.waiterRow,
+                { backgroundColor: colors.surface.level1, borderColor: colors.border.subtle },
+              ]}
+            >
+              <View style={[styles.avatar, { backgroundColor: colors.accentLight }]}>
+                <Text style={[styles.avatarText, { color: colors.accent }]}>
+                  {waiter.name.slice(0, 1).toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.waiterText}>
+                {isEditing ? (
+                  <TextInput
+                    style={[
+                      styles.editInput,
+                      {
+                        color: colors.text.primary,
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.border.subtle,
+                      },
+                    ]}
+                    value={editingName}
+                    onChangeText={setEditingName}
+                    onSubmitEditing={() => {
+                      void handleSaveEdit(waiter);
+                    }}
+                    autoFocus
+                    returnKeyType="done"
+                  />
+                ) : (
+                  <Text style={[styles.waiterName, { color: colors.text.primary }]}>
+                    {waiter.name}
+                  </Text>
+                )}
+                <Text style={[styles.waiterMeta, { color: colors.text.muted }]}>
+                  {waiter.role ?? 'server'}
+                </Text>
+              </View>
+              <View style={styles.rowActions}>
+                {isEditing ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.rowActionButton}
+                      disabled={rowBusy}
+                      onPress={() => {
+                        void handleSaveEdit(waiter);
+                      }}
+                    >
+                      {rowBusy ? (
+                        <ActivityIndicator color={colors.accent} />
+                      ) : (
+                        <Ionicons name="checkmark" size={20} color={colors.accent} />
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.rowActionButton}
+                      disabled={rowBusy}
+                      onPress={cancelEditing}
+                    >
+                      <Ionicons name="close" size={20} color={colors.text.muted} />
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      style={styles.rowActionButton}
+                      disabled={isDeleting}
+                      onPress={() => startEditing(waiter)}
+                    >
+                      <Ionicons name="pencil-outline" size={19} color={colors.text.secondary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.rowActionButton}
+                      disabled={isDeleting}
+                      onPress={() => confirmRemoveWaiter(waiter)}
+                    >
+                      <Ionicons name="trash-outline" size={19} color={colors.status.dirty.text} />
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
             </View>
-            <View style={styles.waiterText}>
-              <Text style={[styles.waiterName, { color: colors.text.primary }]}>{waiter.name}</Text>
-              <Text style={[styles.waiterMeta, { color: colors.text.muted }]}>
-                {waiter.role ?? 'server'}
-              </Text>
-            </View>
-            <Ionicons name="checkmark-circle-outline" size={20} color={colors.text.muted} />
-          </View>
-        ))}
+          );
+        })}
       </ScrollView>
     </SafeAreaView>
   );
@@ -174,6 +314,13 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+    ...textStyles.body,
+  },
+  editInput: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     ...textStyles.body,
   },
   addButton: {
@@ -210,5 +357,12 @@ const styles = StyleSheet.create({
   waiterText: { flex: 1 },
   waiterName: { ...textStyles.label },
   waiterMeta: { ...textStyles.caption, marginTop: 2, textTransform: 'capitalize' },
+  rowActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  rowActionButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   empty: { ...textStyles.body, textAlign: 'center', paddingVertical: spacing.xl },
 });

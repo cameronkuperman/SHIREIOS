@@ -32,6 +32,7 @@ export function normalizeWaiterRoutingState(
     tableAssignments: state?.tableAssignments ?? {},
     rotationOrder: state?.rotationOrder ?? [],
     nextWaiterId: state?.nextWaiterId ?? null,
+    nextUpQueue: state?.nextUpQueue ?? [],
     nextUpByTable: state?.nextUpByTable ?? {},
     nextUpBySection: state?.nextUpBySection ?? {},
     shiftStartGroups: state?.shiftStartGroups ?? [],

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { AppState } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -15,6 +15,7 @@ import { useAuth } from '@/features/auth';
 import { useFloorStore } from '@/features/floor';
 import { useIsWorkdayActive } from '@/features/workday';
 import { queryKeys } from '@/services/api/queryKeys';
+import { usePolling } from '@/lib/usePolling';
 import {
   createReservation,
   createWaitlistEntry,
@@ -24,6 +25,7 @@ import {
   fetchReservationSettings,
   fetchReservations,
   fetchShiftAnalytics,
+  removeDuplicateReservation,
   restoreReservation,
   runReservationAction,
   fetchWaitlist,
@@ -150,19 +152,27 @@ export function useWaitlist() {
   const isWorkdayActive = useIsWorkdayActive(locationId);
   const pendingSeats = usePendingSeatStore((state) => state.pendingSeats);
   const queryClient = useQueryClient();
+  const queryRef = useRef<() => void>(() => undefined);
+  const polling = usePolling(() => queryRef.current(), {
+    foregroundMs: FALLBACK_WAITLIST_REFETCH_MS,
+    backgroundMs: FALLBACK_WAITLIST_REFETCH_MS,
+    enabled: !!locationId && isWorkdayActive,
+  });
 
   const query = useQuery({
     queryKey: locationId ? queryKeys.waitlist.list(locationId) : ['waitlist', 'disabled'],
     queryFn: () => fetchWaitlist(locationId!),
     enabled: !!locationId && isWorkdayActive,
-    // Keep polling even while connected so the queue does not depend on waitlist websocket events.
-    refetchInterval: FALLBACK_WAITLIST_REFETCH_MS,
-    refetchOnReconnect: true,
+    ...polling,
     select: (entries) => {
       const pendingWaitlistIds = getPendingSeatIds(pendingSeats, 'waitlist');
       return entries.filter((entry) => !pendingWaitlistIds.has(entry.id));
     },
   });
+
+  queryRef.current = () => {
+    void query.refetch();
+  };
 
   useEffect(() => {
     if (!locationId || !isWorkdayActive) {
@@ -187,16 +197,27 @@ export function useWaitlist() {
 
 export function useHostShiftAnalytics(range: HostAnalyticsRange) {
   const locationId = useLocationId();
+  const queryRef = useRef<() => void>(() => undefined);
+  const polling = usePolling(() => queryRef.current(), {
+    foregroundMs: FALLBACK_ANALYTICS_REFETCH_MS,
+    backgroundMs: FALLBACK_ANALYTICS_REFETCH_MS,
+    enabled: !!locationId,
+  });
 
-  return useQuery({
+  const query = useQuery({
     queryKey: locationId
       ? queryKeys.analytics.shift(locationId, range)
       : ['analytics', 'shift', 'disabled', range],
     queryFn: () => fetchShiftAnalytics(locationId!, range),
     enabled: !!locationId,
-    refetchInterval: FALLBACK_ANALYTICS_REFETCH_MS,
-    refetchOnReconnect: true,
+    ...polling,
   });
+
+  queryRef.current = () => {
+    void query.refetch();
+  };
+
+  return query;
 }
 
 function invalidateWaitlistQuery(
@@ -282,20 +303,31 @@ export function useReservations(filters: ReservationListFilters = {}) {
   const locationId = useLocationId();
   const isWorkdayActive = useIsWorkdayActive(locationId);
   const pendingSeats = usePendingSeatStore((state) => state.pendingSeats);
+  const queryRef = useRef<() => void>(() => undefined);
+  const polling = usePolling(() => queryRef.current(), {
+    foregroundMs: FALLBACK_RESERVATIONS_REFETCH_MS,
+    backgroundMs: FALLBACK_RESERVATIONS_REFETCH_MS,
+    enabled: !!locationId && isWorkdayActive,
+  });
 
-  return useQuery({
+  const query = useQuery({
     queryKey: locationId
       ? queryKeys.reservations.list(locationId, filters)
       : ['reservations', 'disabled'],
     queryFn: () => fetchReservations(locationId!, filters),
     enabled: !!locationId && isWorkdayActive,
-    refetchInterval: FALLBACK_RESERVATIONS_REFETCH_MS,
-    refetchOnReconnect: true,
+    ...polling,
     select: (reservations) => {
       const pendingReservationIds = getPendingSeatIds(pendingSeats, 'reservations');
       return reservations.filter((reservation) => !pendingReservationIds.has(reservation.id));
     },
   });
+
+  queryRef.current = () => {
+    void query.refetch();
+  };
+
+  return query;
 }
 
 /**
@@ -478,18 +510,30 @@ export function useReservationMutations() {
     },
   });
 
+  const removeDuplicateMutation = useMutation({
+    mutationFn: ({ reservationId }: { reservationId: string }) =>
+      removeDuplicateReservation(locationId!, reservationId),
+    onSuccess: () => {
+      if (locationId) {
+        invalidateReservationQueries(queryClient, locationId);
+      }
+    },
+  });
+
   return {
     createReservation: createMutation.mutateAsync,
     updateReservation: updateMutation.mutateAsync,
     runReservationAction: actionMutation.mutateAsync,
     archiveReservation: archiveMutation.mutateAsync,
     restoreReservation: restoreMutation.mutateAsync,
+    removeDuplicateReservation: removeDuplicateMutation.mutateAsync,
     isSaving:
       createMutation.isPending ||
       updateMutation.isPending ||
       actionMutation.isPending ||
       archiveMutation.isPending ||
-      restoreMutation.isPending,
+      restoreMutation.isPending ||
+      removeDuplicateMutation.isPending,
   };
 }
 

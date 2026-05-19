@@ -7,6 +7,7 @@ import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
 type BuilderToolbarProps = {
   onAddTable: () => void;
   onAddRoom: () => void;
+  onDuplicate: () => void;
   onDelete: () => void;
   onToggleGrid: () => void;
   mode: 'layout' | 'sections';
@@ -18,6 +19,7 @@ type BuilderToolbarProps = {
 export function BuilderToolbar({
   onAddTable,
   onAddRoom,
+  onDuplicate,
   onDelete,
   onToggleGrid,
   mode,
@@ -42,6 +44,13 @@ export function BuilderToolbar({
         label="Room"
         onPress={onAddRoom}
         color={colors.text.primary}
+      />
+      <ToolButton
+        icon="copy-outline"
+        label="Duplicate"
+        onPress={onDuplicate}
+        color={hasSelection ? colors.text.primary : colors.text.muted}
+        disabled={!hasSelection}
       />
 
       <View style={[styles.divider, { backgroundColor: colors.border.subtle }]} />
@@ -103,10 +112,7 @@ function ToolButton({
 
   return (
     <TouchableOpacity
-      style={[
-        styles.toolButton,
-        active && { backgroundColor: colors.accentLight },
-      ]}
+      style={[styles.toolButton, active && { backgroundColor: colors.accentLight }]}
       activeOpacity={0.6}
       onPress={onPress}
       disabled={disabled}

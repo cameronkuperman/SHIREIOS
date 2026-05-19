@@ -17,6 +17,7 @@ export default function ReservationDetailModal() {
     runReservationAction,
     archiveReservation,
     restoreReservation,
+    removeDuplicateReservation,
     isSaving,
   } = useReservationMutations();
 
@@ -73,6 +74,10 @@ export default function ReservationDetailModal() {
       }}
       onRestore={async () => {
         await restoreReservation({ reservationId: reservation.id });
+        router.back();
+      }}
+      onRemoveDuplicate={async () => {
+        await removeDuplicateReservation({ reservationId: reservation.id });
         router.back();
       }}
     />

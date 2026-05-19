@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -54,6 +54,7 @@ type ReservationEditorProps = {
   onOpenFloor?: () => void;
   onArchive?: () => Promise<void>;
   onRestore?: () => Promise<void>;
+  onRemoveDuplicate?: () => Promise<void>;
   onMessageGuest?: () => void;
 };
 
@@ -112,6 +113,7 @@ export function ReservationEditor({
   onOpenFloor,
   onArchive,
   onRestore,
+  onRemoveDuplicate,
   onMessageGuest,
 }: ReservationEditorProps) {
   const { colors } = useTheme();
@@ -130,6 +132,11 @@ export function ReservationEditor({
   const [internalNotes, setInternalNotes] = useState('');
   const [pacingOverride, setPacingOverride] = useState(false);
   const [hasAutoDefaultedTime, setHasAutoDefaultedTime] = useState(mode === 'edit');
+  const createRequestIdRef = useRef(
+    `reservation-create-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
+  const submitInFlightRef = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!reservation) {
@@ -228,20 +235,30 @@ export function ReservationEditor({
     }
   }, [hasAutoDefaultedTime, timeSlot, availability?.slots, selectedDate]);
 
+  const isSubmitInFlight = isSaving || isSubmitting;
   const canSubmit =
     guestName.trim().length > 0 &&
     selectedDate.length > 0 &&
     Boolean(timeSlot) &&
-    (!selectedSlot || selectedSlot.available || pacingOverride);
+    (!selectedSlot || selectedSlot.available || pacingOverride) &&
+    !isSubmitInFlight;
 
   const handleSave = async () => {
+    if (submitInFlightRef.current || isSubmitInFlight) {
+      return;
+    }
+
     if (!canSubmit || !timeSlot) {
       Alert.alert('Reservation Incomplete', 'Fill the required fields and choose a valid time.');
       return;
     }
 
+    submitInFlightRef.current = true;
+    setIsSubmitting(true);
+
     try {
       await onSave({
+        ...(mode === 'create' ? { clientRequestId: createRequestIdRef.current } : {}),
         guestName: guestName.trim(),
         guestPhone: guestPhone.trim(),
         partySize: Math.max(1, parseInt(partySize, 10) || 1),
@@ -259,6 +276,9 @@ export function ReservationEditor({
         'Unable to Save Reservation',
         extractHostRequestErrorMessage(error, 'The reservation could not be saved.'),
       );
+    } finally {
+      submitInFlightRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -638,17 +658,47 @@ export function ReservationEditor({
               </Text>
             </TouchableOpacity>
           )}
+          {reservation && onRemoveDuplicate && (
+            <TouchableOpacity
+              style={[styles.secondaryFooterButton, { borderColor: colors.status.dirty.border }]}
+              onPress={() => {
+                Alert.alert(
+                  'Remove Duplicate?',
+                  'This removes the reservation from the host book without sending another guest text.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Remove',
+                      style: 'destructive',
+                      onPress: () => void onRemoveDuplicate(),
+                    },
+                  ],
+                );
+              }}
+              disabled={isSaving}
+            >
+              <Text style={[styles.secondaryFooterText, { color: colors.status.dirty.text }]}>
+                Remove Duplicate
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[
               styles.saveButton,
               { backgroundColor: colors.accent },
-              (!canSubmit || isSaving) && styles.disabledButton,
+              (!canSubmit || isSubmitInFlight) && styles.disabledButton,
             ]}
             onPress={() => void handleSave()}
-            disabled={!canSubmit || isSaving}
+            disabled={!canSubmit || isSubmitInFlight}
           >
             <Text style={styles.saveButtonText}>
-              {mode === 'create' ? 'Create Reservation' : 'Save Changes'}
+              {isSubmitInFlight
+                ? mode === 'create'
+                  ? 'Creating...'
+                  : 'Saving...'
+                : mode === 'create'
+                  ? 'Create Reservation'
+                  : 'Save Changes'}
             </Text>
           </TouchableOpacity>
           </View>

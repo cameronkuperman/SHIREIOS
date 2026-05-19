@@ -29,6 +29,9 @@ type TableProps = {
   server?: { initials: string; color: string };
   dimmed?: boolean;
   sectionColor?: string;
+  /** Custom size in px — overrides the shape default. */
+  width?: number;
+  height?: number;
 };
 
 const SHAPE_STYLES: Record<TableShape, ViewStyle> = {
@@ -61,6 +64,8 @@ export function Table({
   server,
   dimmed,
   sectionColor,
+  width,
+  height,
 }: TableProps) {
   const { colors } = useTheme();
   const palette = isBlocked ? colors.blocked : colors.status[status];
@@ -86,6 +91,8 @@ export function Table({
       style={[
         viewStyles.tableBase,
         SHAPE_STYLES[shape],
+        width != null ? { width } : null,
+        height != null ? { height } : null,
         { backgroundColor: bg, borderColor: edgeColor },
         selected ? { borderColor: colors.accent, borderWidth: 3, ...shadows.elevated } : null,
         dimmed ? { opacity: 0.4 } : null,

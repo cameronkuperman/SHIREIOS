@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import type { TableShape, TableType } from '@shire/shared';
 import { sectionColorWithAlpha } from '@/features/floor';
 import { borderRadius as br, shadows, textStyles, useTheme } from '@/theme';
+import { useCanvasScale } from './BuilderCanvas';
 
 type DraggableTableProps = {
   tableId: string;
@@ -15,12 +16,15 @@ type DraggableTableProps = {
   x: number; // normalized 0–1
   y: number; // normalized 0–1
   rotation?: number;
+  width?: number;
+  height?: number;
   sectionLabel?: string;
   sectionColor?: string;
   isSelected: boolean;
   canvasWidth: number;
   canvasHeight: number;
   onMove: (tableId: string, x: number, y: number) => void;
+  onResize: (tableId: string, width: number, height: number) => void;
   onSelect: (tableId: string) => void;
 };
 
@@ -30,6 +34,9 @@ const SHAPE_SIZE: Record<TableShape, { w: number; h: number; radius: number }> =
   horizontal: { w: 140, h: 64, radius: br.lg },
 };
 
+const MIN_TABLE_SIZE = 44;
+const MAX_TABLE_SIZE = 320;
+
 export function DraggableTable({
   tableId,
   tableNumber,
@@ -38,25 +45,43 @@ export function DraggableTable({
   x,
   y,
   rotation = 0,
+  width,
+  height,
   sectionLabel,
   sectionColor,
   isSelected,
   canvasWidth,
   canvasHeight,
   onMove,
+  onResize,
   onSelect,
 }: DraggableTableProps) {
   const { colors, isDark } = useTheme();
-  const { w, h, radius } = SHAPE_SIZE[shape];
+  const shapeSize = SHAPE_SIZE[shape];
+  const w = width ?? shapeSize.w;
+  const h = height ?? shapeSize.h;
+  const radius = shapeSize.radius;
+
+  // Live canvas zoom — converts screen-space gestures to canvas space.
+  const canvasScale = useCanvasScale();
 
   const offsetX = useSharedValue(0);
   const offsetY = useSharedValue(0);
+  const sizeW = useSharedValue(w);
+  const sizeH = useSharedValue(h);
+  const resizeStartW = useSharedValue(w);
+  const resizeStartH = useSharedValue(h);
 
   const pixelX = x * canvasWidth;
   const pixelY = y * canvasHeight;
 
-  // Gestures MUST be memoized — rebuilding them every render hands GestureDetector
-  // a fresh gesture and kills any drag in progress when the screen re-renders.
+  // Resync the live size when the committed size changes (undo / load / duplicate).
+  useEffect(() => {
+    sizeW.value = w;
+    sizeH.value = h;
+  }, [w, h, sizeW, sizeH]);
+
+  // Move + tap. Memoized so re-renders don't drop an in-progress drag.
   const composed = useMemo(() => {
     const tapGesture = Gesture.Tap().onEnd(() => {
       runOnJS(onSelect)(tableId);
@@ -69,12 +94,14 @@ export function DraggableTable({
         runOnJS(onSelect)(tableId);
       })
       .onUpdate((e) => {
-        offsetX.value = e.translationX;
-        offsetY.value = e.translationY;
+        const s = canvasScale ? canvasScale.value : 1;
+        offsetX.value = e.translationX / s;
+        offsetY.value = e.translationY / s;
       })
       .onEnd((e) => {
-        const newPixelX = pixelX + e.translationX;
-        const newPixelY = pixelY + e.translationY;
+        const s = canvasScale ? canvasScale.value : 1;
+        const newPixelX = pixelX + e.translationX / s;
+        const newPixelY = pixelY + e.translationY / s;
         const nx = Math.max(0, Math.min(1, newPixelX / canvasWidth));
         const ny = Math.max(0, Math.min(1, newPixelY / canvasHeight));
         offsetX.value = 0;
@@ -83,21 +110,100 @@ export function DraggableTable({
       });
 
     return Gesture.Exclusive(dragGesture, tapGesture);
-  }, [tableId, pixelX, pixelY, canvasWidth, canvasHeight, onMove, onSelect, offsetX, offsetY]);
+  }, [
+    tableId,
+    pixelX,
+    pixelY,
+    canvasWidth,
+    canvasHeight,
+    onMove,
+    onSelect,
+    offsetX,
+    offsetY,
+    canvasScale,
+  ]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
+  // Resize handles — right edge (width), bottom edge (height), corner (both).
+  // Symmetric about the table centre, so x/y never change. Memoized like the
+  // drag gesture so re-renders can't drop an in-progress resize.
+  const resizeGestures = useMemo(() => {
+    const horizontal = Gesture.Pan()
+      .onStart(() => {
+        resizeStartW.value = sizeW.value;
+      })
+      .onUpdate((e) => {
+        const s = canvasScale ? canvasScale.value : 1;
+        sizeW.value = Math.min(
+          MAX_TABLE_SIZE,
+          Math.max(MIN_TABLE_SIZE, resizeStartW.value + (2 * e.translationX) / s),
+        );
+      })
+      .onEnd(() => {
+        runOnJS(onResize)(tableId, sizeW.value, sizeH.value);
+      });
+
+    const vertical = Gesture.Pan()
+      .onStart(() => {
+        resizeStartH.value = sizeH.value;
+      })
+      .onUpdate((e) => {
+        const s = canvasScale ? canvasScale.value : 1;
+        sizeH.value = Math.min(
+          MAX_TABLE_SIZE,
+          Math.max(MIN_TABLE_SIZE, resizeStartH.value + (2 * e.translationY) / s),
+        );
+      })
+      .onEnd(() => {
+        runOnJS(onResize)(tableId, sizeW.value, sizeH.value);
+      });
+
+    const corner = Gesture.Pan()
+      .onStart(() => {
+        resizeStartW.value = sizeW.value;
+        resizeStartH.value = sizeH.value;
+      })
+      .onUpdate((e) => {
+        const s = canvasScale ? canvasScale.value : 1;
+        sizeW.value = Math.min(
+          MAX_TABLE_SIZE,
+          Math.max(MIN_TABLE_SIZE, resizeStartW.value + (2 * e.translationX) / s),
+        );
+        sizeH.value = Math.min(
+          MAX_TABLE_SIZE,
+          Math.max(MIN_TABLE_SIZE, resizeStartH.value + (2 * e.translationY) / s),
+        );
+      })
+      .onEnd(() => {
+        runOnJS(onResize)(tableId, sizeW.value, sizeH.value);
+      });
+
+    return { horizontal, vertical, corner };
+  }, [tableId, onResize, canvasScale, sizeW, sizeH, resizeStartW, resizeStartH]);
+
+  // The wrapper carries position, live size, and the move offset.
+  const wrapperAnimStyle = useAnimatedStyle(() => ({
+    left: pixelX - sizeW.value / 2,
+    top: pixelY - sizeH.value / 2,
+    width: sizeW.value,
+    height: sizeH.value,
     transform: [{ translateX: offsetX.value }, { translateY: offsetY.value }],
   }));
 
-  const containerStyle: ViewStyle = {
-    position: 'absolute',
-    left: pixelX - w / 2,
-    top: pixelY - h / 2,
-  };
+  // Counter-scale the number so it stays readable when zoomed out.
+  const labelScaleStyle = useAnimatedStyle(() => {
+    const s = canvasScale ? canvasScale.value : 1;
+    return { transform: [{ scale: Math.min(2.2, Math.max(1, 1 / s)) }] };
+  });
+
+  // Counter-scale the resize handles so they stay grabbable when zoomed out.
+  const handleScaleStyle = useAnimatedStyle(() => {
+    const s = canvasScale ? canvasScale.value : 1;
+    return { transform: [{ scale: Math.min(2.4, Math.max(1, 1 / s)) }] };
+  });
 
   const tableStyle: ViewStyle = {
-    width: w,
-    height: h,
+    width: '100%',
+    height: '100%',
     borderRadius: radius,
     justifyContent: 'center',
     alignItems: 'center',
@@ -119,11 +225,13 @@ export function DraggableTable({
   };
 
   return (
-    <GestureDetector gesture={composed}>
-      <Animated.View style={[containerStyle, animatedStyle]}>
-        <View style={tableStyle}>
-          <Text style={[styles.label, { color: colors.text.primary }]}>{tableNumber || '?'}</Text>
-          <Text style={[styles.capacity, { color: colors.text.muted }]}>{capacity}p</Text>
+    <Animated.View style={[styles.wrapper, { zIndex: isSelected ? 3 : 2 }, wrapperAnimStyle]}>
+      <GestureDetector gesture={composed}>
+        <View collapsable={false} style={tableStyle}>
+          <Animated.View style={[styles.labelGroup, labelScaleStyle]}>
+            <Text style={[styles.label, { color: colors.text.primary }]}>{tableNumber || '?'}</Text>
+            <Text style={[styles.capacity, { color: colors.text.muted }]}>{capacity}p</Text>
+          </Animated.View>
           {sectionLabel ? (
             <View style={[styles.sectionBadge, { backgroundColor: sectionColor }]}>
               <Text style={styles.sectionBadgeText} numberOfLines={1}>
@@ -132,38 +240,42 @@ export function DraggableTable({
             </View>
           ) : null}
         </View>
-        {isSelected && (
+      </GestureDetector>
+
+      {isSelected ? (
+        <>
           <View
+            pointerEvents="none"
             style={[styles.selectionRing, { borderColor: colors.accent, borderRadius: radius + 4 }]}
-          >
-            <View
-              style={[styles.selectionCorner, styles.topLeft, { backgroundColor: colors.accent }]}
-            />
-            <View
-              style={[styles.selectionCorner, styles.topRight, { backgroundColor: colors.accent }]}
-            />
-            <View
-              style={[
-                styles.selectionCorner,
-                styles.bottomLeft,
-                { backgroundColor: colors.accent },
-              ]}
-            />
-            <View
-              style={[
-                styles.selectionCorner,
-                styles.bottomRight,
-                { backgroundColor: colors.accent },
-              ]}
-            />
-          </View>
-        )}
-      </Animated.View>
-    </GestureDetector>
+          />
+          <GestureDetector gesture={resizeGestures.horizontal}>
+            <Animated.View style={[styles.handleHit, styles.handleRight, handleScaleStyle]}>
+              <View style={[styles.handleDot, { backgroundColor: colors.accent }]} />
+            </Animated.View>
+          </GestureDetector>
+          <GestureDetector gesture={resizeGestures.vertical}>
+            <Animated.View style={[styles.handleHit, styles.handleBottom, handleScaleStyle]}>
+              <View style={[styles.handleDot, { backgroundColor: colors.accent }]} />
+            </Animated.View>
+          </GestureDetector>
+          <GestureDetector gesture={resizeGestures.corner}>
+            <Animated.View style={[styles.handleHit, styles.handleCorner, handleScaleStyle]}>
+              <View style={[styles.handleDot, { backgroundColor: colors.accent }]} />
+            </Animated.View>
+          </GestureDetector>
+        </>
+      ) : null}
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapper: {
+    position: 'absolute',
+  },
+  labelGroup: {
+    alignItems: 'center',
+  },
   label: {
     ...textStyles.tableId,
   },
@@ -194,14 +306,33 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     margin: -4,
   },
-  selectionCorner: {
+  handleHit: {
     position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 2,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  topLeft: { top: -4, left: -4 },
-  topRight: { top: -4, right: -4 },
-  bottomLeft: { bottom: -4, left: -4 },
-  bottomRight: { bottom: -4, right: -4 },
+  handleRight: {
+    right: -14,
+    top: '50%',
+    marginTop: -14,
+  },
+  handleBottom: {
+    bottom: -14,
+    left: '50%',
+    marginLeft: -14,
+  },
+  handleCorner: {
+    right: -14,
+    bottom: -14,
+  },
+  handleDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    ...shadows.subtle,
+  },
 });

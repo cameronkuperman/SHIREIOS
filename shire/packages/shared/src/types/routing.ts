@@ -29,6 +29,11 @@ export interface ShiftStartGroup {
   waiterIds: string[];
 }
 
+export interface NextUpQueueEntry {
+  waiterId: string;
+  tableIds: string[];
+}
+
 export interface WaiterRoutingState {
   mode: WaiterRoutingMode;
   waiters: RoutingWaiter[];
@@ -37,6 +42,7 @@ export interface WaiterRoutingState {
   tableAssignments: Record<string, string>;
   rotationOrder: string[];
   nextWaiterId: string | null;
+  nextUpQueue?: NextUpQueueEntry[];
   nextUpByTable?: Record<string, string>;
   nextUpBySection?: Record<string, string>;
   shiftStartGroups?: ShiftStartGroup[];

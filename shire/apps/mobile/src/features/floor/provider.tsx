@@ -198,6 +198,9 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
             try {
               const cursor = useFloorStore.getState().lastAppliedSequence;
               nextTransport.sendSubscribe(cursor);
+              for (const pendingCommand of Object.values(useFloorStore.getState().pendingCommands)) {
+                nextTransport.sendCommand(pendingCommand.command);
+              }
             } catch (error) {
               setSyncError(toErrorMessage(error));
             }
@@ -233,7 +236,6 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
             }
 
             if (message.type === 'command.ack') {
-              confirmPendingSeat(message.commandId);
               applyStreamMessage(message);
               return;
             }

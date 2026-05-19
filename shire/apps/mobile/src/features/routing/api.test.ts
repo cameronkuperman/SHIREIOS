@@ -1,9 +1,11 @@
 import { apiClient } from '@/services/api/client';
-import { createWaiter, fetchWaiters } from './api';
+import { createWaiter, deleteWaiter, fetchWaiters, updateWaiter } from './api';
 
 jest.mock('@/services/api/client', () => ({
   apiClient: {
+    delete: jest.fn(),
     get: jest.fn(),
+    patch: jest.fn(),
     post: jest.fn(),
   },
 }));
@@ -68,5 +70,59 @@ describe('waiter roster API', () => {
       name: 'Marco',
       role: 'server',
     });
+  });
+
+  it('patches waiter edits and unwraps the canonical waiter', async () => {
+    mockedApiClient.patch.mockResolvedValue({
+      data: {
+        waiter: {
+          id: 'waiter-2',
+          name: 'Marcus',
+          role: 'server',
+          tier: null,
+          isActive: true,
+        },
+      },
+    });
+
+    await expect(
+      updateWaiter('location-1', 'waiter-2', { name: 'Marcus', role: 'server' }),
+    ).resolves.toEqual({
+      id: 'waiter-2',
+      name: 'Marcus',
+      role: 'server',
+      tier: null,
+      isActive: true,
+    });
+    expect(mockedApiClient.patch).toHaveBeenCalledWith(
+      '/locations/location-1/waiters/waiter-2',
+      {
+        name: 'Marcus',
+        role: 'server',
+      },
+    );
+  });
+
+  it('deletes waiters through the archive endpoint and unwraps the response', async () => {
+    mockedApiClient.delete.mockResolvedValue({
+      data: {
+        waiter: {
+          id: 'waiter-2',
+          name: 'Marco',
+          role: 'server',
+          tier: null,
+          isActive: false,
+        },
+      },
+    });
+
+    await expect(deleteWaiter('location-1', 'waiter-2')).resolves.toEqual({
+      id: 'waiter-2',
+      name: 'Marco',
+      role: 'server',
+      tier: null,
+      isActive: false,
+    });
+    expect(mockedApiClient.delete).toHaveBeenCalledWith('/locations/location-1/waiters/waiter-2');
   });
 });

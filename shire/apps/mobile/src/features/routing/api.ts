@@ -117,3 +117,30 @@ export async function createWaiter(
   }
   return data as RosterWaiter;
 }
+
+export async function updateWaiter(
+  locationId: string,
+  waiterId: string,
+  input: { name: string; role?: string },
+): Promise<RosterWaiter> {
+  const response = await apiClient.patch<{ waiter: RosterWaiter } | RosterWaiter>(
+    `/locations/${locationId}/waiters/${waiterId}`,
+    input,
+  );
+  const data = response.data;
+  if ('waiter' in data && data.waiter) {
+    return data.waiter;
+  }
+  return data as RosterWaiter;
+}
+
+export async function deleteWaiter(locationId: string, waiterId: string): Promise<RosterWaiter> {
+  const response = await apiClient.delete<{ waiter: RosterWaiter } | RosterWaiter>(
+    `/locations/${locationId}/waiters/${waiterId}`,
+  );
+  const data = response.data;
+  if ('waiter' in data && data.waiter) {
+    return data.waiter;
+  }
+  return data as RosterWaiter;
+}

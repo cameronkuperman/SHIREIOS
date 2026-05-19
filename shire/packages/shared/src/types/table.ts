@@ -14,6 +14,7 @@ export type TableDisplayStatus =
   | "occupied"
   | "dirty"
   | "reserved";
+export type FloorTableStateMode = "hybrid" | "manual" | "cctv";
 export type TableShape = "circle" | "square" | "horizontal";
 export type TableType =
   | "regular"
@@ -29,6 +30,7 @@ export type TableCommandType =
   | "clear_table"
   | "mark_dirty"
   | "mark_clean"
+  | "set_table_state"
   | "block_table"
   | "unblock_table";
 export type TableUpdateSource = "host" | "ml";
@@ -63,6 +65,8 @@ export interface FloorMapTable {
   x?: number;        // normalized 0–1 position on canvas
   y?: number;        // normalized 0–1 position on canvas
   rotation?: number; // degrees, default 0
+  width?: number;    // custom width in px (builder-canvas space); default by shape
+  height?: number;   // custom height in px (builder-canvas space); default by shape
 }
 
 export interface FloorMapRoom {
@@ -97,6 +101,12 @@ export interface FloorMap {
   tables: Record<string, FloorMapTable>;
   sectionPlans?: FloorMapSectionPlan[];
   activeSectionPlanId?: string | null;
+  /** Saved canvas zoom level (1 = 100%). Set in the Floor Map Builder. */
+  zoom?: number;
+  /** Builder canvas width the layout was designed against (for proportional rendering). */
+  canvasWidth?: number;
+  /** Builder canvas height the layout was designed against (for proportional rendering). */
+  canvasHeight?: number;
 }
 
 export interface TableParty {
@@ -134,6 +144,10 @@ export interface TableLiveState {
   currentVisitId?: string | null;
   currentPartySize?: number | null;
   lastUpdateSource?: TableUpdateSource | null;
+  hostIntentState?: TableDisplayStatus | null;
+  hostIntentUntil?: string | null;
+  hostIntentCommandId?: string | null;
+  mlSuppressedReason?: string | null;
   emittedAt?: string | null;
 }
 
@@ -144,6 +158,7 @@ export interface FloorSnapshot {
   sequence: number;
   tables: TableLiveState[];
   routingSnapshot?: WaiterRoutingState | null;
+  tableStateMode?: FloorTableStateMode;
 }
 
 interface BaseTableCommand {
@@ -171,6 +186,11 @@ export interface MarkDirtyCommand extends BaseTableCommand {
   type: "mark_dirty";
 }
 
+export interface SetTableStateCommand extends BaseTableCommand {
+  type: "set_table_state";
+  state: "clean" | "occupied" | "dirty";
+}
+
 export interface BlockTableCommand extends BaseTableCommand {
   type: "block_table" | "unblock_table";
 }
@@ -180,6 +200,7 @@ export type TableCommand =
   | ClearTableCommand
   | MarkCleanCommand
   | MarkDirtyCommand
+  | SetTableStateCommand
   | BlockTableCommand;
 
 export interface FloorSnapshotMessage {
@@ -188,6 +209,7 @@ export interface FloorSnapshotMessage {
   sequence: number;
   snapshot: FloorSnapshot;
   emittedAt?: string;
+  tableStateMode?: FloorTableStateMode;
 }
 
 export interface TableUpdatedMessage {
@@ -198,6 +220,7 @@ export interface TableUpdatedMessage {
   commandId?: string | null;
   source?: TableUpdateSource;
   emittedAt?: string;
+  tableStateMode?: FloorTableStateMode;
 }
 
 export interface TableBatchUpdatedMessage {
@@ -208,6 +231,7 @@ export interface TableBatchUpdatedMessage {
   commandId?: string | null;
   source?: TableUpdateSource;
   emittedAt?: string;
+  tableStateMode?: FloorTableStateMode;
 }
 
 export interface CommandRejectedMessage {
@@ -316,6 +340,10 @@ export interface BackendLiveTable {
   currentWaitlistEntryId?: string | null;
   currentWaiterId?: string | null;
   currentWaiterName?: string | null;
+  hostIntentState?: TableDisplayStatus | null;
+  hostIntentUntil?: string | null;
+  hostIntentCommandId?: string | null;
+  mlSuppressedReason?: string | null;
   isBlocked: boolean;
   block?: unknown | null;
 }
@@ -329,6 +357,7 @@ export interface BackendFloorSnapshotDto {
   tables?: BackendLiveTable[];
   tablesById?: Record<string, BackendLiveTable>;
   routingSnapshot?: WaiterRoutingState | null;
+  tableStateMode?: FloorTableStateMode;
 }
 
 export interface BackendFloorSnapshotMessage {
@@ -337,6 +366,7 @@ export interface BackendFloorSnapshotMessage {
   sequence: number;
   snapshot: BackendFloorSnapshotDto;
   emittedAt?: string;
+  tableStateMode?: FloorTableStateMode;
 }
 
 export interface BackendTableUpdatedMessage {
@@ -347,6 +377,7 @@ export interface BackendTableUpdatedMessage {
   commandId: string | null;
   source: TableUpdateSource;
   emittedAt: string;
+  tableStateMode?: FloorTableStateMode;
 }
 
 export interface BackendTableBatchUpdatedMessage {
@@ -357,6 +388,7 @@ export interface BackendTableBatchUpdatedMessage {
   commandId: string | null;
   source: TableUpdateSource;
   emittedAt: string;
+  tableStateMode?: FloorTableStateMode;
 }
 
 export interface BackendRoutingUpdatedMessage {

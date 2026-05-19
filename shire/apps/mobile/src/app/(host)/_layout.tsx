@@ -119,12 +119,13 @@ export default function HostLayout() {
           })}
         </View>
 
-        <View style={styles.footer}>
+        <View style={styles.footer} pointerEvents="auto">
           <TouchableOpacity
             activeOpacity={0.76}
             accessibilityRole="button"
             accessibilityLabel={unreadCount > 0 ? `Inbox, ${unreadCount} unread` : 'Inbox'}
             accessibilityState={{ selected: inboxActive }}
+            hitSlop={12}
             style={[styles.navItem, inboxActive ? { backgroundColor: colors.accentLight } : null]}
             onPress={() => router.push('/(host)/inbox' as Href)}
           >
@@ -156,6 +157,7 @@ export default function HostLayout() {
             activeOpacity={0.76}
             accessibilityRole="button"
             accessibilityLabel="Settings"
+            hitSlop={12}
             style={styles.navItem}
             onPress={() => router.push('/settings' as Href)}
           >
@@ -211,6 +213,8 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     gap: spacing.xs,
+    zIndex: 30,
+    elevation: 30,
   },
   navLabel: {
     fontFamily: fontFamily.sansSemibold,

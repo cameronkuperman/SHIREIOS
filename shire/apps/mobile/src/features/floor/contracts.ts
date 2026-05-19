@@ -2,6 +2,7 @@ import type {
   BackendFloorSnapshotDto,
   BackendFloorStreamMessage,
   BackendLiveTable,
+  FloorTableStateMode,
   FloorSnapshot,
   FloorStreamMessage,
   TableLiveState,
@@ -22,6 +23,7 @@ type LegacyFloorSnapshotDto = {
   tables?: TableLiveState[];
   tablesById?: Record<string, TableLiveState>;
   routingSnapshot?: WaiterRoutingState | null;
+  tableStateMode?: FloorTableStateMode;
 };
 
 type WaitlistUpdatedMessageDto = {
@@ -108,6 +110,20 @@ function toDisplayStatus(
   }
 }
 
+function toOptionalDisplayStatus(value: unknown): TableLiveState['displayStatus'] | null {
+  return value === 'available' || value === 'occupied' || value === 'dirty' || value === 'reserved'
+    ? value
+    : null;
+}
+
+function toOptionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function toTableStateMode(value: unknown): FloorTableStateMode | undefined {
+  return value === 'manual' || value === 'cctv' || value === 'hybrid' ? value : undefined;
+}
+
 function toParty(table: BackendLiveTable): TableLiveState['party'] {
   if (table.state !== 'occupied') {
     return null;
@@ -161,6 +177,10 @@ export function adaptBackendTable(
     currentVisitId: table.currentVisitId ?? null,
     currentPartySize: table.currentPartySize ?? null,
     lastUpdateSource: source,
+    hostIntentState: toOptionalDisplayStatus(table.hostIntentState),
+    hostIntentUntil: toOptionalString(table.hostIntentUntil),
+    hostIntentCommandId: toOptionalString(table.hostIntentCommandId),
+    mlSuppressedReason: toOptionalString(table.mlSuppressedReason),
     emittedAt,
   };
 }
@@ -217,6 +237,7 @@ export function adaptFloorSnapshot(
     routingSnapshot: candidate.routingSnapshot
       ? normalizeWaiterRoutingState(candidate.routingSnapshot as WaiterRoutingState)
       : null,
+    tableStateMode: toTableStateMode(candidate.tableStateMode),
   };
 }
 
@@ -252,9 +273,16 @@ export function adaptRealtimeMessage(value: unknown): FloorStreamMessage | null 
         return null;
       }
 
+      const snapshot = adaptFloorSnapshot(message.snapshot);
+      const tableStateMode = snapshot.tableStateMode ?? toTableStateMode(message.tableStateMode);
+
       return {
         ...message,
-        snapshot: adaptFloorSnapshot(message.snapshot),
+        snapshot: {
+          ...snapshot,
+          tableStateMode,
+        },
+        tableStateMode,
       };
     case 'table.updated': {
       const table = isBackendLiveTable(message.table)
@@ -275,6 +303,7 @@ export function adaptRealtimeMessage(value: unknown): FloorStreamMessage | null 
         commandId: message.commandId,
         source: message.source,
         emittedAt: message.emittedAt,
+        tableStateMode: toTableStateMode(message.tableStateMode),
       };
     }
     case 'table.batch_updated':
@@ -291,6 +320,7 @@ export function adaptRealtimeMessage(value: unknown): FloorStreamMessage | null 
         commandId: message.commandId,
         source: message.source,
         emittedAt: message.emittedAt,
+        tableStateMode: toTableStateMode(message.tableStateMode),
       };
     case 'waitlist.updated':
       return {

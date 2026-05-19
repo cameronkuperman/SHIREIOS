@@ -37,6 +37,7 @@ export interface BuilderState {
   redo: () => void;
   markClean: () => void;
   setSnapToGrid: (snap: boolean) => void;
+  setMapZoom: (zoom: number) => void;
   reset: () => void;
 }
 
@@ -76,6 +77,16 @@ export const useBuilderStore = create<BuilderState>()(
           undoStack: [],
           redoStack: [],
           isDirty: false,
+        });
+      },
+
+      setMapZoom: (zoom) => {
+        set((state) => {
+          if (!state.draftMap || state.draftMap.zoom === zoom) return state;
+          return {
+            isDirty: true,
+            draftMap: { ...state.draftMap, zoom },
+          };
         });
       },
 

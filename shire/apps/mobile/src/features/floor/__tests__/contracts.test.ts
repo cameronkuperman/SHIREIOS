@@ -63,6 +63,7 @@ describe('floor backend contracts', () => {
         tableAssignments: {},
         rotationOrder: ['waiter-1'],
         nextWaiterId: 'waiter-1',
+        nextUpQueue: [{ waiterId: 'waiter-1', tableIds: ['T1'] }],
         nextUpByTable: { T1: 'waiter-1' },
         nextUpBySection: { Patio: 'waiter-1' },
         updatedAt: '2026-03-12T14:30:00.000Z',
@@ -87,6 +88,7 @@ describe('floor backend contracts', () => {
     expect(snapshot.tables[0]?.tableNumber).toBe('T1');
     expect(snapshot.tables[0]?.displayStatus).toBe('reserved');
     expect(snapshot.routingSnapshot?.nextWaiterId).toBe('waiter-1');
+    expect(snapshot.routingSnapshot?.nextUpQueue).toEqual([{ waiterId: 'waiter-1', tableIds: ['T1'] }]);
     expect(snapshot.routingSnapshot?.nextUpByTable?.T1).toBe('waiter-1');
     expect(snapshot.routingSnapshot?.nextUpBySection?.Patio).toBe('waiter-1');
   });

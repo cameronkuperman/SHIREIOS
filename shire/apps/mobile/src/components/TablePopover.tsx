@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -37,6 +37,8 @@ type TablePopoverProps = {
   selectedPartyName?: string | null;
   nextUpServer?: { name: string; color?: string } | null;
   autoAssignmentLabel?: string | null;
+  /** When set, label updates with quickseat party size (e.g. grat routing at 6+). */
+  resolveAutoAssignmentLabel?: (partySize: number | null) => string | null;
   routingModeLabel?: string;
   onMarkSeated?: () => void;
   onSeatWalkIn?: (size: number, name: string) => void;
@@ -86,6 +88,7 @@ export function TablePopover({
   selectedPartyName,
   nextUpServer,
   autoAssignmentLabel,
+  resolveAutoAssignmentLabel,
   routingModeLabel,
   onMarkSeated,
   onSeatWalkIn,
@@ -101,6 +104,7 @@ export function TablePopover({
 }: TablePopoverProps) {
   const { colors, isDark } = useTheme();
   const [serverPickerOpen, setServerPickerOpen] = useState(false);
+  const [walkInRoutePickerOpen, setWalkInRoutePickerOpen] = useState(false);
   const [walkInMode, setWalkInMode] = useState(false);
   const [walkInSize, setWalkInSize] = useState<number | null>(null);
   const [walkInName, setWalkInName] = useState('');
@@ -115,9 +119,29 @@ export function TablePopover({
     setWalkInCustomOpen(false);
     setWalkInCustomText('');
     setServerPickerOpen(false);
+    setWalkInRoutePickerOpen(false);
   }, [initialWalkInMode, tableId, visible]);
 
   const activePill = currentPill(status, isBlocked);
+  const walkInSubmitSize = walkInCustomOpen ? parseInt(walkInCustomText, 10) : walkInSize;
+  const walkInPartySize =
+    walkInSubmitSize && walkInSubmitSize >= 1 ? walkInSubmitSize : null;
+  const walkInAutoLabel = useMemo(() => {
+    if (resolveAutoAssignmentLabel) {
+      return resolveAutoAssignmentLabel(walkInPartySize);
+    }
+    return autoAssignmentLabel;
+  }, [autoAssignmentLabel, resolveAutoAssignmentLabel, walkInPartySize]);
+  const selectedWalkInServer = useMemo(
+    () => servers?.find((s) => s.id === currentServerId) ?? null,
+    [currentServerId, servers],
+  );
+  const walkInRouteRowLabel = serverOverrideActive
+    ? selectedWalkInServer
+      ? `Server: ${selectedWalkInServer.name}`
+      : 'Server selected'
+    : (walkInAutoLabel ?? 'Auto route');
+  const canSubmitWalkIn = Boolean(walkInSubmitSize && walkInSubmitSize >= 1);
 
   if (!visible) return null;
 
@@ -196,8 +220,6 @@ export function TablePopover({
     onSeatWalkIn?.(size, walkInName.trim());
   };
 
-  const walkInSubmitSize = walkInCustomOpen ? parseInt(walkInCustomText, 10) : walkInSize;
-  const canSubmitWalkIn = Boolean(walkInSubmitSize && walkInSubmitSize >= 1);
   const isPanel = presentation === 'panel';
 
   const handleQuickseatCancel = () => {
@@ -210,6 +232,7 @@ export function TablePopover({
     setWalkInName('');
     setWalkInCustomOpen(false);
     setWalkInCustomText('');
+    setWalkInRoutePickerOpen(false);
   };
   const popoverCard = (
     <View
@@ -341,21 +364,152 @@ export function TablePopover({
                 <Text style={[styles.walkInTitle, { color: colors.text.primary }]}>
                   Add quickseat party
                 </Text>
-                {autoAssignmentLabel && (
-                  <View
-                    style={[
-                      styles.autoRouteRow,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.border.subtle,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="git-branch-outline" size={14} color={colors.text.muted} />
-                    <Text style={[styles.autoRouteText, { color: colors.text.secondary }]}>
-                      {autoAssignmentLabel}
-                    </Text>
-                  </View>
+                {(walkInAutoLabel || canEditServer) && (
+                  <>
+                    <TouchableOpacity
+                      activeOpacity={canEditServer ? 0.7 : 1}
+                      disabled={!canEditServer}
+                      accessibilityRole={canEditServer ? 'button' : undefined}
+                      accessibilityLabel={
+                        canEditServer ? 'Change auto route server' : walkInRouteRowLabel
+                      }
+                      accessibilityState={{ expanded: walkInRoutePickerOpen }}
+                      onPress={() => {
+                        if (canEditServer) {
+                          setWalkInRoutePickerOpen(!walkInRoutePickerOpen);
+                        }
+                      }}
+                      style={[
+                        styles.autoRouteRow,
+                        {
+                          backgroundColor: colors.surface.level2,
+                          borderColor: walkInRoutePickerOpen
+                            ? colors.accent
+                            : colors.border.subtle,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="git-branch-outline" size={14} color={colors.text.muted} />
+                      {serverOverrideActive && selectedWalkInServer ? (
+                        <View
+                          style={[styles.serverDotSmall, { backgroundColor: selectedWalkInServer.color }]}
+                        />
+                      ) : null}
+                      <Text
+                        style={[
+                          styles.autoRouteText,
+                          {
+                            color: serverOverrideActive
+                              ? colors.text.primary
+                              : colors.text.secondary,
+                            fontWeight: serverOverrideActive ? '600' : '400',
+                          },
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {walkInRouteRowLabel}
+                      </Text>
+                      {canEditServer ? (
+                        <Ionicons
+                          name={walkInRoutePickerOpen ? 'chevron-up' : 'chevron-down'}
+                          size={14}
+                          color={colors.text.muted}
+                        />
+                      ) : null}
+                    </TouchableOpacity>
+                    {walkInRoutePickerOpen && canEditServer && servers && (
+                      <View
+                        style={[
+                          styles.walkInRoutePickerList,
+                          {
+                            backgroundColor: colors.surface.level2,
+                            borderColor: colors.border.subtle,
+                          },
+                        ]}
+                      >
+                        {onClearServerAssignment && (
+                          <TouchableOpacity
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              onClearServerAssignment();
+                              setWalkInRoutePickerOpen(false);
+                            }}
+                            style={[
+                              styles.serverPickerRow,
+                              {
+                                backgroundColor: !serverOverrideActive
+                                  ? isDark
+                                    ? 'rgba(255,255,255,0.06)'
+                                    : 'rgba(0,0,0,0.03)'
+                                  : 'transparent',
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name="sparkles-outline"
+                              size={16}
+                              color={!serverOverrideActive ? colors.accent : colors.text.muted}
+                            />
+                            <Text
+                              style={[
+                                styles.infoText,
+                                { color: colors.text.secondary, flex: 1 },
+                                !serverOverrideActive && {
+                                  color: colors.text.primary,
+                                  fontWeight: '600',
+                                },
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {walkInAutoLabel ?? 'Auto route'}
+                            </Text>
+                            {!serverOverrideActive && (
+                              <Ionicons name="checkmark" size={16} color={colors.accent} />
+                            )}
+                          </TouchableOpacity>
+                        )}
+                        {servers.map((s) => (
+                          <TouchableOpacity
+                            key={s.id}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              onChangeServer?.(s.id);
+                              setWalkInRoutePickerOpen(false);
+                            }}
+                            style={[
+                              styles.serverPickerRow,
+                              {
+                                backgroundColor:
+                                  serverOverrideActive && s.id === currentServerId
+                                    ? isDark
+                                      ? 'rgba(255,255,255,0.06)'
+                                      : 'rgba(0,0,0,0.03)'
+                                    : 'transparent',
+                              },
+                            ]}
+                          >
+                            <View style={[styles.serverDotSmall, { backgroundColor: s.color }]} />
+                            <Text
+                              style={[
+                                styles.infoText,
+                                { color: colors.text.secondary, flex: 1 },
+                                serverOverrideActive &&
+                                  s.id === currentServerId && {
+                                    color: colors.text.primary,
+                                    fontWeight: '600',
+                                  },
+                              ]}
+                            >
+                              {s.name}
+                            </Text>
+                            {serverOverrideActive && s.id === currentServerId && (
+                              <Ionicons name="checkmark" size={16} color={colors.accent} />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </>
                 )}
                 <View style={styles.sizeGrid}>
                   {[1, 2, 3, 4].map((n) => {
@@ -454,94 +608,6 @@ export function TablePopover({
                     onChangeText={setWalkInName}
                   />
                 </View>
-
-                {canEditServer && servers && (
-                  <View
-                    style={[
-                      styles.walkInServerPanel,
-                      {
-                        borderColor: colors.border.subtle,
-                        backgroundColor: colors.surface.level2,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
-                      WAITER
-                    </Text>
-                    {onClearServerAssignment && (
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={onClearServerAssignment}
-                        style={[
-                          styles.serverPickerRow,
-                          {
-                            backgroundColor: !serverOverrideActive
-                              ? isDark
-                                ? 'rgba(255,255,255,0.06)'
-                                : 'rgba(0,0,0,0.03)'
-                              : 'transparent',
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="sparkles-outline"
-                          size={16}
-                          color={!serverOverrideActive ? colors.accent : colors.text.muted}
-                        />
-                        <Text
-                          style={[
-                            styles.infoText,
-                            { color: colors.text.secondary, flex: 1 },
-                            !serverOverrideActive && {
-                              color: colors.text.primary,
-                              fontWeight: '600',
-                            },
-                          ]}
-                        >
-                          Auto route
-                        </Text>
-                        {!serverOverrideActive && (
-                          <Ionicons name="checkmark" size={16} color={colors.accent} />
-                        )}
-                      </TouchableOpacity>
-                    )}
-                    {servers.map((s) => (
-                      <TouchableOpacity
-                        key={s.id}
-                        activeOpacity={0.7}
-                        onPress={() => onChangeServer?.(s.id)}
-                        style={[
-                          styles.serverPickerRow,
-                          {
-                            backgroundColor:
-                              serverOverrideActive && s.id === currentServerId
-                                ? isDark
-                                  ? 'rgba(255,255,255,0.06)'
-                                  : 'rgba(0,0,0,0.03)'
-                                : 'transparent',
-                          },
-                        ]}
-                      >
-                        <View style={[styles.serverDotSmall, { backgroundColor: s.color }]} />
-                        <Text
-                          style={[
-                            styles.infoText,
-                            { color: colors.text.secondary, flex: 1 },
-                            serverOverrideActive && s.id === currentServerId && {
-                              color: colors.text.primary,
-                              fontWeight: '600',
-                            },
-                          ]}
-                        >
-                          {s.name}
-                        </Text>
-                        {serverOverrideActive && s.id === currentServerId && (
-                          <Ionicons name="checkmark" size={16} color={colors.accent} />
-                        )}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
 
                 <View style={styles.walkInActions}>
                   <TouchableOpacity
@@ -1010,6 +1076,14 @@ const styles = StyleSheet.create({
     ...textStyles.tiny,
     flex: 1,
   },
+  walkInRoutePickerList: {
+    gap: 2,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderRadius: borderRadius.sm,
+    marginTop: -spacing.xs,
+  },
   sizeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1059,13 +1133,6 @@ const styles = StyleSheet.create({
     flex: 1,
     ...textStyles.body,
     padding: 0,
-  },
-  walkInServerPanel: {
-    gap: 2,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-    borderWidth: 1,
-    borderRadius: borderRadius.md,
   },
   walkInActions: {
     flexDirection: 'row',

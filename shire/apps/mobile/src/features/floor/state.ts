@@ -1,5 +1,6 @@
 import type {
   BusinessRuleError,
+  FloorTableStateMode,
   FloorMap,
   FloorSnapshot,
   FloorStreamMessage,
@@ -17,7 +18,15 @@ import type {
 const EMPTY_CLEAN = 'empty_clean';
 const OCCUPIED = 'occupied';
 const EMPTY_DIRTY = 'empty_dirty';
+const DEFAULT_TABLE_STATE_MODE: FloorTableStateMode = 'hybrid';
 export const ML_TABLE_STALE_MS = 3 * 60 * 1000;
+const HOST_INTENT_HOLD_MS: Partial<Record<TableCommand['type'], number>> = {
+  seat_party: 90_000,
+  seat_walk_in: 90_000,
+  clear_table: 60_000,
+  mark_dirty: 60_000,
+  mark_clean: 45_000,
+};
 
 export interface PendingCommandEntry {
   command: TableCommand;
@@ -35,6 +44,7 @@ export interface FloorStoreData {
   syncError: string | null;
   /** When false, live table updates with source=ml (CCTV) are ignored. */
   cctvSyncEnabled: boolean;
+  tableStateMode: FloorTableStateMode;
 }
 
 export interface FloorTableViewModel {
@@ -143,6 +153,89 @@ function deriveDisplayStatus(
   return 'available';
 }
 
+function sensedStateForDisplayStatus(status: TableDisplayStatus): TableLiveState['sensedState'] {
+  if (status === 'occupied') {
+    return OCCUPIED;
+  }
+
+  if (status === 'dirty') {
+    return EMPTY_DIRTY;
+  }
+
+  return EMPTY_CLEAN;
+}
+
+function hostIntentStateForCommand(command: TableCommand): TableDisplayStatus | null {
+  switch (command.type) {
+    case 'seat_party':
+    case 'seat_walk_in':
+      return 'occupied';
+    case 'clear_table':
+    case 'mark_dirty':
+      return 'dirty';
+    case 'mark_clean':
+      return 'available';
+    case 'set_table_state':
+      return command.state === 'occupied'
+        ? 'occupied'
+        : command.state === 'dirty'
+          ? 'dirty'
+          : 'available';
+    default:
+      return null;
+  }
+}
+
+function buildHostIntentUntil(command: TableCommand): string | null {
+  const holdMs = HOST_INTENT_HOLD_MS[command.type];
+  if (!holdMs) {
+    return null;
+  }
+
+  const requestedAtMs = new Date(command.requestedAt).getTime();
+  const startsAt = Number.isNaN(requestedAtMs) ? Date.now() : requestedAtMs;
+  return new Date(startsAt + holdMs).toISOString();
+}
+
+function isHostIntentActive(table: TableLiveState | null | undefined, now = Date.now()): boolean {
+  if (!table?.hostIntentState || !table.hostIntentUntil) {
+    return false;
+  }
+
+  const intentUntilMs = new Date(table.hostIntentUntil).getTime();
+  return !Number.isNaN(intentUntilMs) && intentUntilMs > now;
+}
+
+function hasVisibleHostIntentConflict(
+  currentTable: TableLiveState | null | undefined,
+  incomingTable: TableLiveState,
+  now = Date.now(),
+  forceHostIntent = false,
+): boolean {
+  return (
+    (forceHostIntent || isHostIntentActive(currentTable, now)) &&
+    currentTable?.hostIntentState != null &&
+    incomingTable.displayStatus !== currentTable.hostIntentState
+  );
+}
+
+function applyHostIntentToTable(table: TableLiveState, command: TableCommand): TableLiveState {
+  const hostIntentState = hostIntentStateForCommand(command);
+  const hostIntentUntil = buildHostIntentUntil(command);
+
+  if (!hostIntentState || !hostIntentUntil) {
+    return table;
+  }
+
+  return {
+    ...table,
+    hostIntentState,
+    hostIntentUntil,
+    hostIntentCommandId: command.commandId,
+    mlSuppressedReason: null,
+  };
+}
+
 function clonePendingCommands(
   pendingCommands: Record<string, PendingCommandEntry>,
 ): Record<string, PendingCommandEntry> {
@@ -193,6 +286,10 @@ function fallbackTableState(
     currentWaitlistEntryId: null,
     currentPartySize: null,
     lastUpdateSource: null,
+    hostIntentState: null,
+    hostIntentUntil: null,
+    hostIntentCommandId: null,
+    mlSuppressedReason: null,
     emittedAt: null,
   };
 }
@@ -215,6 +312,90 @@ function tablesArrayToRecord(tables: TableLiveState[]): Record<string, TableLive
     tablesById[table.tableId] = table;
     return tablesById;
   }, {});
+}
+
+function findPendingCommandForTable(
+  pendingCommands: Record<string, PendingCommandEntry>,
+  tableId: string,
+): PendingCommandEntry | null {
+  return (
+    Object.values(pendingCommands).find((pendingCommand) => pendingCommand.tableId === tableId) ??
+    null
+  );
+}
+
+function mergeHostIntentConflict(
+  currentTable: TableLiveState,
+  incomingTable: TableLiveState,
+  source: TableUpdateSource | null,
+): TableLiveState {
+  const hostIntentState = currentTable.hostIntentState;
+  if (!hostIntentState) {
+    return incomingTable;
+  }
+
+  return {
+    ...incomingTable,
+    displayStatus: hostIntentState,
+    sensedState: sensedStateForDisplayStatus(hostIntentState),
+    party: currentTable.party ?? incomingTable.party,
+    seatedAt: currentTable.seatedAt ?? incomingTable.seatedAt,
+    currentPartySize: currentTable.currentPartySize ?? incomingTable.currentPartySize,
+    currentWaitlistEntryId:
+      currentTable.currentWaitlistEntryId ?? incomingTable.currentWaitlistEntryId,
+    currentReservationId: currentTable.currentReservationId ?? incomingTable.currentReservationId,
+    currentVisitId: currentTable.currentVisitId ?? incomingTable.currentVisitId,
+    lastUpdateSource: currentTable.lastUpdateSource ?? incomingTable.lastUpdateSource,
+    hostIntentState,
+    hostIntentUntil: currentTable.hostIntentUntil ?? null,
+    hostIntentCommandId: currentTable.hostIntentCommandId ?? null,
+    mlSuppressedReason:
+      source === 'ml'
+        ? `ml_conflict_suppressed_until_${currentTable.hostIntentUntil}`
+        : `snapshot_conflict_suppressed_until_${currentTable.hostIntentUntil}`,
+  };
+}
+
+function mergeIncomingTable(
+  currentTable: TableLiveState | null | undefined,
+  incomingTable: TableLiveState,
+  source: TableUpdateSource | null,
+  now = Date.now(),
+  forceHostIntent = false,
+): TableLiveState {
+  if (!currentTable) {
+    return incomingTable;
+  }
+
+  if (hasVisibleHostIntentConflict(currentTable, incomingTable, now, forceHostIntent)) {
+    return mergeHostIntentConflict(currentTable, incomingTable, source);
+  }
+
+  if (
+    (forceHostIntent || isHostIntentActive(currentTable, now)) &&
+    !incomingTable.hostIntentState
+  ) {
+    return {
+      ...incomingTable,
+      hostIntentState: currentTable.hostIntentState ?? null,
+      hostIntentUntil: currentTable.hostIntentUntil ?? null,
+      hostIntentCommandId: currentTable.hostIntentCommandId ?? null,
+      mlSuppressedReason: null,
+    };
+  }
+
+  return incomingTable;
+}
+
+function applyCanonicalHostIntent(
+  table: TableLiveState,
+  pendingCommand: PendingCommandEntry | null,
+): TableLiveState {
+  if (table.hostIntentState || !pendingCommand) {
+    return table;
+  }
+
+  return applyHostIntentToTable(table, pendingCommand.command);
 }
 
 function optimisticOverride(command: TableCommand): TableOverride {
@@ -241,39 +422,48 @@ function applyOptimisticCommandToTable(
   switch (command.type) {
     case 'seat_party':
     case 'seat_walk_in':
-      return {
-        ...baseTable,
-        displayStatus: 'occupied',
-        sensedState: OCCUPIED,
-        party: command.party,
-        seatedAt: command.requestedAt,
-        isBlocked: false,
-        currentPartySize: command.party.size,
-        currentWaitlistEntryId: command.party.source === 'waitlist' ? command.party.id : null,
-      };
+      return applyHostIntentToTable(
+        {
+          ...baseTable,
+          displayStatus: 'occupied',
+          sensedState: OCCUPIED,
+          party: command.party,
+          seatedAt: command.requestedAt,
+          isBlocked: false,
+          currentPartySize: command.party.size,
+          currentWaitlistEntryId: command.party.source === 'waitlist' ? command.party.id : null,
+        },
+        command,
+      );
     case 'clear_table':
     case 'mark_dirty':
-      return {
-        ...baseTable,
-        displayStatus: 'dirty',
-        sensedState: EMPTY_DIRTY,
-        party: null,
-        seatedAt: null,
-        isBlocked: false,
-        currentPartySize: null,
-        currentWaitlistEntryId: null,
-      };
+      return applyHostIntentToTable(
+        {
+          ...baseTable,
+          displayStatus: 'dirty',
+          sensedState: EMPTY_DIRTY,
+          party: null,
+          seatedAt: null,
+          isBlocked: false,
+          currentPartySize: null,
+          currentWaitlistEntryId: null,
+        },
+        command,
+      );
     case 'mark_clean':
-      return {
-        ...baseTable,
-        displayStatus: 'available',
-        sensedState: EMPTY_CLEAN,
-        party: null,
-        seatedAt: null,
-        isBlocked: false,
-        currentPartySize: null,
-        currentWaitlistEntryId: null,
-      };
+      return applyHostIntentToTable(
+        {
+          ...baseTable,
+          displayStatus: 'available',
+          sensedState: EMPTY_CLEAN,
+          party: null,
+          seatedAt: null,
+          isBlocked: false,
+          currentPartySize: null,
+          currentWaitlistEntryId: null,
+        },
+        command,
+      );
     case 'block_table':
       return {
         ...baseTable,
@@ -290,6 +480,10 @@ function applyOptimisticCommandToTable(
         displayStatus: deriveDisplayStatus(baseTable.sensedState, false),
         isBlocked: false,
         override: null,
+        hostIntentState: null,
+        hostIntentUntil: null,
+        hostIntentCommandId: null,
+        mlSuppressedReason: null,
       };
     default:
       return baseTable;
@@ -304,13 +498,31 @@ export function applyFloorSnapshotState(
     return state;
   }
 
+  const snapshotTablesById = tablesArrayToRecord(snapshot.tables);
+  const nextTablesById = { ...state.tablesById };
+  const now = Date.now();
+
+  for (const [tableId, table] of Object.entries(snapshotTablesById)) {
+    const pendingCommand = findPendingCommandForTable(state.pendingCommands, tableId);
+    const currentTable = pendingCommand
+      ? (state.tablesById[tableId] ?? null)
+      : state.tablesById[tableId];
+    nextTablesById[tableId] = mergeIncomingTable(
+      currentTable,
+      table,
+      null,
+      now,
+      pendingCommand != null,
+    );
+  }
+
   return {
     floorId: snapshot.floorId,
     mapVersion: snapshot.mapVersion,
-    tablesById: tablesArrayToRecord(snapshot.tables),
+    tablesById: nextTablesById,
     lastSnapshotAt: snapshot.generatedAt,
     lastAppliedSequence: snapshot.sequence,
-    pendingCommands: {},
+    tableStateMode: snapshot.tableStateMode ?? state.tableStateMode ?? DEFAULT_TABLE_STATE_MODE,
     syncError: null,
   };
 }
@@ -403,23 +615,32 @@ export function applyFloorStreamMessageState(
         return state;
       }
 
-      if (message.source === 'ml' && !state.cctvSyncEnabled) {
-        return {
-          lastAppliedSequence: message.sequence,
-          syncError: null,
-        };
-      }
-
       if (
         message.source === 'ml' &&
-        hasPendingCommandForTable(state.pendingCommands, message.table.tableId)
+        (!state.cctvSyncEnabled || state.tableStateMode === 'manual')
       ) {
         return {
           lastAppliedSequence: message.sequence,
+          tableStateMode: message.tableStateMode ?? state.tableStateMode,
           syncError: null,
         };
       }
 
+      const pendingCommand = findPendingCommandForTable(
+        state.pendingCommands,
+        message.table.tableId,
+      );
+      const incomingTable =
+        message.source === 'host'
+          ? applyCanonicalHostIntent(message.table, pendingCommand)
+          : message.table;
+      const nextTable = mergeIncomingTable(
+        state.tablesById[message.table.tableId] ?? null,
+        incomingTable,
+        message.source ?? null,
+        Date.now(),
+        pendingCommand != null,
+      );
       const nextPendingCommands =
         message.source === 'ml'
           ? state.pendingCommands
@@ -428,10 +649,11 @@ export function applyFloorStreamMessageState(
       return {
         tablesById: {
           ...state.tablesById,
-          [message.table.tableId]: message.table,
+          [message.table.tableId]: nextTable,
         },
         lastAppliedSequence: message.sequence,
         pendingCommands: nextPendingCommands,
+        tableStateMode: message.tableStateMode ?? state.tableStateMode,
         syncError: null,
       };
     }
@@ -440,9 +662,13 @@ export function applyFloorStreamMessageState(
         return state;
       }
 
-      if (message.source === 'ml' && !state.cctvSyncEnabled) {
+      if (
+        message.source === 'ml' &&
+        (!state.cctvSyncEnabled || state.tableStateMode === 'manual')
+      ) {
         return {
           lastAppliedSequence: message.sequence,
+          tableStateMode: message.tableStateMode ?? state.tableStateMode,
           syncError: null,
         };
       }
@@ -452,14 +678,16 @@ export function applyFloorStreamMessageState(
         message.source === 'ml' ? state.pendingCommands : { ...state.pendingCommands };
 
       for (const table of message.tables) {
-        if (
-          message.source === 'ml' &&
-          hasPendingCommandForTable(state.pendingCommands, table.tableId)
-        ) {
-          continue;
-        }
-
-        nextTablesById[table.tableId] = table;
+        const pendingCommand = findPendingCommandForTable(state.pendingCommands, table.tableId);
+        const incomingTable =
+          message.source === 'host' ? applyCanonicalHostIntent(table, pendingCommand) : table;
+        nextTablesById[table.tableId] = mergeIncomingTable(
+          state.tablesById[table.tableId] ?? null,
+          incomingTable,
+          message.source ?? null,
+          Date.now(),
+          pendingCommand != null,
+        );
         if (message.source !== 'ml') {
           nextPendingCommands = removePendingCommandsForTable(nextPendingCommands, table.tableId);
         }
@@ -469,6 +697,7 @@ export function applyFloorStreamMessageState(
         tablesById: nextTablesById,
         lastAppliedSequence: message.sequence,
         pendingCommands: nextPendingCommands,
+        tableStateMode: message.tableStateMode ?? state.tableStateMode,
         syncError: null,
       };
     }
@@ -493,7 +722,7 @@ export function applyFloorStreamMessageState(
       if (message.floorId && message.floorId !== state.floorId) {
         return state;
       }
-      return acknowledgePendingCommandState(state, message.commandId);
+      return state;
     }
     case 'cursor.expired':
       // Provider triggers a snapshot refetch; reducer is a no-op so the
@@ -548,15 +777,6 @@ function formatSeatedTime(seatedAt: string | null, now = Date.now()): string | u
 }
 
 function isTablePending(
-  pendingCommands: Record<string, PendingCommandEntry>,
-  tableId: string,
-): boolean {
-  return Object.values(pendingCommands).some(
-    (pendingCommand) => pendingCommand.tableId === tableId,
-  );
-}
-
-function hasPendingCommandForTable(
   pendingCommands: Record<string, PendingCommandEntry>,
   tableId: string,
 ): boolean {

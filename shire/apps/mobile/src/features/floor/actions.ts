@@ -1,7 +1,9 @@
 import type { TableCommand, TableParty } from '@shire/shared';
+import { useAuthStore } from '@/features/auth';
 import { useFloorStore } from './store';
 import { getActiveFloorTransport } from './transport';
 import { createCommandId, createSeatPartyCommand, createSeatWalkInCommand } from './commands';
+import { floorRealtimeRepository } from './repository';
 
 export type DispatchResult =
   | { ok: true; commandId: string }
@@ -11,23 +13,45 @@ function dispatchTableCommand(command: TableCommand): DispatchResult {
   const transport = getActiveFloorTransport();
   const floorStore = useFloorStore.getState();
 
-  if (!transport || !transport.isConnected()) {
-    floorStore.setSyncError('Floor connection unavailable. Reconnect before changing tables.');
-    return { ok: false, commandId: command.commandId };
-  }
-
   floorStore.queuePendingCommand(command);
 
+  if (transport?.isConnected()) {
+    try {
+      transport.sendCommand(command);
+      return { ok: true, commandId: command.commandId };
+    } catch {
+      // Fall through to the HTTP path. The optimistic command stays pending
+      // until the backend emits table.updated or command.rejected.
+    }
+  }
+
+  void sendCommandOverHttp(command);
+  return { ok: true, commandId: command.commandId };
+}
+
+async function sendCommandOverHttp(command: TableCommand): Promise<void> {
+  const locationId = useAuthStore.getState().currentLocationId;
+  const floorStore = useFloorStore.getState();
+
+  if (!locationId) {
+    floorStore.setSyncError('Table update is queued and will retry when this location reconnects.');
+    return;
+  }
+
   try {
-    transport.sendCommand(command);
-    return { ok: true, commandId: command.commandId };
-  } catch (error) {
-    floorStore.rejectPendingCommand(
-      command.commandId,
-      command.tableId,
-      error instanceof Error ? error.message : 'Failed to send table command.',
+    const messages = await floorRealtimeRepository.sendCommandHttp(
+      locationId,
+      command.floorId,
+      command,
     );
-    return { ok: false, commandId: command.commandId };
+    for (const message of messages) {
+      useFloorStore.getState().applyStreamMessage(message);
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'Backend command fallback failed.';
+    useFloorStore
+      .getState()
+      .setSyncError(`Table update is queued and will retry when the floor socket reconnects. ${reason}`);
   }
 }
 

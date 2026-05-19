@@ -44,6 +44,7 @@ export type UpdateWaitlistInput = Partial<
 >;
 
 export type CreateReservationInput = {
+  clientRequestId?: string;
   guestName: string;
   guestPhone: string;
   partySize: number;
@@ -153,6 +154,7 @@ type BackendCreateReservationPayload = {
   specialRequests?: string;
   notesInternal?: string;
   overridePacing?: boolean;
+  clientRequestId?: string;
   channel: BackendReservationSource;
   source: BackendReservationSource;
 };
@@ -272,6 +274,7 @@ function toCreateReservationPayload(
     specialRequests: input.specialRequests?.trim() || undefined,
     notesInternal: input.internalNotes?.trim() || undefined,
     overridePacing: input.pacingOverride ?? false,
+    clientRequestId: input.clientRequestId?.trim() || undefined,
     channel: backendSource,
     source: backendSource,
   };
@@ -443,6 +446,15 @@ export async function restoreReservation(
     {},
   );
   return adaptReservation(response.data);
+}
+
+export async function removeDuplicateReservation(
+  locationId: string,
+  reservationId: string,
+): Promise<void> {
+  await apiClient.delete(`/locations/${locationId}/reservations/${reservationId}`, {
+    params: { reason: 'duplicate' },
+  });
 }
 
 export async function fetchReservationDensity(
