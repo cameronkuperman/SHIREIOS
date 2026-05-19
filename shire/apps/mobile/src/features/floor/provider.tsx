@@ -53,6 +53,7 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
   const setConnectionState = useFloorStore((state) => state.setConnectionState);
   const setSyncError = useFloorStore((state) => state.setSyncError);
   const resetSessionState = useFloorStore((state) => state.resetSessionState);
+  const resetVolatileState = useFloorStore((state) => state.resetVolatileState);
   const setFloorMap = useFloorStore((state) => state.setFloorMap);
   const touchStaleClock = useFloorStore((state) => state.touchStaleClock);
   const applyRouting = useWaiterRoutingStore((state) => state.applyRouting);
@@ -95,7 +96,7 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
 
     setFloorMap(bootstrap.floorMap);
     applyInlineRoutingSnapshot(bootstrap.routingSnapshot);
-    resetSessionState();
+    resetVolatileState();
     staleTimer = setInterval(() => {
       if (!isDisposed) {
         touchStaleClock();
@@ -357,7 +358,7 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
       transport?.disconnect();
       setActiveFloorTransport(null);
       clearAllPendingSeats();
-      resetSessionState();
+      resetVolatileState();
     };
   }, [
     applySnapshot,
@@ -370,6 +371,7 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
     isAuthenticated,
     queryClient,
     resetSessionState,
+    resetVolatileState,
     rollbackPendingSeat,
     session?.access_token,
     applyRouting,

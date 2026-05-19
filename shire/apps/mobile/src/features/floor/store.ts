@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type {
   ConnectionState,
+  FloorTableStateMode,
   FloorMap,
   FloorSnapshot,
   FloorStreamMessage,
@@ -44,6 +45,7 @@ type FloorStoreState = FloorStoreData & {
   setSyncError: (syncError: string | null) => void;
   setFloorMap: (floorMap: FloorMap) => void;
   setCctvSyncEnabled: (enabled: boolean) => void;
+  setTableStateMode: (tableStateMode: FloorTableStateMode) => void;
   touchStaleClock: () => void;
   resetSessionState: () => void;
   resetVolatileState: () => void;
@@ -99,7 +101,16 @@ export const useFloorStore = create<FloorStoreState>()(
         set({ syncError });
       },
       setCctvSyncEnabled: (cctvSyncEnabled) => {
-        set({ cctvSyncEnabled });
+        set({
+          cctvSyncEnabled,
+          tableStateMode: cctvSyncEnabled ? 'hybrid' : 'manual',
+        });
+      },
+      setTableStateMode: (tableStateMode) => {
+        set({
+          tableStateMode,
+          cctvSyncEnabled: tableStateMode !== 'manual',
+        });
       },
       setFloorMap: (floorMap) => {
         const normalizedFloorMap = normalizeFloorMap(floorMap);

@@ -158,6 +158,7 @@ export function adaptBackendTable(
 
   return {
     tableId,
+    backendTableId: table.id,
     tableNumber: table.tableNumber?.trim() || tableId,
     displayStatus: toDisplayStatus(sensedState, table.isBlocked),
     sensedState,
@@ -269,11 +270,11 @@ export function adaptRealtimeMessage(value: unknown): FloorStreamMessage | null 
 
   switch (message.type) {
     case 'floor.snapshot':
-      if (!isRecord(message.snapshot)) {
+      if (!isRecord(message.snapshot) && !isRecord(message)) {
         return null;
       }
 
-      const snapshot = adaptFloorSnapshot(message.snapshot);
+      const snapshot = adaptFloorSnapshot(isRecord(message.snapshot) ? message.snapshot : message);
       const tableStateMode = snapshot.tableStateMode ?? toTableStateMode(message.tableStateMode);
 
       return {

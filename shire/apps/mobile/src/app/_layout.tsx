@@ -75,14 +75,19 @@ export default function RootLayout() {
                       presentation: 'fullScreenModal',
                       // Swipe-to-dismiss steals vertical drags from the form ScrollView on iPad.
                       gestureEnabled: false,
-                      ...(Platform.OS === 'web'
-                        ? { contentStyle: { flex: 1, height: '100%' } }
-                        : {}),
+                      contentStyle:
+                        Platform.OS === 'web' ? { flex: 1, height: '100%' } : { flex: 1 },
                     }}
                   />
                   <Stack.Screen
                     name="settings"
-                    options={{ headerShown: false, presentation: 'fullScreenModal' }}
+                    options={{
+                      headerShown: false,
+                      presentation: 'fullScreenModal',
+                      // Swipe-to-dismiss steals vertical drags from settings ScrollView on iPad.
+                      gestureEnabled: false,
+                      contentStyle: { flex: 1 },
+                    }}
                   />
                   <Stack.Screen name="workday" options={{ headerShown: false }} />
                   <Stack.Screen name="shift" options={{ headerShown: false }} />

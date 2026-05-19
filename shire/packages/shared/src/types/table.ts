@@ -125,6 +125,7 @@ export interface TableOverride {
 
 export interface TableLiveState {
   tableId: string;
+  backendTableId?: string | null;
   tableNumber?: string;
   displayStatus: TableDisplayStatus;
   sensedState: TableState;

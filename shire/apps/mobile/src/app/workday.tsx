@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -14,6 +15,8 @@ import { GlassSurface } from '@/components/GlassSurface';
 import { ShiftSetupSheet } from '@/components/ShiftSetupSheet';
 import { useAuth } from '@/features/auth';
 import { resolveFloorId } from '@/features/floor/floorId';
+import { floorRealtimeRepository } from '@/features/floor/repository';
+import { useFloorStore } from '@/features/floor/store';
 import { useIsWorkdayActive, useWorkdayStore } from '@/features/workday';
 import { queryKeys } from '@/services/api/queryKeys';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
@@ -24,6 +27,7 @@ export default function WorkdayScreen() {
   const { colors } = useTheme();
   const { isAuthenticated, currentLocation, userSession, signOut } = useAuth();
   const startWorkday = useWorkdayStore((state) => state.startWorkday);
+  const applySnapshot = useFloorStore((state) => state.applySnapshot);
   const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
   const [isStarting, setIsStarting] = useState(false);
   const [showShiftSetup, setShowShiftSetup] = useState(false);
@@ -49,15 +53,27 @@ export default function WorkdayScreen() {
     }
 
     setIsStarting(true);
-    startWorkday(currentLocation.id);
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.bootstrap.location(currentLocation.id),
-    });
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.waitlist.list(currentLocation.id),
-    });
-    setIsStarting(false);
-    router.replace('/(host)');
+    try {
+      const result = await floorRealtimeRepository.startServiceDay(currentLocation.id, floorId);
+      applySnapshot(result.snapshot);
+      startWorkday(currentLocation.id);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.bootstrap.location(currentLocation.id),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.waitlist.list(currentLocation.id),
+      });
+      router.replace('/(host)');
+    } catch (error) {
+      Alert.alert(
+        'Could not start workday',
+        error instanceof Error
+          ? error.message
+          : 'The floor state could not be prepared. Try again before opening the host floor.',
+      );
+    } finally {
+      setIsStarting(false);
+    }
   };
 
   return (

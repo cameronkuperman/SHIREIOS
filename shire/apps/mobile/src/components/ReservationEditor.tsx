@@ -4,7 +4,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -332,10 +331,10 @@ export function ReservationEditor({
             contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomInset }]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={isWeb ? undefined : 'on-drag'}
-            canCancelContentTouches
             nestedScrollEnabled
-            showsVerticalScrollIndicator={isWeb}
-            alwaysBounceVertical={!isWeb}
+            scrollEnabled
+            showsVerticalScrollIndicator
+            alwaysBounceVertical={Platform.OS !== 'web'}
           >
           {reservation && (
             <GlassSurface style={styles.section}>
@@ -705,20 +704,32 @@ export function ReservationEditor({
         </View>
   );
 
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {Platform.OS === 'ios' ? (
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior="padding"
-          keyboardVerticalOffset={insets.top}
-        >
-          {formBody}
-        </KeyboardAvoidingView>
-      ) : (
-        <View style={styles.container}>{formBody}</View>
-      )}
-    </SafeAreaView>
+  const screen = (
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: colors.background,
+          paddingTop: insets.top,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+        },
+      ]}
+    >
+      {formBody}
+    </View>
+  );
+
+  return Platform.OS === 'ios' ? (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior="padding"
+      keyboardVerticalOffset={insets.top}
+    >
+      {screen}
+    </KeyboardAvoidingView>
+  ) : (
+    screen
   );
 }
 

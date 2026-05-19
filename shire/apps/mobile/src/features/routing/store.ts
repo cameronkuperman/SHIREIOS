@@ -594,6 +594,28 @@ export function useWaiterRoutingActions() {
     [persistRouting],
   );
 
+  const clearShiftAssignments = useCallback(
+    async () =>
+      persistRouting((current) => ({
+        ...current,
+        waiters: current.waiters.filter((waiter) => !waiter.isTemporary),
+        activeWaiterIds: [],
+        rotationOrder: [],
+        sectionAssignments: {},
+        tableAssignments: {},
+        shiftStartGroups: [],
+        nextUpQueue: [],
+        nextUpByTable: {},
+        nextUpBySection: {},
+        nextGratWaiterId: null,
+        nextGratByTable: {},
+        nextGratBySection: {},
+        gratRotationState: { rotationOrder: [] },
+        nextWaiterId: null,
+      })),
+    [persistRouting],
+  );
+
   const setNextWaiter = useCallback(
     async (waiterId: string | null) =>
       persistRouting((current) => ({
@@ -721,6 +743,7 @@ export function useWaiterRoutingActions() {
     assignSection,
     assignTable,
     setWaiterActive,
+    clearShiftAssignments,
     setNextWaiter,
     setRoutingMode,
     moveWaiter,

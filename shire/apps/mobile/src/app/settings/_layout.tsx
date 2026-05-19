@@ -2,7 +2,13 @@ import { Stack } from 'expo-router';
 
 export default function SettingsLayout() {
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        gestureEnabled: false,
+        contentStyle: { flex: 1 },
+      }}
+    >
       <Stack.Screen name="index" />
       <Stack.Screen name="blackouts/index" />
       <Stack.Screen name="blackouts/new" />

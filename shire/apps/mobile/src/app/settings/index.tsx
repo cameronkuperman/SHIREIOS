@@ -1,25 +1,31 @@
 import React from 'react';
 import {
   Alert,
-  SafeAreaView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HostDiagnosticsModal } from '@/components/HostDiagnosticsModal';
 import { useAuth } from '@/features/auth';
 import { DEFAULT_FLOOR_ID, useFloorConnectionState, useFloorStore } from '@/features/floor';
 import { useReservationSettings } from '@/features/host/hooks';
 import { useTemplates } from '@/features/messaging/hooks';
 import { useBlackouts } from '@/features/blackouts/hooks';
-import { useWaiterRoutingState, useWaiters } from '@/features/routing';
+import { useWaiterRoutingActions, useWaiterRoutingState, useWaiters } from '@/features/routing';
 import { useWorkdayStore } from '@/features/workday';
 import { getAppVersionLabel, getOrCreateDeviceId } from '@/lib/device';
 import { borderRadius, shadows, spacing, textStyles, useTheme } from '@/theme';
+
+/** RN Web needs explicit overflow + bounded flex height for trackpad / mouse wheel scrolling. */
+const WEB_SCROLL_VIEW_STYLE: ViewStyle =
+  Platform.OS === 'web' ? ({ overflow: 'scroll', height: '100%' } as ViewStyle) : {};
 
 type SettingsRowProps = {
   label: string;
@@ -97,6 +103,7 @@ function formatConnectionLabel(connectionState: string, hasSnapshot: boolean) {
 
 export default function SettingsHomeScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const {
     currentLocation,
@@ -108,6 +115,7 @@ export default function SettingsHomeScreen() {
   } = useAuth();
   const [showDiagnostics, setShowDiagnostics] = React.useState(false);
   const endWorkday = useWorkdayStore((state) => state.endWorkday);
+  const { clearShiftAssignments } = useWaiterRoutingActions();
   const reservationSettings = useReservationSettings();
   const templates = useTemplates();
   const blackouts = useBlackouts(true);
@@ -138,18 +146,26 @@ export default function SettingsHomeScreen() {
     { label: 'API Error', value: syncError ?? 'None' },
   ];
 
+  const endWorkdayWithReset = () => {
+    // Clear the shift team + assignments so the next shift starts fresh.
+    void clearShiftAssignments().catch(() => {});
+    endWorkday();
+    router.replace('/workday' as Href);
+  };
+
   const handleEndWorkday = () => {
-    Alert.alert('End Workday?', 'This returns the host stand to the start-of-shift screen.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'End Workday',
-        style: 'destructive',
-        onPress: () => {
-          endWorkday();
-          router.replace('/workday' as Href);
+    Alert.alert(
+      'End Workday?',
+      'This returns the host stand to the start-of-shift screen and clears tonight’s waiter setup.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End Workday',
+          style: 'destructive',
+          onPress: endWorkdayWithReset,
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const handleSignOut = () => {
@@ -166,23 +182,42 @@ export default function SettingsHomeScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
-          <Ionicons name="close" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <View style={styles.headerText}>
-          <Text style={[styles.title, { color: colors.text.primary }]}>Settings</Text>
-          <Text style={[styles.subtitle, { color: colors.text.muted }]}>
-            {currentLocation?.name ?? 'No location selected'}
-          </Text>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: colors.background,
+          paddingTop: insets.top,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+        },
+      ]}
+    >
+      <View style={styles.body}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
+            <Ionicons name="close" size={24} color={colors.text.primary} />
+          </TouchableOpacity>
+          <View style={styles.headerText}>
+            <Text style={[styles.title, { color: colors.text.primary }]}>Settings</Text>
+            <Text style={[styles.subtitle, { color: colors.text.muted }]}>
+              {currentLocation?.name ?? 'No location selected'}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.iconButton} onPress={refetchLocations}>
+            <Ionicons name="refresh-outline" size={22} color={colors.text.primary} />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.iconButton} onPress={refetchLocations}>
-          <Ionicons name="refresh-outline" size={22} color={colors.text.primary} />
-        </TouchableOpacity>
-      </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={[styles.scroll, WEB_SCROLL_VIEW_STYLE]}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+          scrollEnabled
+          showsVerticalScrollIndicator
+          alwaysBounceVertical={Platform.OS !== 'web'}
+        >
         <View
           style={[
             styles.profileCard,
@@ -308,30 +343,34 @@ export default function SettingsHomeScreen() {
             icon="bug-outline"
             onPress={() => setShowDiagnostics(true)}
           />
-          <SettingsRow
-            label="End Workday"
-            sub="Close the current device session"
-            icon="stop-circle-outline"
-            onPress={handleEndWorkday}
-          />
         </Section>
+        </ScrollView>
+      </View>
 
-        <Section title="Account">
-          <SettingsRow
-            label="Signed In"
-            sub={userSession?.user?.email ?? 'Unknown account'}
-            icon="person-circle-outline"
-            value="Active"
-          />
-          <SettingsRow
-            label="Sign Out"
-            sub="Return this device to host login"
-            icon="log-out-outline"
-            destructive
-            onPress={handleSignOut}
-          />
-        </Section>
-      </ScrollView>
+      <View
+        style={[
+          styles.footer,
+          {
+            borderTopColor: colors.border.subtle,
+            paddingBottom: Math.max(insets.bottom, spacing.md),
+          },
+        ]}
+      >
+        <SettingsRow
+          label="End Workday"
+          sub="Close the current device session"
+          icon="stop-circle-outline"
+          onPress={handleEndWorkday}
+        />
+        <SettingsRow
+          label="Sign Out"
+          sub={userSession?.user?.email ?? 'Return this device to host login'}
+          icon="log-out-outline"
+          destructive
+          onPress={handleSignOut}
+        />
+      </View>
+
       <HostDiagnosticsModal
         visible={showDiagnostics}
         onClose={() => setShowDiagnostics(false)}
@@ -344,17 +383,32 @@ export default function SettingsHomeScreen() {
         actionLabel="End Workday"
         onAction={() => {
           setShowDiagnostics(false);
-          endWorkday();
-          router.replace('/workday' as Href);
+          endWorkdayWithReset();
         }}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    minHeight: 0,
+  },
+  body: {
+    flex: 1,
+    minHeight: 0,
+  },
+  scroll: {
+    flex: 1,
+    flexShrink: 1,
+    minHeight: 0,
+  },
+  footer: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    gap: spacing.sm,
+    borderTopWidth: 1,
   },
   header: {
     flexDirection: 'row',

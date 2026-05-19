@@ -1,6 +1,8 @@
-import type { TableCommand, TableParty } from '@shire/shared';
+import type { FloorStreamMessage, TableCommand, TableParty } from '@shire/shared';
 import { useAuthStore } from '@/features/auth';
 import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
+import { fetchWaiterRouting } from '@/features/routing/api';
+import { useWaiterRoutingStore } from '@/features/routing/store';
 import { useFloorStore } from './store';
 import { getActiveFloorTransport } from './transport';
 import { createCommandId, createSeatPartyCommand, createSeatWalkInCommand } from './commands';
@@ -13,6 +15,8 @@ export type DispatchResult =
 function dispatchTableCommand(command: TableCommand): DispatchResult {
   const transport = getActiveFloorTransport();
   const floorStore = useFloorStore.getState();
+  const locationId = useAuthStore.getState().currentLocationId;
+  const routingUpdatedAt = useWaiterRoutingStore.getState().routing?.updatedAt ?? null;
 
   console.info('[FloorActions] dispatch table command', {
     commandId: command.commandId,
@@ -27,6 +31,7 @@ function dispatchTableCommand(command: TableCommand): DispatchResult {
   if (transport?.isConnected()) {
     try {
       transport.sendCommand(command);
+      scheduleRoutingRefresh(locationId, routingUpdatedAt);
       return { ok: true, commandId: command.commandId };
     } catch {
       // Fall through to the HTTP path. The optimistic command stays pending
@@ -35,7 +40,56 @@ function dispatchTableCommand(command: TableCommand): DispatchResult {
   }
 
   void sendCommandOverHttp(command);
+  scheduleRoutingRefresh(locationId, routingUpdatedAt);
   return { ok: true, commandId: command.commandId };
+}
+
+function applyCommandResponseMessage(message: FloorStreamMessage, command: TableCommand) {
+  console.info('[FloorActions] HTTP command message', {
+    commandId: command.commandId,
+    messageType: message.type,
+    tableId: 'table' in message ? message.table.tableId : undefined,
+    reason: 'reason' in message ? message.reason : undefined,
+  });
+  if (message.type === 'routing.updated') {
+    useWaiterRoutingStore.getState().applyRouting(message.locationId, message.routing);
+    return;
+  }
+  useFloorStore.getState().applyStreamMessage(message);
+  if (message.type === 'command.rejected') {
+    usePendingSeatStore.getState().rollbackPendingSeat(message.commandId);
+  }
+  if (
+    (message.type === 'table.updated' || message.type === 'table.batch_updated') &&
+    message.commandId
+  ) {
+    usePendingSeatStore.getState().confirmPendingSeat(message.commandId);
+  }
+}
+
+function scheduleRoutingRefresh(locationId: string | null, previousUpdatedAt: string | null) {
+  if (!locationId) {
+    return;
+  }
+  setTimeout(() => {
+    const routingState = useWaiterRoutingStore.getState();
+    if (routingState.locationId !== locationId) {
+      return;
+    }
+    if (routingState.routing?.updatedAt && routingState.routing.updatedAt !== previousUpdatedAt) {
+      return;
+    }
+    void fetchWaiterRouting(locationId)
+      .then((routing) => {
+        useWaiterRoutingStore.getState().applyRouting(locationId, routing);
+      })
+      .catch((error) => {
+        console.warn('[FloorActions] routing refresh after command failed', {
+          locationId,
+          reason: error instanceof Error ? error.message : 'Unable to refresh routing.',
+        });
+      });
+  }, 1_200);
 }
 
 async function sendCommandOverHttp(command: TableCommand): Promise<void> {
@@ -54,22 +108,7 @@ async function sendCommandOverHttp(command: TableCommand): Promise<void> {
       command,
     );
     for (const message of messages) {
-      console.info('[FloorActions] HTTP command message', {
-        commandId: command.commandId,
-        messageType: message.type,
-        tableId: 'table' in message ? message.table.tableId : undefined,
-        reason: 'reason' in message ? message.reason : undefined,
-      });
-      useFloorStore.getState().applyStreamMessage(message);
-      if (message.type === 'command.rejected') {
-        usePendingSeatStore.getState().rollbackPendingSeat(message.commandId);
-      }
-      if (
-        (message.type === 'table.updated' || message.type === 'table.batch_updated') &&
-        message.commandId
-      ) {
-        usePendingSeatStore.getState().confirmPendingSeat(message.commandId);
-      }
+      applyCommandResponseMessage(message, command);
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Backend command fallback failed.';

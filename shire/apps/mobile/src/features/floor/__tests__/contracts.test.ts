@@ -27,6 +27,7 @@ describe('floor backend contracts', () => {
     );
 
     expect(table.tableId).toBe('T1');
+    expect(table.backendTableId).toBe('table-uuid-1');
     expect(table.tableNumber).toBe('T1');
     expect(table.displayStatus).toBe('dirty');
     expect(table.sensedState).toBe('empty_dirty');
@@ -85,6 +86,7 @@ describe('floor backend contracts', () => {
     expect(snapshot.floorId).toBe('floor-1');
     expect(snapshot.sequence).toBe(99);
     expect(snapshot.tables).toHaveLength(1);
+    expect(snapshot.tables[0]?.backendTableId).toBe('table-uuid-1');
     expect(snapshot.tables[0]?.tableNumber).toBe('T1');
     expect(snapshot.tables[0]?.displayStatus).toBe('reserved');
     expect(snapshot.routingSnapshot?.nextWaiterId).toBe('waiter-1');
@@ -136,6 +138,7 @@ describe('floor backend contracts', () => {
     expect(message.commandId).toBeNull();
     expect(message.source).toBe('ml');
     expect(message.table.tableId).toBe('T1');
+    expect(message.table.backendTableId).toBe('table-uuid-1');
     expect(message.table.displayStatus).toBe('occupied');
     expect(message.table.currentReservationId).toBe('reservation-1');
     expect(message.table.currentVisitId).toBe('visit-1');
@@ -202,12 +205,22 @@ describe('floor backend contracts', () => {
     expect(message.entry.id).toBe('waitlist-1');
   });
 
-  it('drops malformed floor.snapshot websocket messages instead of throwing', () => {
-    expect(
-      adaptRealtimeMessage({
-        type: 'floor.snapshot',
-        snapshot: undefined,
-      }),
-    ).toBeNull();
+  it('adapts flat floor.snapshot websocket messages', () => {
+    const message = adaptRealtimeMessage({
+      type: 'floor.snapshot',
+      floorId: 'floor-1',
+      mapVersion: 'map-v2',
+      snapshotAt: '2026-03-12T14:30:00.000Z',
+      sequence: 99,
+      tablesById: {},
+      tableStateMode: 'manual',
+    });
+
+    expect(message?.type).toBe('floor.snapshot');
+    if (!message || message.type !== 'floor.snapshot') {
+      return;
+    }
+    expect(message.snapshot.floorId).toBe('floor-1');
+    expect(message.tableStateMode).toBe('manual');
   });
 });

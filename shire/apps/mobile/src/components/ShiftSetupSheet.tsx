@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
-  Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -72,6 +72,21 @@ function makeRoutingWaiter(id: string, name: string): RoutingWaiter {
   };
 }
 
+function withRosterWaiters(
+  routing: WaiterRoutingState | null,
+  roster: { id: string; name: string }[],
+): WaiterRoutingState | null {
+  if (!routing) return null;
+  const existingIds = new Set(routing.waiters.map((waiter) => waiter.id));
+  const inactiveRosterWaiters = roster
+    .filter((waiter) => !existingIds.has(waiter.id))
+    .map((waiter) => ({ ...makeRoutingWaiter(waiter.id, waiter.name), isActive: false }));
+
+  return inactiveRosterWaiters.length > 0
+    ? { ...routing, waiters: [...routing.waiters, ...inactiveRosterWaiters] }
+    : routing;
+}
+
 export function ShiftSetupSheet({
   visible,
   onClose,
@@ -81,14 +96,7 @@ export function ShiftSetupSheet({
   const router = useRouter();
   const isInline = presentation === 'inline';
   const { routing, locationId, isSaving } = useWaiterRoutingState();
-  const {
-    persistRouting,
-    setWaiterActive,
-    assignSection,
-    setRoutingMode,
-    setShiftStartGroups,
-    setGratThreshold,
-  } = useWaiterRoutingActions();
+  const { persistRouting } = useWaiterRoutingActions();
   const { waiters: roster } = useWaiters(locationId);
   const waiterColorMap = useWaiterColorMap();
   const floorMap = useFloorStore((state) => state.floorMap);
@@ -103,17 +111,31 @@ export function ShiftSetupSheet({
   const [targetWaiterCountText, setTargetWaiterCountText] = useState('');
   const [newGroupName, setNewGroupName] = useState('9am');
   const [newGroupTime, setNewGroupTime] = useState('09:00');
+  const [draftRouting, setDraftRouting] = useState<WaiterRoutingState | null>(null);
+  const [isCommitting, setIsCommitting] = useState(false);
+  const modalBackgroundColor = isDark ? '#14181C' : '#F8FAFC';
+  const seededRouting = useMemo(() => withRosterWaiters(routing, roster), [roster, routing]);
+  const workingRouting = draftRouting ?? seededRouting;
+
+  useEffect(() => {
+    if (visible) {
+      setDraftRouting(seededRouting);
+    } else {
+      setDraftRouting(null);
+      setIsCommitting(false);
+    }
+  }, [seededRouting, visible]);
 
   const shiftWaiters = useMemo(() => {
     const map = new Map<
       string,
       { id: string; name: string; isActive: boolean; inRouting: boolean }
     >();
-    routing?.waiters.forEach((w) => {
+    workingRouting?.waiters.forEach((w) => {
       map.set(w.id, {
         id: w.id,
         name: w.name,
-        isActive: routing.activeWaiterIds.includes(w.id),
+        isActive: workingRouting.activeWaiterIds.includes(w.id),
         inRouting: true,
       });
     });
@@ -123,7 +145,7 @@ export function ShiftSetupSheet({
       }
     });
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [routing, roster]);
+  }, [roster, workingRouting]);
 
   const activeWaiters = useMemo(() => shiftWaiters.filter((w) => w.isActive), [shiftWaiters]);
   const targetWaiterCount = useMemo(() => {
@@ -160,11 +182,11 @@ export function ShiftSetupSheet({
       const section = normalizeSectionName(table.section);
       if (section) set.add(section);
     });
-    if (routing) {
-      Object.keys(routing.sectionAssignments).forEach((s) => set.add(s));
+    if (workingRouting) {
+      Object.keys(workingRouting.sectionAssignments).forEach((s) => set.add(s));
     }
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  }, [floorMap.tables, routing, selectedSectionPlan]);
+  }, [floorMap.tables, selectedSectionPlan, workingRouting]);
 
   const hourSlots = useMemo<ShiftHourSlot[]>(() => {
     const byHour = new Map<number, { parties: number; covers: number }>();
@@ -193,38 +215,81 @@ export function ShiftSetupSheet({
   };
 
   const handleSetMode = (mode: WaiterRoutingMode) => {
-    if (!routing || routing.mode === mode) return;
-    setRoutingMode(mode).catch(reportError('Could not change the seating mode.'));
+    if (!workingRouting || workingRouting.mode === mode) return;
+    setDraftRouting({ ...workingRouting, mode });
   };
 
   const handleToggleWaiter = (waiter: (typeof shiftWaiters)[number]) => {
-    if (!routing) return;
-    if (waiter.isActive) {
-      setWaiterActive(waiter.id, false).catch(reportError('Could not update the waiter.'));
-      return;
-    }
-    if (waiter.inRouting) {
-      setWaiterActive(waiter.id, true).catch(reportError('Could not update the waiter.'));
-      return;
-    }
-    persistRouting((current) => {
-      const next = makeRoutingWaiter(waiter.id, waiter.name);
+    if (!workingRouting) return;
+    setDraftRouting((current) => {
+      const base = current ?? workingRouting;
+      const isActive = !base.activeWaiterIds.includes(waiter.id);
+      const activeWaiterIds = isActive
+        ? [...base.activeWaiterIds, waiter.id]
+        : base.activeWaiterIds.filter((id) => id !== waiter.id);
+      const rotationOrder = isActive
+        ? [...base.rotationOrder.filter((id) => id !== waiter.id), waiter.id]
+        : base.rotationOrder.filter((id) => id !== waiter.id);
+      const sectionAssignments = isActive
+        ? base.sectionAssignments
+        : Object.fromEntries(
+            Object.entries(base.sectionAssignments).filter(([, waiterId]) => waiterId !== waiter.id),
+          );
+      const tableAssignments = isActive
+        ? base.tableAssignments
+        : Object.fromEntries(
+            Object.entries(base.tableAssignments).filter(([, waiterId]) => waiterId !== waiter.id),
+          );
+      const existingWaiter = base.waiters.find((item) => item.id === waiter.id);
+      const nextWaiters: RoutingWaiter[] = existingWaiter
+        ? base.waiters.map((item) =>
+            item.id === waiter.id
+              ? {
+                  ...item,
+                  isActive,
+                  status: isActive
+                    ? item.status === 'on_break'
+                      ? 'available'
+                      : item.status
+                    : 'on_break',
+                }
+              : item,
+          )
+        : [...base.waiters, { ...makeRoutingWaiter(waiter.id, waiter.name), isActive }];
+
       return {
-        ...current,
-        waiters: [...current.waiters, next],
-        activeWaiterIds: [...current.activeWaiterIds, next.id],
-        rotationOrder: [...current.rotationOrder, next.id],
-        nextWaiterId: current.nextWaiterId ?? next.id,
+        ...base,
+        waiters: nextWaiters,
+        activeWaiterIds,
+        rotationOrder,
+        sectionAssignments,
+        tableAssignments,
+        shiftStartGroups: (base.shiftStartGroups ?? []).map((group) => ({
+          ...group,
+          waiterIds: isActive
+            ? group.waiterIds
+            : group.waiterIds.filter((waiterId) => waiterId !== waiter.id),
+        })),
+        nextWaiterId:
+          isActive && !base.nextWaiterId
+            ? waiter.id
+            : base.nextWaiterId === waiter.id && !isActive
+              ? rotationOrder[0] ?? activeWaiterIds[0] ?? null
+              : base.nextWaiterId,
       };
-    }).catch(reportError('Could not add the waiter to the shift.'));
+    });
   };
 
   const handleAssignSection = (sectionId: string, waiterId: string) => {
-    if (!routing) return;
-    const current = routing.sectionAssignments[sectionId];
-    assignSection(sectionId, current === waiterId ? null : waiterId).catch(
-      reportError('Could not assign the section.'),
-    );
+    if (!workingRouting) return;
+    const current = workingRouting.sectionAssignments[sectionId];
+    const sectionAssignments = { ...workingRouting.sectionAssignments };
+    if (current === waiterId) {
+      delete sectionAssignments[sectionId];
+    } else {
+      sectionAssignments[sectionId] = waiterId;
+    }
+    setDraftRouting({ ...workingRouting, sectionAssignments });
   };
 
   const handleSelectSectionPlan = useCallback(
@@ -250,7 +315,7 @@ export function ShiftSetupSheet({
   );
 
   const handleAddStartGroup = () => {
-    if (!routing) return;
+    if (!workingRouting) return;
     const name = newGroupName.trim();
     const startTime = newGroupTime.trim();
     if (!name || !/^\d{2}:\d{2}$/.test(startTime)) {
@@ -263,14 +328,15 @@ export function ShiftSetupSheet({
       startTime,
       waiterIds: [],
     };
-    setShiftStartGroups([...(routing.shiftStartGroups ?? []), group]).catch(
-      reportError('Could not add the start group.'),
-    );
+    setDraftRouting({
+      ...workingRouting,
+      shiftStartGroups: [...(workingRouting.shiftStartGroups ?? []), group],
+    });
   };
 
   const handleToggleGroupWaiter = (groupId: string, waiterId: string) => {
-    if (!routing) return;
-    const groups = (routing.shiftStartGroups ?? []).map((group) => {
+    if (!workingRouting) return;
+    const groups = (workingRouting.shiftStartGroups ?? []).map((group) => {
       const waiterIds = new Set(group.waiterIds);
       if (group.id === groupId && waiterIds.has(waiterId)) {
         waiterIds.delete(waiterId);
@@ -281,7 +347,7 @@ export function ShiftSetupSheet({
       }
       return { ...group, waiterIds: [...waiterIds] };
     });
-    setShiftStartGroups(groups).catch(reportError('Could not update the start group.'));
+    setDraftRouting({ ...workingRouting, shiftStartGroups: groups });
   };
 
   const handleOpenTeamSettings = () => {
@@ -289,17 +355,33 @@ export function ShiftSetupSheet({
     router.push('/settings/team' as Href);
   };
 
+  const handleCommit = async () => {
+    if (!workingRouting) {
+      onClose();
+      return;
+    }
+
+    setIsCommitting(true);
+    try {
+      await persistRouting(() => workingRouting);
+      onClose();
+    } catch (error) {
+      reportError('Could not save the shift setup.')(error);
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
   const content = (
     <View
       style={[
         styles.sheet,
         isInline && styles.inlineSheet,
+        !isInline && styles.modalSheet,
         {
           backgroundColor: isInline
             ? colors.surface.level1
-            : isDark
-              ? 'rgba(20, 24, 28, 0.97)'
-              : 'rgba(248, 250, 252, 0.98)',
+            : modalBackgroundColor,
           borderColor: isInline ? colors.border.subtle : colors.glass.border,
         },
       ]}
@@ -312,18 +394,24 @@ export function ShiftSetupSheet({
           </Text>
         </View>
         {!isInline && (
-          <TouchableOpacity onPress={onClose} accessibilityLabel="Close" hitSlop={8}>
+          <TouchableOpacity
+            onPress={onClose}
+            accessibilityLabel="Close"
+            hitSlop={8}
+          >
             <Ionicons name="close" size={24} color={colors.text.primary} />
           </TouchableOpacity>
         )}
       </View>
 
       <ScrollView
-        style={styles.body}
+        style={isInline ? styles.body : styles.bodyModal}
         contentContainerStyle={styles.bodyInner}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
       >
-        {!routing ? (
+        {!workingRouting ? (
           <Text style={[styles.empty, { color: colors.text.muted }]}>
             Waiter routing is still loading for this location.
           </Text>
@@ -333,10 +421,13 @@ export function ShiftSetupSheet({
             <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>SEATING MODE</Text>
             <View style={styles.modeRow}>
               {MODE_OPTIONS.map((option) => {
-                const active = routing.mode === option.value;
+                const active = workingRouting.mode === option.value;
                 return (
                   <TouchableOpacity
                     key={option.value}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Set seating mode to ${option.label}`}
+                    accessibilityState={{ selected: active }}
                     activeOpacity={0.8}
                     onPress={() => handleSetMode(option.value)}
                     style={[
@@ -360,7 +451,7 @@ export function ShiftSetupSheet({
               })}
             </View>
             <Text style={[styles.helpText, { color: colors.text.muted }]}>
-              {MODE_HELP[routing.mode]}
+              {MODE_HELP[workingRouting.mode]}
             </Text>
 
             {/* Waiters */}
@@ -380,6 +471,9 @@ export function ShiftSetupSheet({
             {shiftWaiters.map((waiter) => (
               <TouchableOpacity
                 key={waiter.id}
+                accessibilityRole="checkbox"
+                accessibilityLabel={`${waiter.isActive ? 'Remove' : 'Add'} ${waiter.name} from tonight`}
+                accessibilityState={{ checked: waiter.isActive }}
                 activeOpacity={0.7}
                 onPress={() => handleToggleWaiter(waiter)}
                 style={[
@@ -415,7 +509,7 @@ export function ShiftSetupSheet({
             >
               START GROUPS
             </Text>
-            {(routing.shiftStartGroups ?? []).map((group) => (
+            {(workingRouting.shiftStartGroups ?? []).map((group) => (
               <View
                 key={group.id}
                 style={[
@@ -515,15 +609,16 @@ export function ShiftSetupSheet({
             >
               <Text style={[styles.sectionName, { color: colors.text.primary }]}>Party size</Text>
               {[5, 6, 7, 8].map((threshold) => {
-                const active = (routing.gratThreshold ?? 6) === threshold;
+                const active = (workingRouting.gratThreshold ?? 6) === threshold;
                 return (
                   <TouchableOpacity
                     key={threshold}
                     activeOpacity={0.75}
                     onPress={() =>
-                      setGratThreshold(threshold).catch(
-                        reportError('Could not update the gratuity threshold.'),
-                      )
+                      setDraftRouting({
+                        ...workingRouting,
+                        gratThreshold: threshold,
+                      })
                     }
                     style={[
                       styles.chip,
@@ -642,7 +737,7 @@ export function ShiftSetupSheet({
                 </ScrollView>
                 <SectionFloorPreview
                   floorMap={floorMap}
-                  routing={routing}
+                  routing={workingRouting}
                   selectedPlan={selectedSectionPlan}
                   activeWaiterCount={activeWaiters.length}
                   waiterColorMap={waiterColorMap}
@@ -662,7 +757,7 @@ export function ShiftSetupSheet({
               </Text>
             )}
             {sections.map((sectionId) => {
-              const assignedId = routing.sectionAssignments[sectionId];
+              const assignedId = workingRouting.sectionAssignments[sectionId];
               return (
                 <View
                   key={sectionId}
@@ -736,9 +831,11 @@ export function ShiftSetupSheet({
           <TouchableOpacity
             style={[styles.doneButton, { backgroundColor: colors.accent }]}
             activeOpacity={0.85}
-            onPress={onClose}
+            onPress={() => void handleCommit()}
           >
-            <Text style={styles.doneButtonText}>{isSaving ? 'Saving…' : 'Done'}</Text>
+            <Text style={styles.doneButtonText}>
+              {isSaving || isCommitting ? 'Saving...' : 'Done'}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
@@ -750,10 +847,15 @@ export function ShiftSetupSheet({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <View onStartShouldSetResponder={() => true}>{content}</View>
-      </Pressable>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView style={[styles.modalScreen, { backgroundColor: modalBackgroundColor }]}>
+        {content}
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -875,17 +977,24 @@ function SectionFloorPreview({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  modalScreen: {
     flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   sheet: {
-    maxHeight: '94%',
+    zIndex: 1,
+    elevation: 1,
     borderTopLeftRadius: borderRadius['2xl'],
     borderTopRightRadius: borderRadius['2xl'],
     borderWidth: 1,
     ...shadows.medium,
+  },
+  modalSheet: {
+    flex: 1,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderWidth: 0,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   inlineSheet: {
     maxHeight: undefined,
@@ -909,6 +1018,9 @@ const styles = StyleSheet.create({
   },
   body: {
     flexGrow: 0,
+  },
+  bodyModal: {
+    flex: 1,
   },
   bodyInner: {
     paddingHorizontal: spacing.xl,

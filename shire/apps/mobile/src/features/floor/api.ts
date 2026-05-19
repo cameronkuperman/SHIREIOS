@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type AxiosResponse } from 'axios';
 import type {
   BackendFloorSnapshotDto,
+  FloorTableStateMode,
   FloorSnapshot,
   FloorStreamMessage,
   TableCommand,
@@ -127,4 +128,36 @@ export async function sendFloorCommandHttp(
     const adapted = adaptRealtimeMessage(message);
     return adapted ? [adapted] : [];
   });
+}
+
+export async function updateFloorTableStateMode(
+  locationId: string,
+  floorId: string,
+  tableStateMode: FloorTableStateMode,
+): Promise<FloorSnapshot> {
+  const response = await apiClient.patch<{ snapshot: BackendFloorSnapshotDto }>(
+    `/locations/${locationId}/floors/${floorId}/table-state-mode`,
+    { tableStateMode },
+  );
+  return adaptFloorSnapshot(response.data.snapshot);
+}
+
+export async function startFloorServiceDay(
+  locationId: string,
+  floorId: string,
+): Promise<{ didReset: boolean; snapshot: FloorSnapshot; messages: FloorStreamMessage[] }> {
+  const response = await apiClient.post<{
+    didReset?: boolean;
+    snapshot: BackendFloorSnapshotDto;
+    messages?: unknown[];
+  }>(`/locations/${locationId}/floors/${floorId}/service-day/start`);
+  const messages = (response.data.messages ?? []).flatMap((message) => {
+    const adapted = adaptRealtimeMessage(message);
+    return adapted ? [adapted] : [];
+  });
+  return {
+    didReset: Boolean(response.data.didReset),
+    snapshot: adaptFloorSnapshot(response.data.snapshot),
+    messages,
+  };
 }

@@ -49,6 +49,7 @@ export interface FloorStoreData {
 
 export interface FloorTableViewModel {
   id: string;
+  backendTableId?: string | null;
   label: string;
   roomId: string;
   status: TableDisplayStatus;
@@ -269,6 +270,7 @@ function fallbackTableState(
 
   return {
     tableId,
+    backendTableId: null,
     tableNumber: mapTable.tableNumber,
     displayStatus: 'available',
     sensedState: EMPTY_CLEAN,
@@ -527,13 +529,16 @@ export function applyFloorSnapshotState(
     );
   }
 
+  const tableStateMode = snapshot.tableStateMode ?? state.tableStateMode ?? DEFAULT_TABLE_STATE_MODE;
+
   return {
     floorId: snapshot.floorId,
     mapVersion: snapshot.mapVersion,
     tablesById: nextTablesById,
     lastSnapshotAt: snapshot.generatedAt,
     lastAppliedSequence: snapshot.sequence,
-    tableStateMode: snapshot.tableStateMode ?? state.tableStateMode ?? DEFAULT_TABLE_STATE_MODE,
+    tableStateMode,
+    cctvSyncEnabled: tableStateMode !== 'manual',
     syncError: null,
   };
 }
@@ -630,9 +635,11 @@ export function applyFloorStreamMessageState(
         message.source === 'ml' &&
         (!state.cctvSyncEnabled || state.tableStateMode === 'manual')
       ) {
+        const tableStateMode = message.tableStateMode ?? state.tableStateMode;
         return {
           lastAppliedSequence: message.sequence,
-          tableStateMode: message.tableStateMode ?? state.tableStateMode,
+          tableStateMode,
+          cctvSyncEnabled: tableStateMode !== 'manual',
           syncError: null,
         };
       }
@@ -657,6 +664,7 @@ export function applyFloorStreamMessageState(
           ? state.pendingCommands
           : removePendingCommandsForTable(state.pendingCommands, message.table.tableId);
 
+      const tableStateMode = message.tableStateMode ?? state.tableStateMode;
       return {
         tablesById: {
           ...state.tablesById,
@@ -664,7 +672,8 @@ export function applyFloorStreamMessageState(
         },
         lastAppliedSequence: message.sequence,
         pendingCommands: nextPendingCommands,
-        tableStateMode: message.tableStateMode ?? state.tableStateMode,
+        tableStateMode,
+        cctvSyncEnabled: tableStateMode !== 'manual',
         syncError: null,
       };
     }
@@ -677,9 +686,11 @@ export function applyFloorStreamMessageState(
         message.source === 'ml' &&
         (!state.cctvSyncEnabled || state.tableStateMode === 'manual')
       ) {
+        const tableStateMode = message.tableStateMode ?? state.tableStateMode;
         return {
           lastAppliedSequence: message.sequence,
-          tableStateMode: message.tableStateMode ?? state.tableStateMode,
+          tableStateMode,
+          cctvSyncEnabled: tableStateMode !== 'manual',
           syncError: null,
         };
       }
@@ -704,11 +715,14 @@ export function applyFloorStreamMessageState(
         }
       }
 
+      const tableStateMode = message.tableStateMode ?? state.tableStateMode;
+
       return {
         tablesById: nextTablesById,
         lastAppliedSequence: message.sequence,
         pendingCommands: nextPendingCommands,
-        tableStateMode: message.tableStateMode ?? state.tableStateMode,
+        tableStateMode,
+        cctvSyncEnabled: tableStateMode !== 'manual',
         syncError: null,
       };
     }
@@ -839,20 +853,18 @@ function getWaiterById(
 function resolveRoutingWaiter(
   routing: WaiterRoutingState | null | undefined,
   tableId: string,
+  backendTableId: string | null | undefined,
   sectionId: string,
 ): RoutingWaiter | null {
   if (!routing) {
     return null;
   }
 
-  const backendNextWaiterId = routing.nextUpByTable?.[tableId];
+  const backendNextWaiterId =
+    (backendTableId ? routing.nextUpByTable?.[backendTableId] : undefined) ??
+    routing.nextUpByTable?.[tableId];
   if (backendNextWaiterId) {
     return getWaiterById(routing, backendNextWaiterId);
-  }
-
-  const explicitWaiterId = routing.tableAssignments[tableId];
-  if (explicitWaiterId) {
-    return getWaiterById(routing, explicitWaiterId);
   }
 
   const backendSectionWaiterId = routing.nextUpBySection?.[sectionId];
@@ -860,9 +872,18 @@ function resolveRoutingWaiter(
     return getWaiterById(routing, backendSectionWaiterId);
   }
 
-  const sectionWaiterId = routing.sectionAssignments[sectionId];
-  if (sectionWaiterId) {
-    return getWaiterById(routing, sectionWaiterId);
+  if (routing.mode === 'section') {
+    const explicitWaiterId =
+      (backendTableId ? routing.tableAssignments[backendTableId] : undefined) ??
+      routing.tableAssignments[tableId];
+    if (explicitWaiterId) {
+      return getWaiterById(routing, explicitWaiterId);
+    }
+
+    const sectionWaiterId = routing.sectionAssignments[sectionId];
+    if (sectionWaiterId) {
+      return getWaiterById(routing, sectionWaiterId);
+    }
   }
 
   return getWaiterById(routing, routing.nextWaiterId);
@@ -883,7 +904,12 @@ function toTableViewModel(
   }
 
   const currentWaiter = getWaiterById(routing, liveTable.currentWaiterId);
-  const routedWaiter = resolveRoutingWaiter(routing, tableId, mapTable.section);
+  const routedWaiter = resolveRoutingWaiter(
+    routing,
+    tableId,
+    liveTable.backendTableId,
+    mapTable.section,
+  );
   const displayServerName =
     liveTable.currentWaiterName ??
     currentWaiter?.name ??
@@ -896,6 +922,7 @@ function toTableViewModel(
 
   return {
     id: tableId,
+    backendTableId: liveTable.backendTableId ?? null,
     label: liveTable.tableNumber ?? mapTable.tableNumber ?? tableId,
     roomId: mapTable.roomId,
     status: liveTable.displayStatus,
@@ -908,7 +935,10 @@ function toTableViewModel(
     seatedTime: formatSeatedTime(liveTable.seatedAt, now),
     isBlocked: liveTable.isBlocked,
     isPending: isTablePending(pendingCommands, tableId),
-    hasExplicitServerAssignment: Boolean(routing?.tableAssignments[tableId]),
+    hasExplicitServerAssignment: Boolean(
+      routing?.tableAssignments[tableId] ??
+        (liveTable.backendTableId ? routing?.tableAssignments[liveTable.backendTableId] : undefined),
+    ),
     isStale: isMlTableStale(liveTable, now),
     stateConfidence: liveTable.stateConfidence,
     lastUpdateSource: liveTable.lastUpdateSource ?? null,

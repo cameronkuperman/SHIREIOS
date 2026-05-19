@@ -1,6 +1,11 @@
-import type { FloorSnapshot } from '@shire/shared';
+import type { FloorSnapshot, FloorTableStateMode } from '@shire/shared';
 import type { FloorStreamMessage, TableCommand } from '@shire/shared';
-import { fetchFloorSnapshot, sendFloorCommandHttp } from './api';
+import {
+  fetchFloorSnapshot,
+  sendFloorCommandHttp,
+  startFloorServiceDay,
+  updateFloorTableStateMode,
+} from './api';
 import { FloorRealtimeTransport } from './transport';
 
 export type FloorRealtimeConnectionParams = ConstructorParameters<typeof FloorRealtimeTransport>;
@@ -16,6 +21,21 @@ export const floorRealtimeRepository = {
     command: TableCommand,
   ): Promise<FloorStreamMessage[]> {
     return sendFloorCommandHttp(locationId, floorId, command);
+  },
+
+  updateTableStateMode(
+    locationId: string,
+    floorId: string,
+    tableStateMode: FloorTableStateMode,
+  ): Promise<FloorSnapshot> {
+    return updateFloorTableStateMode(locationId, floorId, tableStateMode);
+  },
+
+  startServiceDay(
+    locationId: string,
+    floorId: string,
+  ): Promise<{ didReset: boolean; snapshot: FloorSnapshot; messages: FloorStreamMessage[] }> {
+    return startFloorServiceDay(locationId, floorId);
   },
 
   createTransport(...params: FloorRealtimeConnectionParams): FloorRealtimeTransport {

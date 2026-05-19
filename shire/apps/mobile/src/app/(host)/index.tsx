@@ -13,6 +13,7 @@ import {
 import { useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '@/features/auth';
 import { MOCK_WAITERS } from '@/features/routing/mockWaiters';
 import {
   DEFAULT_FLOOR_MAP,
@@ -22,6 +23,7 @@ import {
   useFloorTablesByRoom,
   useTableDetails,
 } from '@/features/floor';
+import { floorRealtimeRepository } from '@/features/floor/repository';
 import { AddPartyModal } from '@/components/AddPartyModal';
 import { FloorRoomPill, type FloorRoomOption } from '@/components/FloorRoomPill';
 import { FloorStatusBar } from '@/components/FloorStatusBar';
@@ -110,10 +112,22 @@ type NextUpEntry = {
   tables: { id: string; label: string }[];
 };
 
+function addTableLookup(
+  lookup: Map<string, { id: string; label: string }>,
+  key: string | null | undefined,
+  table: { id: string; label: string },
+) {
+  const normalized = key?.trim();
+  if (normalized) {
+    lookup.set(normalized, table);
+  }
+}
+
 export default function FloorPlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const { currentLocation } = useAuth();
   const { routing, isSaving: isRoutingSaving } = useWaiterRoutingState();
   const { setRoutingMode } = useWaiterRoutingActions();
   const waiterColorMap = useWaiterColorMap();
@@ -125,6 +139,7 @@ export default function FloorPlanScreen() {
   const rejectPendingCommand = useFloorStore((state) => state.rejectPendingCommand);
   const cctvSyncEnabled = useFloorStore((state) => state.cctvSyncEnabled);
   const tableStateMode = useFloorStore((state) => state.tableStateMode);
+  const applySnapshot = useFloorStore((state) => state.applySnapshot);
   const setCctvSyncEnabled = useFloorStore((state) => state.setCctvSyncEnabled);
   const { seatParty, seatWalkIn, clearTable, markDirty, markClean, blockTable, unblockTable } =
     useFloorActions();
@@ -138,6 +153,7 @@ export default function FloorPlanScreen() {
   const [showAddPartyModal, setShowAddPartyModal] = useState(false);
   const [showSeatPartyModal, setShowSeatPartyModal] = useState(false);
   const [showShiftSetup, setShowShiftSetup] = useState(false);
+  const [isTableModeSaving, setIsTableModeSaving] = useState(false);
   const markPendingSeat = usePendingSeatStore((state) => state.markPendingSeat);
   const rollbackPendingSeat = usePendingSeatStore((state) => state.rollbackPendingSeat);
 
@@ -203,20 +219,27 @@ export default function FloorPlanScreen() {
 
   const nextUpRotation = useMemo<NextUpEntry[]>(() => {
     if (!routing) return [];
-    const tableById = new Map(allTablesFlat.map((table) => [table.id, table]));
+    const tableByRoutingId = new Map<string, { id: string; label: string }>();
+    for (const table of allTablesFlat) {
+      addTableLookup(tableByRoutingId, table.id, table);
+      addTableLookup(tableByRoutingId, table.backendTableId, table);
+      addTableLookup(tableByRoutingId, table.label, table);
+    }
     const queueRows = (routing.nextUpQueue ?? [])
       .slice(0, 4)
       .map((entry) => {
         if (!routing.activeWaiterIds.includes(entry.waiterId)) return null;
         const waiter = routing.waiters.find((w) => w.id === entry.waiterId);
         if (!waiter) return null;
+        const tables = entry.tableIds
+          .map((tableId) => tableByRoutingId.get(tableId))
+          .filter((table): table is NonNullable<typeof table> => Boolean(table))
+          .map((table) => ({ id: table.id, label: table.label }));
+        if (tables.length === 0) return null;
         return {
           waiterId: entry.waiterId,
           waiterName: waiter.name,
-          tables: entry.tableIds
-            .map((tableId) => tableById.get(tableId))
-            .filter((table): table is NonNullable<typeof table> => Boolean(table))
-            .map((table) => ({ id: table.id, label: table.label })),
+          tables,
         };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
@@ -227,12 +250,13 @@ export default function FloorPlanScreen() {
     );
     const tablesByWaiter = new Map<string, typeof availableTables>();
     for (const table of availableTables) {
+      const backendNextWaiter = table.backendTableId
+        ? routing.nextUpByTable?.[table.backendTableId]
+        : undefined;
       const section = floorMap.tables[table.id]?.section ?? '';
       const waiterId =
+        backendNextWaiter ??
         routing.nextUpByTable?.[table.id] ??
-        routing.tableAssignments[table.id] ??
-        routing.nextUpBySection?.[section] ??
-        routing.sectionAssignments[section] ??
         routing.nextWaiterId;
       if (!waiterId || !routing.activeWaiterIds.includes(waiterId)) continue;
       tablesByWaiter.set(waiterId, [...(tablesByWaiter.get(waiterId) ?? []), table]);
@@ -257,6 +281,7 @@ export default function FloorPlanScreen() {
   }, [routing, allTablesFlat, floorMap.tables]);
   const nextUpRows = useMemo<NextUpEntry[]>(() => {
     if (nextUpRotation.length > 0) return nextUpRotation;
+    if (routing) return [];
 
     const availableTables = allTablesFlat
       .filter((table) => table.status === 'available' && !table.isBlocked)
@@ -277,7 +302,7 @@ export default function FloorPlanScreen() {
             : mockLabels.map((label) => ({ id: `mock-${waiter.id}-${label}`, label })),
       };
     });
-  }, [nextUpRotation, allTablesFlat]);
+  }, [nextUpRotation, routing, allTablesFlat]);
   const nextGratRows = useMemo<NextUpEntry[]>(() => {
     if (!routing) return [];
     const threshold = routing.gratThreshold ?? 6;
@@ -286,8 +311,12 @@ export default function FloorPlanScreen() {
     );
     const tablesByWaiter = new Map<string, typeof gratTables>();
     for (const table of gratTables) {
+      const backendNextGratWaiter = table.backendTableId
+        ? routing.nextGratByTable?.[table.backendTableId]
+        : undefined;
       const section = floorMap.tables[table.id]?.section ?? '';
       const waiterId =
+        backendNextGratWaiter ??
         routing.nextGratByTable?.[table.id] ??
         routing.nextGratBySection?.[section] ??
         routing.nextGratWaiterId;
@@ -441,6 +470,40 @@ export default function FloorPlanScreen() {
       : connectionLabel === 'Synced'
         ? colors.status.available.text
         : colors.status.reserved.text;
+
+  const handleToggleCctvSync = useCallback(async () => {
+    if (!currentLocation || isTableModeSaving) {
+      return;
+    }
+    const nextEnabled = !cctvSyncEnabled;
+    const nextMode = nextEnabled ? 'hybrid' : 'manual';
+    const previousEnabled = cctvSyncEnabled;
+    setIsTableModeSaving(true);
+    setCctvSyncEnabled(nextEnabled);
+    try {
+      const snapshot = await floorRealtimeRepository.updateTableStateMode(
+        currentLocation.id,
+        floorIdForCommands,
+        nextMode,
+      );
+      applySnapshot(snapshot);
+    } catch (error) {
+      setCctvSyncEnabled(previousEnabled);
+      Alert.alert(
+        'Could not update CCTV mode',
+        error instanceof Error ? error.message : 'Try again before changing table state mode.',
+      );
+    } finally {
+      setIsTableModeSaving(false);
+    }
+  }, [
+    applySnapshot,
+    cctvSyncEnabled,
+    currentLocation,
+    floorIdForCommands,
+    isTableModeSaving,
+    setCctvSyncEnabled,
+  ]);
 
   const selectedParty = selectedPartyId
     ? (hostParties.find((party) => party.id === selectedPartyId) ?? null)
@@ -807,12 +870,14 @@ export default function FloorPlanScreen() {
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel={cctvSyncEnabled ? 'Turn off CCTV sync' : 'Turn on CCTV sync'}
-            onPress={() => setCctvSyncEnabled(!cctvSyncEnabled)}
+            disabled={isTableModeSaving}
+            onPress={handleToggleCctvSync}
             style={[
               styles.connectionBadge,
               {
                 backgroundColor: cctvSyncEnabled ? colors.surface.level1 : colors.status.dirty.fill,
                 borderColor: cctvSyncEnabled ? colors.border.default : colors.status.dirty.border,
+                opacity: isTableModeSaving ? 0.72 : 1,
               },
             ]}
           >

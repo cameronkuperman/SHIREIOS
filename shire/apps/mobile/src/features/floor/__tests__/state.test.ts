@@ -104,6 +104,50 @@ describe('floor state reducers', () => {
     expect(nextState.tablesById['2']?.party?.name).toBe('Taylor');
   });
 
+  it('hydrates backend manual mode as CCTV off', () => {
+    const state = createBaseState({ cctvSyncEnabled: true, tableStateMode: 'hybrid' });
+    const nextState = {
+      ...state,
+      ...applyFloorSnapshotState(state, {
+        floorId: DEFAULT_FLOOR_ID,
+        mapVersion: DEFAULT_FLOOR_MAP.mapVersion,
+        generatedAt: '2026-03-07T12:01:00.000Z',
+        sequence: 10,
+        tables: Object.values(state.tablesById),
+        tableStateMode: 'manual',
+      }),
+    };
+
+    expect(nextState.tableStateMode).toBe('manual');
+    expect(nextState.cctvSyncEnabled).toBe(false);
+  });
+
+  it('resolves routing waiter defaults by backend table id', () => {
+    const state = createBaseState({
+      tablesById: {
+        ...buildDefaultTablesById(DEFAULT_FLOOR_MAP),
+        '2': {
+          ...buildDefaultTablesById(DEFAULT_FLOOR_MAP)['2']!,
+          backendTableId: 'backend-table-2',
+        },
+      },
+    });
+    const rooms = selectTablesByRoom(
+      DEFAULT_FLOOR_MAP,
+      state.tablesById,
+      {},
+      makeRoutingState({
+        nextWaiterId: null,
+        nextUpByTable: { 'backend-table-2': 'table-waiter' },
+      }),
+    );
+
+    const table = rooms.flatMap((room) => room.tables).find((item) => item.id === '2');
+
+    expect(table?.serverId).toBe('table-waiter');
+    expect(table?.server).toBe('Table Server');
+  });
+
   it('ignores stale websocket updates', () => {
     const state = createBaseState();
     const updatedState = {
