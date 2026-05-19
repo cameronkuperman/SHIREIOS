@@ -1,9 +1,12 @@
 import React, { type ReactNode } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { shadows, spacing, useTheme } from '@/theme';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { useTheme } from '@/theme';
 
 type BuilderCanvasProps = {
   children: ReactNode;
@@ -11,13 +14,8 @@ type BuilderCanvasProps = {
   height: number;
 };
 
-const MIN_SCALE = 0.2;
+const MIN_SCALE = 0.4;
 const MAX_SCALE = 3;
-const ZOOM_STEP = 1.35;
-
-function clampScale(value: number): number {
-  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
-}
 
 export function BuilderCanvas({ children, width, height }: BuilderCanvasProps) {
   const { colors, isDark } = useTheme();
@@ -67,21 +65,6 @@ export function BuilderCanvas({ children, width, height }: BuilderCanvasProps) {
     ],
   }));
 
-  const zoomBy = (factor: number) => {
-    scale.value = withSpring(clampScale(scale.value * factor));
-  };
-
-  const resetView = () => {
-    scale.value = withSpring(1);
-    translateX.value = withSpring(0);
-    translateY.value = withSpring(0);
-  };
-
-  const controlStyle = {
-    backgroundColor: isDark ? 'rgba(30, 30, 34, 0.94)' : 'rgba(255,255,255,0.96)',
-    borderColor: colors.glass.border,
-  };
-
   return (
     <GestureDetector gesture={composed}>
       <View style={[styles.wrapper, { backgroundColor: isDark ? '#1a1a1e' : '#eae4da' }]}>
@@ -89,36 +72,15 @@ export function BuilderCanvas({ children, width, height }: BuilderCanvasProps) {
         <View style={StyleSheet.absoluteFill}>
           <GridDots width={width} height={height} isDark={isDark} />
         </View>
-        <Animated.View style={[styles.canvas, { width, height }, animatedStyle]}>
+        <Animated.View
+          style={[
+            styles.canvas,
+            { width, height },
+            animatedStyle,
+          ]}
+        >
           {children}
         </Animated.View>
-
-        <View style={styles.zoomControls}>
-          <TouchableOpacity
-            style={[styles.zoomButton, controlStyle]}
-            activeOpacity={0.7}
-            onPress={() => zoomBy(ZOOM_STEP)}
-            accessibilityLabel="Zoom in"
-          >
-            <Ionicons name="add" size={22} color={colors.text.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.zoomButton, controlStyle]}
-            activeOpacity={0.7}
-            onPress={resetView}
-            accessibilityLabel="Reset zoom"
-          >
-            <Ionicons name="scan-outline" size={18} color={colors.text.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.zoomButton, controlStyle]}
-            activeOpacity={0.7}
-            onPress={() => zoomBy(1 / ZOOM_STEP)}
-            accessibilityLabel="Zoom out"
-          >
-            <Ionicons name="remove" size={22} color={colors.text.primary} />
-          </TouchableOpacity>
-        </View>
       </View>
     </GestureDetector>
   );
@@ -164,20 +126,5 @@ const styles = StyleSheet.create({
     width: 2,
     height: 2,
     borderRadius: 1,
-  },
-  zoomControls: {
-    position: 'absolute',
-    right: spacing.md,
-    bottom: spacing.md,
-    gap: spacing.xs,
-  },
-  zoomButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadows.subtle,
   },
 });
