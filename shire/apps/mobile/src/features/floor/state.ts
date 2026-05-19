@@ -282,7 +282,7 @@ function fallbackTableState(
     seatedAt: null,
     assignedServer: mapTable.assignedServer ?? null,
     currentWaiterId: null,
-    currentWaiterName: mapTable.assignedServer ?? null,
+    currentWaiterName: null,
     currentWaitlistEntryId: null,
     currentPartySize: null,
     lastUpdateSource: null,
@@ -432,8 +432,7 @@ function applyOptimisticCommandToTable(
           isBlocked: false,
           currentPartySize: command.party.size,
           currentWaitlistEntryId: command.party.source === 'waitlist' ? command.party.id : null,
-          currentReservationId:
-            command.party.source === 'reservations' ? command.party.id : null,
+          currentReservationId: command.party.source === 'reservations' ? command.party.id : null,
           currentWaiterId: command.waiterId ?? table.currentWaiterId ?? null,
         },
         command,
@@ -450,6 +449,9 @@ function applyOptimisticCommandToTable(
           isBlocked: false,
           currentPartySize: null,
           currentWaitlistEntryId: null,
+          currentReservationId: null,
+          currentWaiterId: null,
+          currentWaiterName: null,
         },
         command,
       );
@@ -464,6 +466,9 @@ function applyOptimisticCommandToTable(
           isBlocked: false,
           currentPartySize: null,
           currentWaitlistEntryId: null,
+          currentReservationId: null,
+          currentWaiterId: null,
+          currentWaiterName: null,
         },
         command,
       );
@@ -476,6 +481,9 @@ function applyOptimisticCommandToTable(
         isBlocked: true,
         currentPartySize: null,
         currentWaitlistEntryId: null,
+        currentReservationId: null,
+        currentWaiterId: null,
+        currentWaiterName: null,
       };
     case 'unblock_table':
       return {

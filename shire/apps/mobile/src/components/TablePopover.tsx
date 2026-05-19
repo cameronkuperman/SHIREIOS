@@ -68,6 +68,11 @@ function currentPill(status: StatusKey, isBlocked: boolean): PillKey {
   return 'available';
 }
 
+function defaultWalkInSizeForCapacity(capacity?: number): number {
+  if (capacity == null || !Number.isFinite(capacity)) return 2;
+  return Math.max(1, Math.min(4, Math.floor(capacity)));
+}
+
 export function TablePopover({
   visible,
   presentation = 'floating',
@@ -110,20 +115,23 @@ export function TablePopover({
   const [walkInName, setWalkInName] = useState('');
   const [walkInCustomOpen, setWalkInCustomOpen] = useState(false);
   const [walkInCustomText, setWalkInCustomText] = useState('');
+  const defaultWalkInSize = defaultWalkInSizeForCapacity(capacity);
 
   useEffect(() => {
     if (!visible) return;
     setWalkInMode(initialWalkInMode);
-    setWalkInSize(null);
+    setWalkInSize(initialWalkInMode ? defaultWalkInSize : null);
     setWalkInName('');
     setWalkInCustomOpen(false);
     setWalkInCustomText('');
     setServerPickerOpen(false);
     setWalkInRoutePickerOpen(false);
-  }, [initialWalkInMode, tableId, visible]);
+  }, [defaultWalkInSize, initialWalkInMode, tableId, visible]);
 
   const activePill = currentPill(status, isBlocked);
-  const walkInSubmitSize = walkInCustomOpen ? parseInt(walkInCustomText, 10) : walkInSize;
+  const walkInSubmitSize = walkInCustomOpen
+    ? parseInt(walkInCustomText, 10)
+    : (walkInSize ?? defaultWalkInSize);
   const walkInPartySize =
     walkInSubmitSize && walkInSubmitSize >= 1 ? walkInSubmitSize : null;
   const walkInAutoLabel = useMemo(() => {
@@ -132,9 +140,18 @@ export function TablePopover({
     }
     return autoAssignmentLabel;
   }, [autoAssignmentLabel, resolveAutoAssignmentLabel, walkInPartySize]);
+  const uniqueServers = useMemo(() => {
+    if (!servers) return undefined;
+    const seen = new Set<string>();
+    return servers.filter((server) => {
+      if (seen.has(server.id)) return false;
+      seen.add(server.id);
+      return true;
+    });
+  }, [servers]);
   const selectedWalkInServer = useMemo(
-    () => servers?.find((s) => s.id === currentServerId) ?? null,
-    [currentServerId, servers],
+    () => uniqueServers?.find((s) => s.id === currentServerId) ?? null,
+    [currentServerId, uniqueServers],
   );
   const walkInRouteRowLabel = serverOverrideActive
     ? selectedWalkInServer
@@ -151,7 +168,7 @@ export function TablePopover({
     : 100;
 
   const popoverBg = isDark ? 'rgba(30, 30, 34, 0.94)' : 'rgba(255, 255, 255, 0.94)';
-  const canEditServer = Boolean(servers && onChangeServer);
+  const canEditServer = Boolean(uniqueServers && onChangeServer);
   const serverLabel = server ?? (canEditServer ? 'Assign waiter' : null);
 
   const isAvailable = activePill === 'available';
@@ -182,7 +199,7 @@ export function TablePopover({
       }
       if (onSeatWalkIn) {
         setWalkInMode(true);
-        setWalkInSize(null);
+        setWalkInSize(defaultWalkInSize);
         setWalkInName('');
         setWalkInCustomOpen(false);
         setWalkInCustomText('');
@@ -215,7 +232,18 @@ export function TablePopover({
   };
 
   const handleSubmitWalkIn = () => {
-    const size = walkInCustomOpen ? parseInt(walkInCustomText, 10) : walkInSize;
+    const size = walkInCustomOpen
+      ? parseInt(walkInCustomText, 10)
+      : (walkInSize ?? defaultWalkInSize);
+    console.info('[TablePopover] submit walk-in', {
+      tableId,
+      tableLabel,
+      size,
+      selectedSize: walkInSize,
+      customOpen: walkInCustomOpen,
+      customText: walkInCustomText,
+      canSubmit: Boolean(size && size >= 1),
+    });
     if (!size || size < 1) return;
     onSeatWalkIn?.(size, walkInName.trim());
   };
@@ -417,7 +445,7 @@ export function TablePopover({
                         />
                       ) : null}
                     </TouchableOpacity>
-                    {walkInRoutePickerOpen && canEditServer && servers && (
+                    {walkInRoutePickerOpen && canEditServer && uniqueServers && (
                       <View
                         style={[
                           styles.walkInRoutePickerList,
@@ -468,7 +496,7 @@ export function TablePopover({
                             )}
                           </TouchableOpacity>
                         )}
-                        {servers.map((s) => (
+                        {uniqueServers.map((s) => (
                           <TouchableOpacity
                             key={s.id}
                             activeOpacity={0.7}
@@ -636,10 +664,19 @@ export function TablePopover({
                     disabled={!canSubmitWalkIn}
                     onPress={handleSubmitWalkIn}
                   >
-                    <Text style={[styles.walkInBtnText, { color: colors.white }]}>
+                    <Text
+                      style={[
+                        styles.walkInBtnText,
+                        { color: canSubmitWalkIn ? colors.white : colors.text.muted },
+                      ]}
+                    >
                       Seat {walkInSubmitSize ?? ''}
                     </Text>
-                    <Ionicons name="arrow-forward" size={14} color={colors.white} />
+                    <Ionicons
+                      name="arrow-forward"
+                      size={14}
+                      color={canSubmitWalkIn ? colors.white : colors.text.muted}
+                    />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -752,7 +789,7 @@ export function TablePopover({
                   </TouchableOpacity>
                 )}
 
-                {serverPickerOpen && servers && onChangeServer && (
+                {serverPickerOpen && uniqueServers && onChangeServer && (
                   <View
                     style={[styles.serverPickerList, { borderTopColor: colors.border.subtle }]}
                   >
@@ -797,7 +834,7 @@ export function TablePopover({
                         )}
                       </TouchableOpacity>
                     )}
-                    {servers.map((s) => (
+                    {uniqueServers.map((s) => (
                       <TouchableOpacity
                         key={s.id}
                         activeOpacity={0.7}

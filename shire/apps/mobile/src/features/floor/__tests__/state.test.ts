@@ -11,6 +11,7 @@ import {
   type FloorStoreData,
 } from '../state';
 import { DEFAULT_FLOOR_ID, DEFAULT_FLOOR_MAP } from '../floorMap';
+import type { RoutingWaiter, WaiterRoutingState } from '@shire/shared';
 
 function createBaseState(overrides: Partial<FloorStoreData> = {}): FloorStoreData {
   return {
@@ -23,6 +24,43 @@ function createBaseState(overrides: Partial<FloorStoreData> = {}): FloorStoreDat
     syncError: null,
     cctvSyncEnabled: true,
     tableStateMode: 'hybrid',
+    ...overrides,
+  };
+}
+
+function makeRoutingWaiter(id: string, name: string): RoutingWaiter {
+  return {
+    id,
+    name,
+    isTemporary: false,
+    status: 'available',
+    isActive: true,
+    assignedSectionIds: [],
+    assignedTableIds: [],
+    currentTableIds: [],
+    servedTableIds: [],
+    liveTables: 0,
+    servedSeatingCount: 0,
+    lastAssignedAt: null,
+  };
+}
+
+function makeRoutingState(overrides: Partial<WaiterRoutingState> = {}): WaiterRoutingState {
+  const waiters = [
+    makeRoutingWaiter('section-waiter', 'Section Server'),
+    makeRoutingWaiter('table-waiter', 'Table Server'),
+    makeRoutingWaiter('live-waiter', 'Live Server'),
+  ];
+
+  return {
+    mode: 'section',
+    waiters,
+    activeWaiterIds: waiters.map((waiter) => waiter.id),
+    sectionAssignments: { A1: 'section-waiter' },
+    tableAssignments: {},
+    rotationOrder: waiters.map((waiter) => waiter.id),
+    nextWaiterId: 'section-waiter',
+    updatedAt: '2026-05-19T12:00:00.000Z',
     ...overrides,
   };
 }
@@ -739,5 +777,41 @@ describe('floor selectors', () => {
     expect(quickSeats[0]?.tableId).toBe('1');
     expect(quickSeats[0]?.tableLabel).toBe('1');
     expect(tableDetails?.seatedTime).toBe('15m');
+  });
+
+  it('shows section waiter badges on available tables without changing table state', () => {
+    const state = createBaseState();
+    const rooms = selectTablesByRoom(DEFAULT_FLOOR_MAP, state.tablesById, {}, makeRoutingState());
+
+    const table = rooms[0]?.rows[0]?.[0];
+
+    expect(table?.status).toBe('available');
+    expect(table?.server).toBe('Section Server');
+    expect(table?.serverId).toBe('section-waiter');
+  });
+
+  it('prefers live and table-level waiter ownership before section defaults', () => {
+    const state = createBaseState();
+    const routing = makeRoutingState({
+      tableAssignments: { '2': 'table-waiter' },
+    });
+    const tablesById = {
+      ...state.tablesById,
+      '3': {
+        ...state.tablesById['3']!,
+        currentWaiterId: 'live-waiter',
+        currentWaiterName: 'Live Server Override',
+      },
+    };
+
+    const rooms = selectTablesByRoom(DEFAULT_FLOOR_MAP, tablesById, {}, routing);
+    const mainRoomTables = rooms[0]?.rows.flat() ?? [];
+    const tableAssigned = mainRoomTables.find((table) => table.id === '2');
+    const liveAssigned = mainRoomTables.find((table) => table.id === '3');
+
+    expect(tableAssigned?.server).toBe('Table Server');
+    expect(tableAssigned?.serverId).toBe('table-waiter');
+    expect(liveAssigned?.server).toBe('Live Server Override');
+    expect(liveAssigned?.serverId).toBe('live-waiter');
   });
 });

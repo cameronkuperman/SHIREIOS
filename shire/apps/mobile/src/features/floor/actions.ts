@@ -14,6 +14,14 @@ function dispatchTableCommand(command: TableCommand): DispatchResult {
   const transport = getActiveFloorTransport();
   const floorStore = useFloorStore.getState();
 
+  console.info('[FloorActions] dispatch table command', {
+    commandId: command.commandId,
+    type: command.type,
+    tableId: command.tableId,
+    partySize: 'party' in command ? command.party.size : undefined,
+    waiterId: 'waiterId' in command ? command.waiterId ?? null : undefined,
+    socketConnected: transport?.isConnected() ?? false,
+  });
   floorStore.queuePendingCommand(command);
 
   if (transport?.isConnected()) {
@@ -46,6 +54,12 @@ async function sendCommandOverHttp(command: TableCommand): Promise<void> {
       command,
     );
     for (const message of messages) {
+      console.info('[FloorActions] HTTP command message', {
+        commandId: command.commandId,
+        messageType: message.type,
+        tableId: 'table' in message ? message.table.tableId : undefined,
+        reason: 'reason' in message ? message.reason : undefined,
+      });
       useFloorStore.getState().applyStreamMessage(message);
       if (message.type === 'command.rejected') {
         usePendingSeatStore.getState().rollbackPendingSeat(message.commandId);
@@ -59,6 +73,12 @@ async function sendCommandOverHttp(command: TableCommand): Promise<void> {
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Backend command fallback failed.';
+    console.warn('[FloorActions] HTTP command failed', {
+      commandId: command.commandId,
+      type: command.type,
+      tableId: command.tableId,
+      reason,
+    });
     floorStore.rejectPendingCommand(command.commandId, command.tableId, reason);
     usePendingSeatStore.getState().rollbackPendingSeat(command.commandId);
     useFloorStore

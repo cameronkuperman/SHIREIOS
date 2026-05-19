@@ -16,7 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { MOCK_WAITERS } from '@/features/routing/mockWaiters';
 import {
   DEFAULT_FLOOR_MAP,
-  getSectionColor,
   useFloorActions,
   useFloorConnectionState,
   useFloorStore,
@@ -115,10 +114,7 @@ export default function FloorPlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const {
-    routing,
-    isSaving: isRoutingSaving,
-  } = useWaiterRoutingState();
+  const { routing, isSaving: isRoutingSaving } = useWaiterRoutingState();
   const { setRoutingMode } = useWaiterRoutingActions();
   const waiterColorMap = useWaiterColorMap();
   const waiterChips = useWaiterChips();
@@ -128,6 +124,7 @@ export default function FloorPlanScreen() {
   const queuePendingCommand = useFloorStore((state) => state.queuePendingCommand);
   const rejectPendingCommand = useFloorStore((state) => state.rejectPendingCommand);
   const cctvSyncEnabled = useFloorStore((state) => state.cctvSyncEnabled);
+  const tableStateMode = useFloorStore((state) => state.tableStateMode);
   const setCctvSyncEnabled = useFloorStore((state) => state.setCctvSyncEnabled);
   const { seatParty, seatWalkIn, clearTable, markDirty, markClean, blockTable, unblockTable } =
     useFloorActions();
@@ -572,6 +569,14 @@ export default function FloorPlanScreen() {
     const tableId = popover.tableId;
     const waiterId =
       seatWaiterId ?? resolveDefaultSeatWaiterId(tableId, liveTable.section, selectedParty.size);
+    console.info('[HostFloor] seat party requested', {
+      tableId,
+      tableLabel: liveTable.label,
+      partyId: selectedParty.id,
+      partySize: selectedParty.size,
+      waiterId: waiterId ?? null,
+      source: selectedParty.source,
+    });
     if (selectedParty.source === 'reservations') {
       const commandId = createReservationSeatCommandId();
       const requestedAt = new Date().toISOString();
@@ -628,7 +633,17 @@ export default function FloorPlanScreen() {
     if (!popover || !liveTable) return;
     const waiterId =
       seatWaiterId ?? resolveDefaultSeatWaiterId(liveTable.id, liveTable.section, size);
+    console.info('[HostFloor] seat walk-in requested', {
+      tableId: liveTable.id,
+      tableLabel: liveTable.label,
+      partySize: size,
+      partyName: name || null,
+      waiterId: waiterId ?? null,
+      cctvSyncEnabled,
+      tableStateMode,
+    });
     const result = seatWalkIn(liveTable.id, name, size, waiterId ?? undefined);
+    console.info('[HostFloor] seat walk-in dispatch result', result);
     if (result.ok) {
       setSeatWaiterId(null);
       setPopover(null);
@@ -1053,12 +1068,7 @@ export default function FloorPlanScreen() {
                         width={tableWidth}
                         height={tableHeight}
                         isBlocked={table.isBlocked}
-                        server={
-                          table.status === 'occupied'
-                            ? serverBadgeForTable(table.server, table.serverId)
-                            : undefined
-                        }
-                        sectionColor={getSectionColor(floorMap.tables[table.id]?.section)}
+                        server={serverBadgeForTable(table.server, table.serverId)}
                         onPress={() =>
                           handleTablePress(table.id, tableRefs.current[table.id] ?? null)
                         }

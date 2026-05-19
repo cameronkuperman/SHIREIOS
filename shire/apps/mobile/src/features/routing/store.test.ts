@@ -37,6 +37,21 @@ describe('waiter routing resolution', () => {
     expect(resolveWaiterIdForTable(baseRouting, 'T1', 'Patio')).toBe('backend-next');
   });
 
+  it('uses table assignments before section assignments', () => {
+    expect(
+      resolveWaiterIdForTable(
+        {
+          ...baseRouting,
+          tableAssignments: { T2: 'explicit' },
+          nextUpByTable: {},
+          nextUpBySection: {},
+        },
+        'T2',
+        'Patio',
+      ),
+    ).toBe('explicit');
+  });
+
   it('uses backend section recommendations before static section assignments', () => {
     expect(resolveWaiterIdForTable(baseRouting, 'T2', 'Patio')).toBe('backend-section');
   });
