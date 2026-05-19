@@ -1,6 +1,12 @@
 import { useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { RoutingWaiter, ShiftStartGroup, WaiterRoutingState } from '@shire/shared';
+import type {
+  FloorMap,
+  RoutingWaiter,
+  ShiftStartGroup,
+  WaiterRoutingMode,
+  WaiterRoutingState,
+} from '@shire/shared';
 import { create } from 'zustand';
 import { queryKeys } from '@/services/api/queryKeys';
 import { toWaiterRoutingUpdatePayload, updateWaiterRouting } from './api';
@@ -36,6 +42,12 @@ export interface WaiterCardData extends WaiterChipData {
   lastAssignedAt: string | null;
 }
 
+export type RoutingModeSwitchWarning = {
+  code: 'active_waiters_without_sections' | 'sections_without_waiters' | 'no_floor_sections';
+  message: string;
+  names: string[];
+};
+
 type WaiterRoutingStoreState = {
   locationId: string | null;
   routing: WaiterRoutingState | null;
@@ -52,6 +64,86 @@ type WaiterRoutingStoreState = {
 
 function dedupe(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function normalizeSectionLabel(section: string | null | undefined): string {
+  return (section ?? '').trim().replace(/\s+/g, ' ');
+}
+
+export function getFloorSectionLabels(floorMap: FloorMap): string[] {
+  const activePlan =
+    floorMap.activeSectionPlanId && floorMap.sectionPlans
+      ? floorMap.sectionPlans.find((plan) => plan.planId === floorMap.activeSectionPlanId)
+      : null;
+  const planSections = activePlan?.sections
+    .map((section) => normalizeSectionLabel(section.sectionId))
+    .filter(Boolean);
+
+  if (planSections && planSections.length > 0) {
+    return planSections.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  return dedupe(
+    Object.values(floorMap.tables).map((table) => normalizeSectionLabel(table.section)),
+  ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+export function getRoutingModeSwitchWarnings(
+  routing: WaiterRoutingState,
+  floorMap: FloorMap,
+  nextMode: WaiterRoutingMode,
+): RoutingModeSwitchWarning[] {
+  if (nextMode !== 'section') {
+    return [];
+  }
+
+  const warnings: RoutingModeSwitchWarning[] = [];
+  const sectionLabels = getFloorSectionLabels(floorMap);
+  if (sectionLabels.length === 0) {
+    warnings.push({
+      code: 'no_floor_sections',
+      message: 'No floor sections are configured yet.',
+      names: [],
+    });
+  }
+
+  const activeWaiterIdSet = new Set(routing.activeWaiterIds);
+  const activeSectionSet = new Set(sectionLabels);
+  const assignedSectionByWaiter = new Map<string, string[]>();
+  for (const [sectionId, waiterId] of Object.entries(routing.sectionAssignments)) {
+    if (!activeWaiterIdSet.has(waiterId)) continue;
+    if (activeSectionSet.size > 0 && !activeSectionSet.has(sectionId)) continue;
+    assignedSectionByWaiter.set(waiterId, [
+      ...(assignedSectionByWaiter.get(waiterId) ?? []),
+      sectionId,
+    ]);
+  }
+
+  const waitersWithoutSections = routing.waiters
+    .filter((waiter) => activeWaiterIdSet.has(waiter.id) && !assignedSectionByWaiter.has(waiter.id))
+    .map((waiter) => waiter.name)
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (waitersWithoutSections.length > 0) {
+    warnings.push({
+      code: 'active_waiters_without_sections',
+      message: 'Some active waiters do not own a section.',
+      names: waitersWithoutSections,
+    });
+  }
+
+  const unassignedSections = sectionLabels.filter((sectionId) => {
+    const waiterId = routing.sectionAssignments[sectionId];
+    return !waiterId || !activeWaiterIdSet.has(waiterId);
+  });
+  if (unassignedSections.length > 0) {
+    warnings.push({
+      code: 'sections_without_waiters',
+      message: 'Some floor sections do not have an active waiter.',
+      names: unassignedSections,
+    });
+  }
+
+  return warnings;
 }
 
 function pruneAssignments(
@@ -511,6 +603,15 @@ export function useWaiterRoutingActions() {
     [persistRouting],
   );
 
+  const setRoutingMode = useCallback(
+    async (mode: WaiterRoutingMode) =>
+      persistRouting((current) => ({
+        ...current,
+        mode,
+      })),
+    [persistRouting],
+  );
+
   const moveWaiter = useCallback(
     async (waiterId: string, direction: 'up' | 'down') =>
       persistRouting((current) => {
@@ -621,6 +722,7 @@ export function useWaiterRoutingActions() {
     assignTable,
     setWaiterActive,
     setNextWaiter,
+    setRoutingMode,
     moveWaiter,
     setShiftStartGroups,
     setGratThreshold,

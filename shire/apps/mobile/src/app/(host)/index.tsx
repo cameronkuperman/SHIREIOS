@@ -16,7 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { MOCK_WAITERS } from '@/features/routing/mockWaiters';
 import {
   DEFAULT_FLOOR_MAP,
-  DEFAULT_FLOOR_ID,
   getSectionColor,
   useFloorActions,
   useFloorConnectionState,
@@ -24,9 +23,7 @@ import {
   useFloorTablesByRoom,
   useTableDetails,
 } from '@/features/floor';
-import { useAuth } from '@/features/auth';
 import { AddPartyModal } from '@/components/AddPartyModal';
-import { HostDiagnosticsModal } from '@/components/HostDiagnosticsModal';
 import { FloorRoomPill, type FloorRoomOption } from '@/components/FloorRoomPill';
 import { FloorStatusBar } from '@/components/FloorStatusBar';
 import { HostPersonDetailSheet } from '@/components/HostPersonDetailSheet';
@@ -37,7 +34,6 @@ import { Table } from '@/components/Table';
 import { TablePopover } from '@/components/TablePopover';
 import { WaitlistCard } from '@/components/WaitlistCard';
 import { Panel, SegmentedControl } from '@/components/ui';
-import { getAppVersionLabel, getOrCreateDeviceId } from '@/lib/device';
 import {
   type HostSidebarParty,
   useActiveWaitlistEntries,
@@ -49,15 +45,16 @@ import {
 import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
 import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import {
+  getRoutingModeSwitchWarnings,
   getWaiterById,
   resolveWaiterForTable,
   resolveWaiterIdForTable,
+  useWaiterRoutingActions,
   useWaiterChips,
   useWaiterColorMap,
   useWaiterRoutingState,
 } from '@/features/routing';
-import { useWorkdayStore } from '@/features/workday';
-import type { TableParty } from '@shire/shared';
+import type { TableParty, WaiterRoutingMode } from '@shire/shared';
 import { borderRadius, fontFamily, spacing, type StatusKey, textStyles, useTheme } from '@/theme';
 
 function toTableParty(party: HostSidebarParty): TableParty {
@@ -118,19 +115,23 @@ export default function FloorPlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const { currentLocation, userSession } = useAuth();
-  const { routing, isLoading: isRoutingLoading } = useWaiterRoutingState();
+  const {
+    routing,
+    isSaving: isRoutingSaving,
+  } = useWaiterRoutingState();
+  const { setRoutingMode } = useWaiterRoutingActions();
   const waiterColorMap = useWaiterColorMap();
   const waiterChips = useWaiterChips();
-  const endWorkday = useWorkdayStore((state) => state.endWorkday);
-  const workdayHref = '/workday' as Href;
   const rooms = useFloorTablesByRoom();
   const floorMap = useFloorStore((state) => state.floorMap);
+  const floorIdForCommands = useFloorStore((state) => state.floorId);
+  const queuePendingCommand = useFloorStore((state) => state.queuePendingCommand);
+  const rejectPendingCommand = useFloorStore((state) => state.rejectPendingCommand);
   const cctvSyncEnabled = useFloorStore((state) => state.cctvSyncEnabled);
   const setCctvSyncEnabled = useFloorStore((state) => state.setCctvSyncEnabled);
   const { seatParty, seatWalkIn, clearTable, markDirty, markClean, blockTable, unblockTable } =
     useFloorActions();
-  const { connectionState, syncError, lastSnapshotAt, floorId } = useFloorConnectionState();
+  const { connectionState, lastSnapshotAt } = useFloorConnectionState();
   const activeWaitlistEntries = useActiveWaitlistEntries();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const reservationBook = useReservationDayBook(today);
@@ -141,6 +142,7 @@ export default function FloorPlanScreen() {
   const [showSeatPartyModal, setShowSeatPartyModal] = useState(false);
   const [showShiftSetup, setShowShiftSetup] = useState(false);
   const markPendingSeat = usePendingSeatStore((state) => state.markPendingSeat);
+  const rollbackPendingSeat = usePendingSeatStore((state) => state.rollbackPendingSeat);
 
   const [activeFilter, setActiveFilter] = useState('All Rooms');
   const [sizeFilters] = useState<TableSizeBucket[]>([]);
@@ -152,7 +154,6 @@ export default function FloorPlanScreen() {
     id: string;
   } | null>(null);
   const [popover, setPopover] = useState<{ tableId: string; layout: LayoutRectangle } | null>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [mapSize, setMapSize] = useState<{ width: number; height: number }>({
     width: 0,
     height: 0,
@@ -313,6 +314,49 @@ export default function FloorPlanScreen() {
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }, [routing, allTablesFlat, floorMap.tables]);
+
+  const routingModeLabel = routing?.mode === 'section' ? 'Sections' : 'Rotation';
+  const routingModeIcon = routing?.mode === 'section' ? 'grid-outline' : 'repeat-outline';
+  const routingModeSwitchLabel =
+    routing?.mode === 'section' ? 'Switch to rotation' : 'Switch to sections';
+
+  const commitRoutingMode = useCallback(
+    (mode: WaiterRoutingMode) => {
+      setRoutingMode(mode).catch((error) => {
+        Alert.alert(
+          'Mode switch failed',
+          error instanceof Error ? error.message : 'Could not change the seating mode.',
+        );
+      });
+    },
+    [setRoutingMode],
+  );
+
+  const handleToggleRoutingMode = useCallback(() => {
+    if (!routing || isRoutingSaving) return;
+    const nextMode: WaiterRoutingMode = routing.mode === 'section' ? 'manual_rotation' : 'section';
+    const warnings = getRoutingModeSwitchWarnings(routing, floorMap, nextMode);
+    if (warnings.length === 0) {
+      commitRoutingMode(nextMode);
+      return;
+    }
+
+    const warningText = warnings
+      .map((warning) => {
+        if (warning.names.length === 0) return warning.message;
+        return `${warning.message}\n${warning.names.join(', ')}`;
+      })
+      .join('\n\n');
+
+    Alert.alert(
+      'Switch to Sections?',
+      `${warningText}\n\nSeating will still work, but unassigned sections may fall back to rotation.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Switch Anyway', onPress: () => commitRoutingMode(nextMode) },
+      ],
+    );
+  }, [commitRoutingMode, floorMap, isRoutingSaving, routing]);
 
   const serverBadgeForTable = useCallback(
     (serverName?: string, serverId?: string | null) => {
@@ -530,21 +574,37 @@ export default function FloorPlanScreen() {
       seatWaiterId ?? resolveDefaultSeatWaiterId(tableId, liveTable.section, selectedParty.size);
     if (selectedParty.source === 'reservations') {
       const commandId = createReservationSeatCommandId();
+      const requestedAt = new Date().toISOString();
+      queuePendingCommand({
+        type: 'seat_party',
+        commandId,
+        floorId: floorIdForCommands,
+        tableId,
+        requestedAt,
+        party: toTableParty(selectedParty),
+        ...(waiterId ? { waiterId } : {}),
+      });
+      markPendingSeat(commandId, {
+        entityId: selectedParty.id,
+        tableId,
+        source: selectedParty.source,
+      });
       try {
         await runReservationAction({
           reservationId: selectedParty.id,
           action: 'seat',
           input: waiterId ? { commandId, tableId, waiterId } : { commandId, tableId },
         });
-        markPendingSeat(commandId, {
-          entityId: selectedParty.id,
-          tableId,
-          source: selectedParty.source,
-        });
         setSeatWaiterId(null);
         setSelectedPartyId(null);
         setPopover(null);
       } catch (error) {
+        rollbackPendingSeat(commandId);
+        rejectPendingCommand(
+          commandId,
+          tableId,
+          error instanceof Error ? error.message : 'Reservation could not be seated.',
+        );
         Alert.alert(
           'Unable to Seat Reservation',
           error instanceof Error ? error.message : 'Reservation could not be seated.',
@@ -674,22 +734,6 @@ export default function FloorPlanScreen() {
       />
     ) : null;
 
-  const diagnosticsItems = [
-    { label: 'Location', value: currentLocation?.name ?? 'Not selected' },
-    { label: 'Floor', value: floorId || DEFAULT_FLOOR_ID },
-    { label: 'Signed In As', value: userSession?.user?.email ?? 'Unknown' },
-    { label: 'Connection', value: connectionLabel },
-    { label: 'CCTV Sync', value: cctvSyncEnabled ? 'On' : 'Off' },
-    { label: 'Snapshot Age', value: lastSnapshotAt ?? 'Never synced' },
-    {
-      label: 'Routing',
-      value: routing?.updatedAt ?? (isRoutingLoading ? 'Loading' : 'Unavailable'),
-    },
-    { label: 'Device ID', value: getOrCreateDeviceId() },
-    { label: 'App Version', value: getAppVersionLabel() },
-    { label: 'API Error', value: syncError ?? 'None' },
-  ];
-
   const leftParties = leftTab === 'waitlist' ? waitlistParties : reservationParties;
 
   return (
@@ -773,6 +817,36 @@ export default function FloorPlanScreen() {
               {cctvSyncEnabled ? 'CCTV' : 'CCTV Off'}
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.72}
+            accessibilityRole="button"
+            accessibilityLabel={routingModeSwitchLabel}
+            disabled={!routing || isRoutingSaving}
+            onPress={handleToggleRoutingMode}
+            style={[
+              styles.routingModeBadge,
+              {
+                backgroundColor:
+                  routing?.mode === 'section' ? colors.accentLight : colors.surface.level1,
+                borderColor: routing?.mode === 'section' ? colors.accent : colors.border.default,
+                opacity: !routing || isRoutingSaving ? 0.58 : 1,
+              },
+            ]}
+          >
+            <Ionicons
+              name={routingModeIcon}
+              size={14}
+              color={routing?.mode === 'section' ? colors.accent : colors.text.secondary}
+            />
+            <Text
+              style={[
+                styles.routingModeLabel,
+                { color: routing?.mode === 'section' ? colors.accent : colors.text.secondary },
+              ]}
+            >
+              {isRoutingSaving ? 'Mode: Saving' : `Mode: ${routingModeLabel}`}
+            </Text>
+          </TouchableOpacity>
           {[
             { icon: 'add-circle-outline' as const, onPress: () => setShowSeatPartyModal(true) },
             {
@@ -783,7 +857,6 @@ export default function FloorPlanScreen() {
               icon: 'map-outline' as const,
               onPress: () => router.push('/floor-builder' as Href),
             },
-            { icon: 'bug-outline' as const, onPress: () => setShowDiagnostics(true) },
             {
               icon: 'settings-outline' as const,
               onPress: () => router.push('/settings' as Href),
@@ -1123,22 +1196,6 @@ export default function FloorPlanScreen() {
 
       <SeatPartyModal visible={showSeatPartyModal} onClose={() => setShowSeatPartyModal(false)} />
       <ShiftSetupSheet visible={showShiftSetup} onClose={() => setShowShiftSetup(false)} />
-      <HostDiagnosticsModal
-        visible={showDiagnostics}
-        onClose={() => setShowDiagnostics(false)}
-        items={diagnosticsItems}
-        secondaryActionLabel="Edit Floor Map"
-        onSecondaryAction={() => {
-          setShowDiagnostics(false);
-          router.push('/floor-builder' as Href);
-        }}
-        actionLabel="End Workday"
-        onAction={() => {
-          setShowDiagnostics(false);
-          endWorkday();
-          router.replace(workdayHref);
-        }}
-      />
     </View>
   );
 }
@@ -1185,6 +1242,20 @@ const styles = StyleSheet.create({
   },
   connectionDot: { width: 7, height: 7, borderRadius: 4 },
   connectionText: { ...textStyles.captionMedium },
+  routingModeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 132,
+    height: 32,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.pill,
+    borderWidth: 1,
+  },
+  routingModeLabel: {
+    ...textStyles.captionMedium,
+    fontWeight: '800',
+  },
   iconButton: {
     width: 32,
     height: 32,

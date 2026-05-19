@@ -10,12 +10,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
+import { HostDiagnosticsModal } from '@/components/HostDiagnosticsModal';
 import { useAuth } from '@/features/auth';
+import { DEFAULT_FLOOR_ID, useFloorConnectionState, useFloorStore } from '@/features/floor';
 import { useReservationSettings } from '@/features/host/hooks';
 import { useTemplates } from '@/features/messaging/hooks';
 import { useBlackouts } from '@/features/blackouts/hooks';
-import { useWaiters } from '@/features/routing';
+import { useWaiterRoutingState, useWaiters } from '@/features/routing';
 import { useWorkdayStore } from '@/features/workday';
+import { getAppVersionLabel, getOrCreateDeviceId } from '@/lib/device';
 import { borderRadius, shadows, spacing, textStyles, useTheme } from '@/theme';
 
 type SettingsRowProps = {
@@ -86,6 +89,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+function formatConnectionLabel(connectionState: string, hasSnapshot: boolean) {
+  if (connectionState === 'error' || connectionState === 'disconnected') return 'Manual';
+  if (connectionState === 'connected' && hasSnapshot) return 'Synced';
+  return 'Syncing';
+}
+
 export default function SettingsHomeScreen() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -97,17 +106,37 @@ export default function SettingsHomeScreen() {
     signOut,
     refetchLocations,
   } = useAuth();
+  const [showDiagnostics, setShowDiagnostics] = React.useState(false);
   const endWorkday = useWorkdayStore((state) => state.endWorkday);
   const reservationSettings = useReservationSettings();
   const templates = useTemplates();
   const blackouts = useBlackouts(true);
   const waiters = useWaiters(currentLocation?.id);
+  const { routing, isLoading: isRoutingLoading } = useWaiterRoutingState();
+  const cctvSyncEnabled = useFloorStore((state) => state.cctvSyncEnabled);
+  const { connectionState, syncError, lastSnapshotAt, floorId } = useFloorConnectionState();
 
   const activeTemplates = (templates.data ?? []).filter((template) => template.active).length;
   const activeBlackouts = (blackouts.data ?? []).filter((blackout) => !blackout.archivedAt).length;
   const bookingSummary = reservationSettings
     ? `${reservationSettings.bookingHorizonDays}d horizon`
     : 'Not loaded';
+  const connectionLabel = formatConnectionLabel(connectionState, Boolean(lastSnapshotAt));
+  const diagnosticsItems = [
+    { label: 'Location', value: currentLocation?.name ?? 'Not selected' },
+    { label: 'Floor', value: floorId || DEFAULT_FLOOR_ID },
+    { label: 'Signed In As', value: userSession?.user?.email ?? 'Unknown' },
+    { label: 'Connection', value: connectionLabel },
+    { label: 'CCTV Sync', value: cctvSyncEnabled ? 'On' : 'Off' },
+    { label: 'Snapshot Age', value: lastSnapshotAt ?? 'Never synced' },
+    {
+      label: 'Routing',
+      value: routing?.updatedAt ?? (isRoutingLoading ? 'Loading' : 'Unavailable'),
+    },
+    { label: 'Device ID', value: getOrCreateDeviceId() },
+    { label: 'App Version', value: getAppVersionLabel() },
+    { label: 'API Error', value: syncError ?? 'None' },
+  ];
 
   const handleEndWorkday = () => {
     Alert.alert('End Workday?', 'This returns the host stand to the start-of-shift screen.', [
@@ -274,6 +303,12 @@ export default function SettingsHomeScreen() {
             href="/(host)/waitlist"
           />
           <SettingsRow
+            label="Diagnostics"
+            sub="Sync, routing, device, and API status"
+            icon="bug-outline"
+            onPress={() => setShowDiagnostics(true)}
+          />
+          <SettingsRow
             label="End Workday"
             sub="Close the current device session"
             icon="stop-circle-outline"
@@ -297,6 +332,22 @@ export default function SettingsHomeScreen() {
           />
         </Section>
       </ScrollView>
+      <HostDiagnosticsModal
+        visible={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+        items={diagnosticsItems}
+        secondaryActionLabel="Edit Floor Map"
+        onSecondaryAction={() => {
+          setShowDiagnostics(false);
+          router.push('/floor-builder' as Href);
+        }}
+        actionLabel="End Workday"
+        onAction={() => {
+          setShowDiagnostics(false);
+          endWorkday();
+          router.replace('/workday' as Href);
+        }}
+      />
     </SafeAreaView>
   );
 }

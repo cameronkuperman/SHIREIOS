@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -80,8 +81,14 @@ export function ShiftSetupSheet({
   const router = useRouter();
   const isInline = presentation === 'inline';
   const { routing, locationId, isSaving } = useWaiterRoutingState();
-  const { persistRouting, setWaiterActive, assignSection, setShiftStartGroups, setGratThreshold } =
-    useWaiterRoutingActions();
+  const {
+    persistRouting,
+    setWaiterActive,
+    assignSection,
+    setRoutingMode,
+    setShiftStartGroups,
+    setGratThreshold,
+  } = useWaiterRoutingActions();
   const { waiters: roster } = useWaiters(locationId);
   const waiterColorMap = useWaiterColorMap();
   const floorMap = useFloorStore((state) => state.floorMap);
@@ -187,9 +194,7 @@ export function ShiftSetupSheet({
 
   const handleSetMode = (mode: WaiterRoutingMode) => {
     if (!routing || routing.mode === mode) return;
-    persistRouting((current) => ({ ...current, mode })).catch(
-      reportError('Could not change the seating mode.'),
-    );
+    setRoutingMode(mode).catch(reportError('Could not change the seating mode.'));
   };
 
   const handleToggleWaiter = (waiter: (typeof shiftWaiters)[number]) => {
@@ -746,7 +751,9 @@ export function ShiftSetupSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>{content}</View>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <View onStartShouldSetResponder={() => true}>{content}</View>
+      </Pressable>
     </Modal>
   );
 }

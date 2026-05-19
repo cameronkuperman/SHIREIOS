@@ -137,6 +137,32 @@ describe('floor state reducers', () => {
     expect(nextState.tablesById['2']?.displayStatus).toBe('occupied');
   });
 
+  it('keeps reservation and waiter identity in optimistic seating state', () => {
+    const state = createBaseState();
+    const optimisticState = {
+      ...state,
+      ...queuePendingCommandState(state, {
+        type: 'seat_party',
+        commandId: 'reservation-seat-1',
+        floorId: DEFAULT_FLOOR_ID,
+        tableId: '2',
+        requestedAt: '2026-03-07T12:00:00.000Z',
+        waiterId: 'waiter-1',
+        party: {
+          id: 'reservation-1',
+          name: 'Morgan',
+          size: 4,
+          source: 'reservations',
+        },
+      }),
+    };
+
+    expect(optimisticState.tablesById['2']?.displayStatus).toBe('occupied');
+    expect(optimisticState.tablesById['2']?.party?.name).toBe('Morgan');
+    expect(optimisticState.tablesById['2']?.currentReservationId).toBe('reservation-1');
+    expect(optimisticState.tablesById['2']?.currentWaiterId).toBe('waiter-1');
+  });
+
   it('keeps the optimistic host table state when an ML update arrives for the same table', () => {
     const state = createBaseState();
     const optimisticState = {

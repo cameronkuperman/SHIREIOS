@@ -432,6 +432,9 @@ function applyOptimisticCommandToTable(
           isBlocked: false,
           currentPartySize: command.party.size,
           currentWaitlistEntryId: command.party.source === 'waitlist' ? command.party.id : null,
+          currentReservationId:
+            command.party.source === 'reservations' ? command.party.id : null,
+          currentWaiterId: command.waiterId ?? table.currentWaiterId ?? null,
         },
         command,
       );

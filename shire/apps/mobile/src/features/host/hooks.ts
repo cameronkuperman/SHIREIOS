@@ -46,7 +46,6 @@ import {
   type WaitlistAction,
 } from './api';
 import { selectActiveWaitlistEntries, upsertReservation, upsertWaitlistEntry } from './contracts';
-import { usePendingSeatStore } from './pendingSeatStore';
 import { getReservationSourceLabel } from './source';
 
 const FALLBACK_WAITLIST_REFETCH_MS = 15_000;
@@ -73,17 +72,6 @@ export interface HostSidebarParty {
 
 function isReservationVisibleOnHost(reservation: Reservation): boolean {
   return !['seated', 'completed', 'canceled', 'no_show'].includes(reservation.status);
-}
-
-function getPendingSeatIds(
-  pendingSeats: Record<string, { entityId: string; tableId: string; source: HostSidebarSource }>,
-  source?: HostSidebarSource,
-) {
-  return new Set(
-    Object.values(pendingSeats)
-      .filter((entry) => !source || entry.source === source)
-      .map((entry) => entry.entityId),
-  );
 }
 
 function useLocationId(): string | null {
@@ -150,7 +138,6 @@ export function reservationToSidebarParty(reservation: Reservation): HostSidebar
 export function useWaitlist() {
   const locationId = useLocationId();
   const isWorkdayActive = useIsWorkdayActive(locationId);
-  const pendingSeats = usePendingSeatStore((state) => state.pendingSeats);
   const queryClient = useQueryClient();
   const queryRef = useRef<() => void>(() => undefined);
   const polling = usePolling(() => queryRef.current(), {
@@ -164,10 +151,6 @@ export function useWaitlist() {
     queryFn: () => fetchWaitlist(locationId!),
     enabled: !!locationId && isWorkdayActive,
     ...polling,
-    select: (entries) => {
-      const pendingWaitlistIds = getPendingSeatIds(pendingSeats, 'waitlist');
-      return entries.filter((entry) => !pendingWaitlistIds.has(entry.id));
-    },
   });
 
   queryRef.current = () => {
@@ -302,7 +285,6 @@ export function useWaitlistMutations() {
 export function useReservations(filters: ReservationListFilters = {}) {
   const locationId = useLocationId();
   const isWorkdayActive = useIsWorkdayActive(locationId);
-  const pendingSeats = usePendingSeatStore((state) => state.pendingSeats);
   const queryRef = useRef<() => void>(() => undefined);
   const polling = usePolling(() => queryRef.current(), {
     foregroundMs: FALLBACK_RESERVATIONS_REFETCH_MS,
@@ -317,10 +299,6 @@ export function useReservations(filters: ReservationListFilters = {}) {
     queryFn: () => fetchReservations(locationId!, filters),
     enabled: !!locationId && isWorkdayActive,
     ...polling,
-    select: (reservations) => {
-      const pendingReservationIds = getPendingSeatIds(pendingSeats, 'reservations');
-      return reservations.filter((reservation) => !pendingReservationIds.has(reservation.id));
-    },
   });
 
   queryRef.current = () => {

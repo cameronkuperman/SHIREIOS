@@ -1,4 +1,4 @@
-import type { WaiterRoutingState } from '@shire/shared';
+import type { FloorMap, WaiterRoutingState } from '@shire/shared';
 
 jest.mock('./api', () => ({
   toWaiterRoutingUpdatePayload: jest.fn(),
@@ -13,7 +13,11 @@ jest.mock('@/services/api/queryKeys', () => ({
   },
 }));
 
-import { resolveWaiterIdForTable } from './store';
+import {
+  getFloorSectionLabels,
+  getRoutingModeSwitchWarnings,
+  resolveWaiterIdForTable,
+} from './store';
 
 const baseRouting: WaiterRoutingState = {
   mode: 'section',
@@ -35,5 +39,140 @@ describe('waiter routing resolution', () => {
 
   it('uses backend section recommendations before static section assignments', () => {
     expect(resolveWaiterIdForTable(baseRouting, 'T2', 'Patio')).toBe('backend-section');
+  });
+});
+
+const floorMap: FloorMap = {
+  floorId: 'floor-1',
+  mapVersion: 'test',
+  rooms: [],
+  tables: {
+    T1: {
+      tableId: 'T1',
+      tableNumber: '1',
+      roomId: 'main',
+      section: 'Patio',
+      capacity: 4,
+      shape: 'circle',
+      type: 'regular',
+    },
+    T2: {
+      tableId: 'T2',
+      tableNumber: '2',
+      roomId: 'main',
+      section: 'Main',
+      capacity: 4,
+      shape: 'circle',
+      type: 'regular',
+    },
+  },
+};
+
+const shiftRouting: WaiterRoutingState = {
+  ...baseRouting,
+  waiters: [
+    {
+      id: 'section',
+      name: 'Jamie',
+      isTemporary: false,
+      status: 'available',
+      isActive: true,
+      assignedSectionIds: [],
+      assignedTableIds: [],
+      currentTableIds: [],
+      servedTableIds: [],
+      liveTables: 0,
+      servedSeatingCount: 0,
+      lastAssignedAt: null,
+    },
+    {
+      id: 'fallback',
+      name: 'Skylar',
+      isTemporary: false,
+      status: 'available',
+      isActive: true,
+      assignedSectionIds: [],
+      assignedTableIds: [],
+      currentTableIds: [],
+      servedTableIds: [],
+      liveTables: 0,
+      servedSeatingCount: 0,
+      lastAssignedAt: null,
+    },
+  ],
+  activeWaiterIds: ['section', 'fallback'],
+  sectionAssignments: { Patio: 'section' },
+  nextUpByTable: {},
+  nextUpBySection: {},
+};
+
+describe('routing mode switch warnings', () => {
+  it('uses active section plans before table sections', () => {
+    expect(
+      getFloorSectionLabels({
+        ...floorMap,
+        sectionPlans: [
+          {
+            planId: 'plan-1',
+            name: 'Two Waiters',
+            waiterCount: 2,
+            sections: [
+              { sectionId: 'Front', tableIds: [] },
+              { sectionId: 'Back', tableIds: [] },
+            ],
+          },
+        ],
+        activeSectionPlanId: 'plan-1',
+      }),
+    ).toEqual(['Back', 'Front']);
+  });
+
+  it('warns before switching to sections when a waiter and section are unassigned', () => {
+    const warnings = getRoutingModeSwitchWarnings(shiftRouting, floorMap, 'section');
+
+    expect(warnings).toEqual([
+      {
+        code: 'active_waiters_without_sections',
+        message: 'Some active waiters do not own a section.',
+        names: ['Skylar'],
+      },
+      {
+        code: 'sections_without_waiters',
+        message: 'Some floor sections do not have an active waiter.',
+        names: ['Main'],
+      },
+    ]);
+  });
+
+  it('does not count stale assignments outside the active section plan', () => {
+    const warnings = getRoutingModeSwitchWarnings(
+      shiftRouting,
+      {
+        ...floorMap,
+        sectionPlans: [
+          {
+            planId: 'plan-1',
+            name: 'Two Waiters',
+            waiterCount: 2,
+            sections: [
+              { sectionId: 'Front', tableIds: [] },
+              { sectionId: 'Back', tableIds: [] },
+            ],
+          },
+        ],
+        activeSectionPlanId: 'plan-1',
+      },
+      'section',
+    );
+
+    expect(warnings.find((warning) => warning.code === 'active_waiters_without_sections')).toEqual({
+      code: 'active_waiters_without_sections',
+      message: 'Some active waiters do not own a section.',
+      names: ['Jamie', 'Skylar'],
+    });
+  });
+
+  it('does not warn when switching back to rotation', () => {
+    expect(getRoutingModeSwitchWarnings(shiftRouting, floorMap, 'manual_rotation')).toEqual([]);
   });
 });

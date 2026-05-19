@@ -1,6 +1,8 @@
 export { WaiterRoutingProvider } from './provider';
 export {
   WAITER_COLORS,
+  getFloorSectionLabels,
+  getRoutingModeSwitchWarnings,
   getWaiterById,
   getWaiterColor,
   resolveWaiterForTable,
@@ -12,7 +14,7 @@ export {
   useWaiterRoutingState,
   useWaiterRoutingStore,
 } from './store';
-export type { WaiterCardData, WaiterChipData } from './store';
+export type { RoutingModeSwitchWarning, WaiterCardData, WaiterChipData } from './store';
 export { useWaiters } from './useWaiters';
 export type { UseWaitersResult } from './useWaiters';
 export type { RosterWaiter } from './api';

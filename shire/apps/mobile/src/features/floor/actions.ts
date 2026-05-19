@@ -1,5 +1,6 @@
 import type { TableCommand, TableParty } from '@shire/shared';
 import { useAuthStore } from '@/features/auth';
+import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
 import { useFloorStore } from './store';
 import { getActiveFloorTransport } from './transport';
 import { createCommandId, createSeatPartyCommand, createSeatWalkInCommand } from './commands';
@@ -46,9 +47,20 @@ async function sendCommandOverHttp(command: TableCommand): Promise<void> {
     );
     for (const message of messages) {
       useFloorStore.getState().applyStreamMessage(message);
+      if (message.type === 'command.rejected') {
+        usePendingSeatStore.getState().rollbackPendingSeat(message.commandId);
+      }
+      if (
+        (message.type === 'table.updated' || message.type === 'table.batch_updated') &&
+        message.commandId
+      ) {
+        usePendingSeatStore.getState().confirmPendingSeat(message.commandId);
+      }
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Backend command fallback failed.';
+    floorStore.rejectPendingCommand(command.commandId, command.tableId, reason);
+    usePendingSeatStore.getState().rollbackPendingSeat(command.commandId);
     useFloorStore
       .getState()
       .setSyncError(`Table update is queued and will retry when the floor socket reconnects. ${reason}`);
