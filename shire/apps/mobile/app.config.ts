@@ -2,12 +2,15 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
 
 import packageJson from './package.json';
 
+const EAS_PROJECT_ID = '1677c008-860a-4fac-aaad-886d99e001a0';
+
 export default ({ config }: ConfigContext): ExpoConfig => {
   const extra = { ...(config.extra ?? {}) } as Record<string, unknown>;
+  const easProjectId = process.env.EXPO_EAS_PROJECT_ID ?? EAS_PROJECT_ID;
 
-  if (process.env.EXPO_EAS_PROJECT_ID) {
+  if (easProjectId) {
     extra.eas = {
-      projectId: process.env.EXPO_EAS_PROJECT_ID,
+      projectId: easProjectId,
     };
   }
 
@@ -23,8 +26,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
+      requireFullScreen: true,
       bundleIdentifier: process.env.EXPO_IOS_BUNDLE_IDENTIFIER ?? 'com.shire.mobile',
-      buildNumber: process.env.EXPO_IOS_BUILD_NUMBER ?? '1',
+      infoPlist: {
+        ITSAppUsesNonExemptEncryption: false,
+      },
       ...(process.env.EXPO_APPLE_TEAM_ID
         ? { appleTeamId: process.env.EXPO_APPLE_TEAM_ID }
         : {}),
@@ -53,6 +59,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       typedRoutes: true,
       reactCompiler: true,
       baseUrl: '',
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
+    updates: {
+      url: `https://u.expo.dev/${easProjectId}`,
     },
     extra,
   };

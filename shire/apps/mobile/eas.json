@@ -1,11 +1,17 @@
 {
   "cli": {
-    "version": ">= 13.0.0"
+    "version": ">= 13.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal"
+    },
+    "internal": {
+      "distribution": "internal",
+      "channel": "production",
+      "autoIncrement": true
     },
     "staging": {
       "channel": "staging"

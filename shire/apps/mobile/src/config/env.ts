@@ -20,6 +20,7 @@ const wsUrl =
   process.env.EXPO_PUBLIC_WS_URL ?? 'wss://web-production-5c5b4.up.railway.app';
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const defaultAppEnv = process.env.NODE_ENV === 'production' ? 'production' : 'development';
 
 export const env = {
   API_URL: apiUrl,
@@ -27,7 +28,7 @@ export const env = {
   SUPABASE_URL: supabaseUrl,
   SUPABASE_ANON_KEY: supabaseAnonKey,
   SENTRY_DSN: process.env.EXPO_PUBLIC_SENTRY_DSN ?? '',
-  APP_ENV: (process.env.EXPO_PUBLIC_APP_ENV ?? 'development') as
+  APP_ENV: (process.env.EXPO_PUBLIC_APP_ENV ?? defaultAppEnv) as
     | 'development'
     | 'staging'
     | 'production',
