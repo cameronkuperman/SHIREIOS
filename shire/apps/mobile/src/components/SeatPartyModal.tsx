@@ -7,11 +7,11 @@ import {
   Modal,
   Pressable,
   TouchableOpacity,
-  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { textStyles, spacing, shadows, borderRadius, useTheme } from '@/theme';
 import { GlassSurface } from './GlassSurface';
+import { HostTextField } from './HostTextField';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
 import { useAvailableTables, useFloorActions, useFloorStore } from '@/features/floor';
 import { resolveWaiterIdForTable, useWaiterRoutingState } from '@/features/routing';
@@ -50,13 +50,22 @@ export function SeatPartyModal({ visible, onClose }: SeatPartyModalProps) {
 
   const handleSeat = () => {
     if (!selectedTable) return;
+    const table = availableTables.find((item) => item.id === selectedTable);
     const sectionId = floorMap.tables[selectedTable]?.section ?? null;
-    const waiterId = resolveWaiterIdForTable(routing, selectedTable, sectionId);
+    const size = parseInt(partySize, 10) || 2;
+    const waiterId = resolveWaiterIdForTable(
+      routing,
+      selectedTable,
+      sectionId,
+      table?.backendTableId,
+      size,
+    );
     const result = seatWalkIn(
       selectedTable,
       partyName,
-      parseInt(partySize, 10) || 2,
+      size,
       waiterId ?? undefined,
+      table?.backendTableId,
     );
     if (!result.ok) return;
     reset();
@@ -107,46 +116,22 @@ export function SeatPartyModal({ visible, onClose }: SeatPartyModalProps) {
               <View style={styles.inputRow}>
                 <View style={styles.inputGroup}>
                   <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Name</Text>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.glass.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="person-outline" size={18} color={colors.text.muted} />
-                    <TextInput
-                      style={[styles.input, { color: colors.text.primary }]}
-                      placeholder="Guest name"
-                      placeholderTextColor={colors.text.muted}
-                      value={partyName}
-                      onChangeText={setPartyName}
-                    />
-                  </View>
+                  <HostTextField
+                    iconName="person-outline"
+                    placeholder="Guest name"
+                    value={partyName}
+                    onChangeText={setPartyName}
+                  />
                 </View>
                 <View style={[styles.inputGroup, { flex: 0.4 }]}>
                   <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Size</Text>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.glass.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="people-outline" size={18} color={colors.text.muted} />
-                    <TextInput
-                      style={[styles.input, { color: colors.text.primary }]}
-                      placeholder="2"
-                      placeholderTextColor={colors.text.muted}
-                      keyboardType="number-pad"
-                      value={partySize}
-                      onChangeText={setPartySize}
-                    />
-                  </View>
+                  <HostTextField
+                    iconName="people-outline"
+                    placeholder="2"
+                    keyboardType="number-pad"
+                    value={partySize}
+                    onChangeText={setPartySize}
+                  />
                 </View>
               </View>
 
@@ -292,20 +277,6 @@ const styles = StyleSheet.create({
   inputLabel: {
     ...textStyles.caption,
     marginBottom: spacing.sm,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderWidth: 1,
-  },
-  input: {
-    flex: 1,
-    ...textStyles.body,
-    padding: 0,
   },
   availableTitle: {
     ...textStyles.label,

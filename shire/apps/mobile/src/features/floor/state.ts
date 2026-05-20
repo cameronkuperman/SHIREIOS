@@ -529,7 +529,8 @@ export function applyFloorSnapshotState(
     );
   }
 
-  const tableStateMode = snapshot.tableStateMode ?? state.tableStateMode ?? DEFAULT_TABLE_STATE_MODE;
+  const tableStateMode =
+    snapshot.tableStateMode ?? state.tableStateMode ?? DEFAULT_TABLE_STATE_MODE;
 
   return {
     floorId: snapshot.floorId,
@@ -860,33 +861,34 @@ function resolveRoutingWaiter(
     return null;
   }
 
-  const backendNextWaiterId =
-    (backendTableId ? routing.nextUpByTable?.[backendTableId] : undefined) ??
-    routing.nextUpByTable?.[tableId];
-  if (backendNextWaiterId) {
-    return getWaiterById(routing, backendNextWaiterId);
-  }
-
-  const backendSectionWaiterId = routing.nextUpBySection?.[sectionId];
-  if (backendSectionWaiterId) {
-    return getWaiterById(routing, backendSectionWaiterId);
-  }
+  const activeWaiterIds = new Set(routing.activeWaiterIds);
+  const byTable = (assignments: Record<string, string> | undefined) => {
+    const waiterId =
+      (backendTableId ? assignments?.[backendTableId] : undefined) ?? assignments?.[tableId];
+    return waiterId && activeWaiterIds.has(waiterId) ? waiterId : null;
+  };
+  const bySection = (assignments: Record<string, string> | undefined) => {
+    const waiterId = assignments?.[sectionId];
+    return waiterId && activeWaiterIds.has(waiterId) ? waiterId : null;
+  };
+  const nextWaiterId =
+    routing.nextWaiterId && activeWaiterIds.has(routing.nextWaiterId) ? routing.nextWaiterId : null;
 
   if (routing.mode === 'section') {
-    const explicitWaiterId =
-      (backendTableId ? routing.tableAssignments[backendTableId] : undefined) ??
-      routing.tableAssignments[tableId];
-    if (explicitWaiterId) {
-      return getWaiterById(routing, explicitWaiterId);
-    }
-
-    const sectionWaiterId = routing.sectionAssignments[sectionId];
-    if (sectionWaiterId) {
-      return getWaiterById(routing, sectionWaiterId);
-    }
+    return getWaiterById(
+      routing,
+      byTable(routing.tableAssignments) ??
+        bySection(routing.sectionAssignments) ??
+        byTable(routing.nextUpByTable) ??
+        bySection(routing.nextUpBySection) ??
+        nextWaiterId,
+    );
   }
 
-  return getWaiterById(routing, routing.nextWaiterId);
+  return getWaiterById(
+    routing,
+    byTable(routing.nextUpByTable) ?? bySection(routing.nextUpBySection) ?? nextWaiterId,
+  );
 }
 
 function toTableViewModel(
@@ -937,7 +939,7 @@ function toTableViewModel(
     isPending: isTablePending(pendingCommands, tableId),
     hasExplicitServerAssignment: Boolean(
       routing?.tableAssignments[tableId] ??
-        (liveTable.backendTableId ? routing?.tableAssignments[liveTable.backendTableId] : undefined),
+      (liveTable.backendTableId ? routing?.tableAssignments[liveTable.backendTableId] : undefined),
     ),
     isStale: isMlTableStale(liveTable, now),
     stateConfidence: liveTable.stateConfidence,

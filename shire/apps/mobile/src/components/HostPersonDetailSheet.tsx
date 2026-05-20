@@ -25,6 +25,7 @@ import type {
 import { getReservationSourceLabel } from '@/features/host/source';
 import { useFloorActions, useTableDetails } from '@/features/floor';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
+import { HostTextField } from './HostTextField';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
 
 type HostPersonDetailSheetProps = {
@@ -716,62 +717,26 @@ export function HostPersonDetailSheet({
 
               {reservation ? (
                 <>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.glass.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="person-outline" size={18} color={colors.text.muted} />
-                    <TextInput
-                      style={[styles.input, { color: colors.text.primary }]}
-                      placeholder="Guest name"
-                      placeholderTextColor={colors.text.muted}
-                      value={reservationGuestName}
-                      onChangeText={setReservationGuestName}
-                    />
-                  </View>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.glass.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="call-outline" size={18} color={colors.text.muted} />
-                    <TextInput
-                      style={[styles.input, { color: colors.text.primary }]}
-                      placeholder="Phone"
-                      placeholderTextColor={colors.text.muted}
-                      keyboardType="phone-pad"
-                      value={reservationGuestPhone}
-                      onChangeText={setReservationGuestPhone}
-                    />
-                  </View>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.glass.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="people-outline" size={18} color={colors.text.muted} />
-                    <TextInput
-                      style={[styles.input, { color: colors.text.primary }]}
-                      placeholder="Party size"
-                      placeholderTextColor={colors.text.muted}
-                      keyboardType="number-pad"
-                      value={reservationPartySize}
-                      onChangeText={setReservationPartySize}
-                    />
-                  </View>
+                  <HostTextField
+                    iconName="person-outline"
+                    placeholder="Guest name"
+                    value={reservationGuestName}
+                    onChangeText={setReservationGuestName}
+                  />
+                  <HostTextField
+                    iconName="call-outline"
+                    placeholder="Phone"
+                    keyboardType="phone-pad"
+                    value={reservationGuestPhone}
+                    onChangeText={setReservationGuestPhone}
+                  />
+                  <HostTextField
+                    iconName="people-outline"
+                    placeholder="Party size"
+                    keyboardType="number-pad"
+                    value={reservationPartySize}
+                    onChangeText={setReservationPartySize}
+                  />
                   <SeatingPreferencePicker
                     value={reservationPreference}
                     onChange={setReservationPreference}
@@ -844,44 +809,20 @@ export function HostPersonDetailSheet({
                       Name and phone edits still need backend support.
                     </Text>
                   </View>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.glass.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="people-outline" size={18} color={colors.text.muted} />
-                    <TextInput
-                      style={[styles.input, { color: colors.text.primary }]}
-                      placeholder="Party size"
-                      placeholderTextColor={colors.text.muted}
-                      keyboardType="number-pad"
-                      value={waitlistPartySize}
-                      onChangeText={setWaitlistPartySize}
-                    />
-                  </View>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      {
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.glass.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="timer-outline" size={18} color={colors.text.muted} />
-                    <TextInput
-                      style={[styles.input, { color: colors.text.primary }]}
-                      placeholder="Quoted wait minutes"
-                      placeholderTextColor={colors.text.muted}
-                      keyboardType="number-pad"
-                      value={waitlistQuoteMinutes}
-                      onChangeText={setWaitlistQuoteMinutes}
-                    />
-                  </View>
+                  <HostTextField
+                    iconName="people-outline"
+                    placeholder="Party size"
+                    keyboardType="number-pad"
+                    value={waitlistPartySize}
+                    onChangeText={setWaitlistPartySize}
+                  />
+                  <HostTextField
+                    iconName="timer-outline"
+                    placeholder="Quoted wait minutes"
+                    keyboardType="number-pad"
+                    value={waitlistQuoteMinutes}
+                    onChangeText={setWaitlistQuoteMinutes}
+                  />
                   <SeatingPreferencePicker
                     value={waitlistPreference}
                     onChange={setWaitlistPreference}
@@ -1086,22 +1027,8 @@ const styles = StyleSheet.create({
   actionButtonText: {
     ...textStyles.captionMedium,
   },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderWidth: 1,
-  },
-  input: {
-    flex: 1,
-    ...textStyles.body,
-    padding: 0,
-  },
   textArea: {
-    minHeight: 88,
+    minHeight: 96,
     borderRadius: borderRadius.md,
     borderWidth: 1,
     paddingHorizontal: spacing.md,

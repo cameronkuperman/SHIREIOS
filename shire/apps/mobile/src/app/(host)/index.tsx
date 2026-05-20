@@ -250,14 +250,8 @@ export default function FloorPlanScreen() {
     );
     const tablesByWaiter = new Map<string, typeof availableTables>();
     for (const table of availableTables) {
-      const backendNextWaiter = table.backendTableId
-        ? routing.nextUpByTable?.[table.backendTableId]
-        : undefined;
       const section = floorMap.tables[table.id]?.section ?? '';
-      const waiterId =
-        backendNextWaiter ??
-        routing.nextUpByTable?.[table.id] ??
-        routing.nextWaiterId;
+      const waiterId = resolveWaiterIdForTable(routing, table.id, section, table.backendTableId);
       if (!waiterId || !routing.activeWaiterIds.includes(waiterId)) continue;
       tablesByWaiter.set(waiterId, [...(tablesByWaiter.get(waiterId) ?? []), table]);
     }
@@ -543,7 +537,12 @@ export default function FloorPlanScreen() {
 
   const popoverResolvedWaiter = useMemo(() => {
     if (!popover || !liveTable) return null;
-    return resolveWaiterForTable(routing, popover.tableId, liveTable.section);
+    return resolveWaiterForTable(
+      routing,
+      popover.tableId,
+      liveTable.section,
+      liveTable.backendTableId,
+    );
   }, [liveTable, popover, routing]);
 
   useEffect(() => {
@@ -556,26 +555,26 @@ export default function FloorPlanScreen() {
     [waiterChips],
   );
   const resolveDefaultSeatWaiterId = useCallback(
-    (tableId: string, section?: string, partySize?: number | null) => {
+    (
+      tableId: string,
+      section?: string,
+      partySize?: number | null,
+      backendTableId?: string | null,
+    ) => {
       if (!routing) return null;
-      const threshold = routing.gratThreshold ?? 6;
-      if (partySize != null && partySize >= threshold) {
-        const gratWaiterId =
-          routing.nextGratByTable?.[tableId] ??
-          (section ? routing.nextGratBySection?.[section] : undefined) ??
-          routing.nextGratWaiterId;
-        if (gratWaiterId && routing.activeWaiterIds.includes(gratWaiterId)) {
-          return gratWaiterId;
-        }
-      }
-      return resolveWaiterIdForTable(routing, tableId, section);
+      return resolveWaiterIdForTable(routing, tableId, section, backendTableId, partySize);
     },
     [routing],
   );
   const seatWaiterIdEffective =
     seatWaiterId ??
     (popover && liveTable
-      ? resolveDefaultSeatWaiterId(popover.tableId, liveTable.section, selectedParty?.size ?? null)
+      ? resolveDefaultSeatWaiterId(
+          popover.tableId,
+          liveTable.section,
+          selectedParty?.size ?? null,
+          liveTable.backendTableId,
+        )
       : null);
   const seatWaiterEffective = getWaiterById(routing, seatWaiterIdEffective);
   const canPickSeatWaiter = Boolean(
@@ -588,11 +587,21 @@ export default function FloorPlanScreen() {
       const effectiveSize = partySize ?? selectedParty?.size ?? null;
       const normalWaiter = getWaiterById(
         routing,
-        resolveDefaultSeatWaiterId(popover.tableId, liveTable.section, null),
+        resolveDefaultSeatWaiterId(
+          popover.tableId,
+          liveTable.section,
+          null,
+          liveTable.backendTableId,
+        ),
       );
       const gratWaiter = getWaiterById(
         routing,
-        resolveDefaultSeatWaiterId(popover.tableId, liveTable.section, threshold),
+        resolveDefaultSeatWaiterId(
+          popover.tableId,
+          liveTable.section,
+          threshold,
+          liveTable.backendTableId,
+        ),
       );
       if (effectiveSize != null && effectiveSize >= threshold && gratWaiter) {
         return `Auto route: Next grat ${gratWaiter.name}`;
@@ -630,10 +639,13 @@ export default function FloorPlanScreen() {
       return;
     }
     const tableId = popover.tableId;
+    const backendTableId = liveTable.backendTableId ?? null;
     const waiterId =
-      seatWaiterId ?? resolveDefaultSeatWaiterId(tableId, liveTable.section, selectedParty.size);
+      seatWaiterId ??
+      resolveDefaultSeatWaiterId(tableId, liveTable.section, selectedParty.size, backendTableId);
     console.info('[HostFloor] seat party requested', {
       tableId,
+      backendTableId,
       tableLabel: liveTable.label,
       partyId: selectedParty.id,
       partySize: selectedParty.size,
@@ -648,6 +660,7 @@ export default function FloorPlanScreen() {
         commandId,
         floorId: floorIdForCommands,
         tableId,
+        ...(backendTableId ? { backendTableId } : {}),
         requestedAt,
         party: toTableParty(selectedParty),
         ...(waiterId ? { waiterId } : {}),
@@ -661,7 +674,9 @@ export default function FloorPlanScreen() {
         await runReservationAction({
           reservationId: selectedParty.id,
           action: 'seat',
-          input: waiterId ? { commandId, tableId, waiterId } : { commandId, tableId },
+          input: waiterId
+            ? { commandId, tableId: backendTableId ?? tableId, waiterId }
+            : { commandId, tableId: backendTableId ?? tableId },
         });
         setSeatWaiterId(null);
         setSelectedPartyId(null);
@@ -680,7 +695,12 @@ export default function FloorPlanScreen() {
       }
       return;
     }
-    const result = seatParty(tableId, toTableParty(selectedParty), waiterId ?? undefined);
+    const result = seatParty(
+      tableId,
+      toTableParty(selectedParty),
+      waiterId ?? undefined,
+      backendTableId,
+    );
     if (!result.ok) return;
     markPendingSeat(result.commandId, {
       entityId: selectedParty.id,
@@ -694,10 +714,13 @@ export default function FloorPlanScreen() {
 
   const handleSeatWalkIn = (size: number, name: string) => {
     if (!popover || !liveTable) return;
+    const backendTableId = liveTable.backendTableId ?? null;
     const waiterId =
-      seatWaiterId ?? resolveDefaultSeatWaiterId(liveTable.id, liveTable.section, size);
+      seatWaiterId ??
+      resolveDefaultSeatWaiterId(liveTable.id, liveTable.section, size, backendTableId);
     console.info('[HostFloor] seat walk-in requested', {
       tableId: liveTable.id,
+      backendTableId,
       tableLabel: liveTable.label,
       partySize: size,
       partyName: name || null,
@@ -705,7 +728,7 @@ export default function FloorPlanScreen() {
       cctvSyncEnabled,
       tableStateMode,
     });
-    const result = seatWalkIn(liveTable.id, name, size, waiterId ?? undefined);
+    const result = seatWalkIn(liveTable.id, name, size, waiterId ?? undefined, backendTableId);
     console.info('[HostFloor] seat walk-in dispatch result', result);
     if (result.ok) {
       setSeatWaiterId(null);

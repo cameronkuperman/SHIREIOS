@@ -22,22 +22,51 @@ import {
 const baseRouting: WaiterRoutingState = {
   mode: 'section',
   waiters: [],
-  activeWaiterIds: ['backend-next', 'backend-section', 'explicit', 'section', 'fallback'],
+  activeWaiterIds: [
+    'backend-next',
+    'backend-section',
+    'backend-grat',
+    'explicit',
+    'section',
+    'fallback',
+  ],
   sectionAssignments: { Patio: 'section' },
-  tableAssignments: { T1: 'explicit' },
+  tableAssignments: { T1: 'explicit', 'backend-table-1': 'explicit' },
   rotationOrder: ['fallback'],
   nextWaiterId: 'fallback',
-  nextUpByTable: { T1: 'backend-next' },
+  nextUpByTable: { T1: 'backend-next', 'backend-table-1': 'backend-next' },
   nextUpBySection: { Patio: 'backend-section' },
+  gratThreshold: 6,
+  nextGratWaiterId: 'backend-grat',
+  nextGratByTable: { 'backend-table-1': 'backend-grat' },
   updatedAt: '2026-05-18T12:00:00.000Z',
 };
 
 describe('waiter routing resolution', () => {
-  it('uses backend next-up table recommendations before local assignments', () => {
-    expect(resolveWaiterIdForTable(baseRouting, 'T1', 'Patio')).toBe('backend-next');
+  it('uses backend table id recommendations first in rotation mode', () => {
+    expect(
+      resolveWaiterIdForTable(
+        { ...baseRouting, mode: 'manual_rotation' },
+        'T1',
+        'Patio',
+        'backend-table-1',
+      ),
+    ).toBe('backend-next');
   });
 
-  it('uses table assignments before section assignments', () => {
+  it('uses grat recommendations for large parties in rotation mode', () => {
+    expect(
+      resolveWaiterIdForTable(
+        { ...baseRouting, mode: 'manual_rotation' },
+        'T1',
+        'Patio',
+        'backend-table-1',
+        6,
+      ),
+    ).toBe('backend-grat');
+  });
+
+  it('uses table assignments before section assignments in section mode', () => {
     expect(
       resolveWaiterIdForTable(
         {
@@ -52,8 +81,22 @@ describe('waiter routing resolution', () => {
     ).toBe('explicit');
   });
 
-  it('uses backend section recommendations before static section assignments', () => {
-    expect(resolveWaiterIdForTable(baseRouting, 'T2', 'Patio')).toBe('backend-section');
+  it('uses section assignments before backend next-up in section mode', () => {
+    expect(resolveWaiterIdForTable(baseRouting, 'T2', 'Patio')).toBe('section');
+  });
+
+  it('falls back to backend next-up in section mode when no section owner exists', () => {
+    expect(
+      resolveWaiterIdForTable(
+        {
+          ...baseRouting,
+          tableAssignments: {},
+          sectionAssignments: {},
+        },
+        'T2',
+        'Patio',
+      ),
+    ).toBe('backend-section');
   });
 });
 

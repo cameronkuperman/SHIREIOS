@@ -27,6 +27,7 @@ import {
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
 import { CalendarGrid } from './CalendarGrid';
 import { GlassSurface } from './GlassSurface';
+import { HostTextField } from './HostTextField';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
 import { TimeWheelField } from './TimeWheelField';
 import { findNearbyOpenSlots } from './findNearbyOpenSlots';
@@ -389,53 +390,29 @@ export function ReservationEditor({
 
           <GlassSurface style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Guest</Text>
-            <View
-              style={[
-                styles.inputWrapper,
-                { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
-              ]}
-            >
-              <Ionicons name="person-outline" size={18} color={colors.text.muted} />
-              <TextInput
-                style={[styles.input, { color: colors.text.primary }]}
-                placeholder="Guest name"
-                placeholderTextColor={colors.text.muted}
-                value={guestName}
-                onChangeText={setGuestName}
-              />
-            </View>
-            <View
-              style={[
-                styles.inputWrapper,
-                { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
-              ]}
-            >
-              <Ionicons name="call-outline" size={18} color={colors.text.muted} />
-              <TextInput
-                style={[styles.input, { color: colors.text.primary }]}
-                placeholder="Phone"
-                placeholderTextColor={colors.text.muted}
-                keyboardType="phone-pad"
-                value={guestPhone}
-                onChangeText={setGuestPhone}
-              />
-            </View>
-            <View
-              style={[
-                styles.inputWrapper,
-                { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
-              ]}
-            >
-              <Ionicons name="people-outline" size={18} color={colors.text.muted} />
-              <TextInput
-                style={[styles.input, { color: colors.text.primary }]}
-                placeholder="Party size"
-                placeholderTextColor={colors.text.muted}
-                keyboardType="number-pad"
-                value={partySize}
-                onChangeText={setPartySize}
-              />
-            </View>
+            <HostTextField
+              iconName="person-outline"
+              containerStyle={styles.inputWrapper}
+              placeholder="Guest name"
+              value={guestName}
+              onChangeText={setGuestName}
+            />
+            <HostTextField
+              iconName="call-outline"
+              containerStyle={styles.inputWrapper}
+              placeholder="Phone"
+              keyboardType="phone-pad"
+              value={guestPhone}
+              onChangeText={setGuestPhone}
+            />
+            <HostTextField
+              iconName="people-outline"
+              containerStyle={styles.inputWrapper}
+              placeholder="Party size"
+              keyboardType="number-pad"
+              value={partySize}
+              onChangeText={setPartySize}
+            />
           </GlassSurface>
 
           <GlassSurface style={styles.section}>
@@ -800,19 +777,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderWidth: 1,
     marginBottom: spacing.md,
-  },
-  input: {
-    flex: 1,
-    ...textStyles.body,
-    padding: 0,
   },
   optionRow: {
     flexDirection: 'row',
@@ -837,7 +802,7 @@ const styles = StyleSheet.create({
     textTransform: 'capitalize',
   },
   textArea: {
-    minHeight: 88,
+    minHeight: 96,
     borderRadius: borderRadius.md,
     borderWidth: 1,
     paddingHorizontal: spacing.md,

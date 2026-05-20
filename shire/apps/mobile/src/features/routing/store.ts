@@ -203,7 +203,7 @@ function sanitizeRoutingState(routing: WaiterRoutingState): WaiterRoutingState {
   const nextWaiterId =
     routing.nextWaiterId && activeWaiterIdSet.has(routing.nextWaiterId)
       ? routing.nextWaiterId
-      : rotationOrder[0] ?? activeWaiterIds[0] ?? null;
+      : (rotationOrder[0] ?? activeWaiterIds[0] ?? null);
   const shiftStartGroups = (routing.shiftStartGroups ?? []).map((group) => ({
     ...group,
     waiterIds: group.waiterIds.filter((waiterId) => activeWaiterIdSet.has(waiterId)),
@@ -309,42 +309,63 @@ export function resolveWaiterIdForTable(
   routing: WaiterRoutingState | null,
   tableId: string,
   sectionId: string | null | undefined,
+  backendTableId?: string | null,
+  partySize?: number | null,
 ): string | null {
   if (!routing) {
     return null;
   }
 
-  const backendNextWaiterId = routing.nextUpByTable?.[tableId];
-  if (backendNextWaiterId) {
-    return backendNextWaiterId;
+  const activeWaiterIds = new Set(routing.activeWaiterIds);
+  const byTable = (assignments: Record<string, string> | undefined): string | null => {
+    const waiterId =
+      (backendTableId ? assignments?.[backendTableId] : undefined) ?? assignments?.[tableId];
+    return waiterId && activeWaiterIds.has(waiterId) ? waiterId : null;
+  };
+  const bySection = (assignments: Record<string, string> | undefined): string | null => {
+    const waiterId = sectionId ? assignments?.[sectionId] : undefined;
+    return waiterId && activeWaiterIds.has(waiterId) ? waiterId : null;
+  };
+  const nextWaiterId =
+    routing.nextWaiterId && activeWaiterIds.has(routing.nextWaiterId) ? routing.nextWaiterId : null;
+
+  if (routing.mode === 'section') {
+    return (
+      byTable(routing.tableAssignments) ??
+      bySection(routing.sectionAssignments) ??
+      byTable(routing.nextUpByTable) ??
+      bySection(routing.nextUpBySection) ??
+      nextWaiterId
+    );
   }
 
-  const explicitWaiterId = routing.tableAssignments[tableId];
-  if (explicitWaiterId) {
-    return explicitWaiterId;
-  }
-
-  if (sectionId) {
-    const backendSectionWaiterId = routing.nextUpBySection?.[sectionId];
-    if (backendSectionWaiterId) {
-      return backendSectionWaiterId;
+  const threshold = routing.gratThreshold ?? 6;
+  if (partySize != null && partySize >= threshold) {
+    const gratWaiterId =
+      byTable(routing.nextGratByTable) ??
+      bySection(routing.nextGratBySection) ??
+      (routing.nextGratWaiterId && activeWaiterIds.has(routing.nextGratWaiterId)
+        ? routing.nextGratWaiterId
+        : null);
+    if (gratWaiterId) {
+      return gratWaiterId;
     }
-
-    const sectionWaiterId = routing.sectionAssignments[sectionId];
-    if (sectionWaiterId) {
-      return sectionWaiterId;
-    }
   }
 
-  return routing.nextWaiterId;
+  return byTable(routing.nextUpByTable) ?? bySection(routing.nextUpBySection) ?? nextWaiterId;
 }
 
 export function resolveWaiterForTable(
   routing: WaiterRoutingState | null,
   tableId: string,
   sectionId: string | null | undefined,
+  backendTableId?: string | null,
+  partySize?: number | null,
 ): RoutingWaiter | null {
-  return getWaiterById(routing, resolveWaiterIdForTable(routing, tableId, sectionId));
+  return getWaiterById(
+    routing,
+    resolveWaiterIdForTable(routing, tableId, sectionId, backendTableId, partySize),
+  );
 }
 
 export const useWaiterRoutingStore = create<WaiterRoutingStoreState>()((set) => ({
@@ -574,7 +595,7 @@ export function useWaiterRoutingActions() {
           rotationOrder,
           nextWaiterId:
             current.nextWaiterId === waiterId && !isActive
-              ? rotationOrder[0] ?? activeWaiterIds[0] ?? null
+              ? (rotationOrder[0] ?? activeWaiterIds[0] ?? null)
               : current.nextWaiterId,
           waiters: current.waiters.map((waiter) =>
             waiter.id === waiterId
@@ -731,7 +752,7 @@ export function useWaiterRoutingActions() {
           rotationOrder,
           nextWaiterId:
             current.nextWaiterId === waiterId
-              ? rotationOrder[0] ?? activeWaiterIds[0] ?? null
+              ? (rotationOrder[0] ?? activeWaiterIds[0] ?? null)
               : current.nextWaiterId,
         };
       }),

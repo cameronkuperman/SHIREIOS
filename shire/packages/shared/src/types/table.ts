@@ -166,6 +166,7 @@ interface BaseTableCommand {
   commandId: string;
   floorId: string;
   tableId: string;
+  backendTableId?: string | null;
   requestedAt: string;
 }
 

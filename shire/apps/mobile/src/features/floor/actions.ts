@@ -8,9 +8,7 @@ import { getActiveFloorTransport } from './transport';
 import { createCommandId, createSeatPartyCommand, createSeatWalkInCommand } from './commands';
 import { floorRealtimeRepository } from './repository';
 
-export type DispatchResult =
-  | { ok: true; commandId: string }
-  | { ok: false; commandId: string };
+export type DispatchResult = { ok: true; commandId: string } | { ok: false; commandId: string };
 
 function dispatchTableCommand(command: TableCommand): DispatchResult {
   const transport = getActiveFloorTransport();
@@ -22,8 +20,9 @@ function dispatchTableCommand(command: TableCommand): DispatchResult {
     commandId: command.commandId,
     type: command.type,
     tableId: command.tableId,
+    backendTableId: command.backendTableId ?? null,
     partySize: 'party' in command ? command.party.size : undefined,
-    waiterId: 'waiterId' in command ? command.waiterId ?? null : undefined,
+    waiterId: 'waiterId' in command ? (command.waiterId ?? null) : undefined,
     socketConnected: transport?.isConnected() ?? false,
   });
   floorStore.queuePendingCommand(command);
@@ -122,7 +121,9 @@ async function sendCommandOverHttp(command: TableCommand): Promise<void> {
     usePendingSeatStore.getState().rollbackPendingSeat(command.commandId);
     useFloorStore
       .getState()
-      .setSyncError(`Table update is queued and will retry when the floor socket reconnects. ${reason}`);
+      .setSyncError(
+        `Table update is queued and will retry when the floor socket reconnects. ${reason}`,
+      );
   }
 }
 
@@ -130,10 +131,25 @@ export function useFloorActions() {
   const floorId = useFloorStore((state) => state.floorId);
 
   return {
-    seatParty: (tableId: string, party: TableParty, waiterId?: string) =>
-      dispatchTableCommand(createSeatPartyCommand(floorId, tableId, party, waiterId)),
-    seatWalkIn: (tableId: string, name: string, size: number, waiterId?: string) =>
-      dispatchTableCommand(createSeatWalkInCommand(floorId, tableId, name, size, waiterId)),
+    seatParty: (
+      tableId: string,
+      party: TableParty,
+      waiterId?: string,
+      backendTableId?: string | null,
+    ) =>
+      dispatchTableCommand(
+        createSeatPartyCommand(floorId, tableId, party, waiterId, backendTableId),
+      ),
+    seatWalkIn: (
+      tableId: string,
+      name: string,
+      size: number,
+      waiterId?: string,
+      backendTableId?: string | null,
+    ) =>
+      dispatchTableCommand(
+        createSeatWalkInCommand(floorId, tableId, name, size, waiterId, backendTableId),
+      ),
     clearTable: (tableId: string) =>
       dispatchTableCommand({
         type: 'clear_table',

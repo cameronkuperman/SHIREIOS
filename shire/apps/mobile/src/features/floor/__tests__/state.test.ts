@@ -137,6 +137,7 @@ describe('floor state reducers', () => {
       state.tablesById,
       {},
       makeRoutingState({
+        mode: 'manual_rotation',
         nextWaiterId: null,
         nextUpByTable: { 'backend-table-2': 'table-waiter' },
       }),

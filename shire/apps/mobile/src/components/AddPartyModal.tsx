@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { textStyles, spacing, borderRadius, shadows, useTheme } from '@/theme';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
+import { HostTextField } from './HostTextField';
 
 /** Modal dismiss: backdrop Pressable is a sibling of the sheet (wrapping steals X / instant-close). */
 
@@ -144,23 +145,14 @@ export function AddPartyModal({
         <View style={[styles.row, isInline && styles.inlineRow]}>
           <View style={styles.halfInput}>
             <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Size</Text>
-            <View
-              style={[
-                styles.inputWrapper,
-                isInline && styles.inlineInputWrapper,
-                { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
-              ]}
-            >
-              <Ionicons name="people-outline" size={18} color={colors.text.muted} />
-              <TextInput
-                style={[styles.input, { color: colors.text.primary }]}
-                placeholder="Size"
-                placeholderTextColor={colors.text.muted}
-                keyboardType="number-pad"
-                value={size}
-                onChangeText={setSize}
-              />
-            </View>
+            <HostTextField
+              iconName="people-outline"
+              containerStyle={[styles.inputWrapper, isInline && styles.inlineInputWrapper]}
+              placeholder="Size"
+              keyboardType="number-pad"
+              value={size}
+              onChangeText={setSize}
+            />
           </View>
           <View style={styles.halfInput}>
             <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Quoted Wait Time</Text>
@@ -242,59 +234,42 @@ export function AddPartyModal({
         </View>
 
         <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Guest Phone</Text>
-        <View
-          style={[
-            styles.inputWrapper,
-            isInline && styles.inlineInputWrapper,
-            { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
-          ]}
-        >
-          <Ionicons name="call-outline" size={18} color={colors.text.muted} />
-          <TextInput
-            style={[styles.input, { color: colors.text.primary }]}
-            placeholder="Guest Phone"
-            placeholderTextColor={colors.text.muted}
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={setPhone}
-          />
-        </View>
+        <HostTextField
+          iconName="call-outline"
+          containerStyle={[styles.inputWrapper, isInline && styles.inlineInputWrapper]}
+          placeholder="Guest Phone"
+          keyboardType="phone-pad"
+          value={phone}
+          onChangeText={setPhone}
+        />
 
         <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Guest Name</Text>
-        <View
-          style={[
-            styles.inputWrapper,
-            isInline && styles.inlineInputWrapper,
-            { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
-          ]}
-        >
-          <Ionicons name="person-outline" size={18} color={colors.text.muted} />
-          <TextInput
-            style={[styles.input, { color: colors.text.primary }]}
-            placeholder="Guest Name"
-            placeholderTextColor={colors.text.muted}
-            value={name}
-            onChangeText={setName}
-          />
-        </View>
+        <HostTextField
+          iconName="person-outline"
+          containerStyle={[styles.inputWrapper, isInline && styles.inlineInputWrapper]}
+          placeholder="Guest Name"
+          value={name}
+          onChangeText={setName}
+        />
 
         <Text style={[styles.inputLabel, { color: colors.text.muted }]}>Visit Notes</Text>
-        <View
+        <TextInput
           style={[
             styles.notesWrapper,
-            { backgroundColor: colors.surface.level2, borderColor: colors.glass.borderSubtle },
+            styles.notesInput,
+            {
+              color: colors.text.primary,
+              backgroundColor: colors.surface.level2,
+              borderColor: colors.glass.borderSubtle,
+            },
           ]}
-        >
-          <TextInput
-            style={[styles.notesInput, { color: colors.text.primary }]}
-            placeholder="Visit Notes"
-            placeholderTextColor={colors.text.muted}
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            textAlignVertical="top"
-          />
-        </View>
+          placeholder="Visit Notes"
+          placeholderTextColor={colors.text.muted}
+          value={notes}
+          onChangeText={setNotes}
+          multiline
+          textAlignVertical="top"
+        />
 
         <TouchableOpacity
           style={[
@@ -427,13 +402,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderWidth: 1,
     marginBottom: spacing.lg,
   },
   inlineInputWrapper: {
@@ -497,10 +465,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   notesInput: {
-    flex: 1,
     ...textStyles.body,
-    minHeight: 88,
-    padding: 0,
   },
   addBtn: {
     flexDirection: 'row',
