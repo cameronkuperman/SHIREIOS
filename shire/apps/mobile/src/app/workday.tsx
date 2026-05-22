@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import { useAuth } from '@/features/auth';
 import { resolveFloorId } from '@/features/floor/floorId';
 import { floorRealtimeRepository } from '@/features/floor/repository';
 import { useFloorStore } from '@/features/floor/store';
+import { useWaiterRoutingState } from '@/features/routing';
 import { useIsWorkdayActive, useWorkdayStore } from '@/features/workday';
 import { queryKeys } from '@/services/api/queryKeys';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
@@ -27,11 +28,26 @@ export default function WorkdayScreen() {
   const { colors } = useTheme();
   const { isAuthenticated, currentLocation, userSession, signOut } = useAuth();
   const startWorkday = useWorkdayStore((state) => state.startWorkday);
+  const approveSetup = useWorkdayStore((state) => state.approveSetup);
   const applySnapshot = useFloorStore((state) => state.applySnapshot);
+  const { routing } = useWaiterRoutingState();
   const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
   const [isStarting, setIsStarting] = useState(false);
   const [showShiftSetup, setShowShiftSetup] = useState(false);
   const floorId = resolveFloorId(currentLocation?.floorId);
+
+  useEffect(() => {
+    if (!currentLocation || isWorkdayActive || routing?.requiresSetup !== false) {
+      return;
+    }
+    const serviceDate = routing.setupApproval?.serviceDate ?? routing.setupServiceDate;
+    const approvedAt = routing.setupApproval?.approvedAt ?? routing.setupApprovedAt;
+    if (!serviceDate || !approvedAt) {
+      return;
+    }
+    approveSetup(currentLocation.id, serviceDate, approvedAt);
+    router.replace('/(host)');
+  }, [approveSetup, currentLocation, isWorkdayActive, router, routing]);
 
   if (!isAuthenticated) {
     return <Redirect href="/(auth)" />;
@@ -56,14 +72,17 @@ export default function WorkdayScreen() {
     try {
       const result = await floorRealtimeRepository.startServiceDay(currentLocation.id, floorId);
       applySnapshot(result.snapshot);
-      startWorkday(currentLocation.id);
+      startWorkday(currentLocation.id, { serviceDate: result.serviceDate });
       await queryClient.invalidateQueries({
         queryKey: queryKeys.bootstrap.location(currentLocation.id),
       });
       await queryClient.invalidateQueries({
+        queryKey: queryKeys.routing.location(currentLocation.id),
+      });
+      await queryClient.invalidateQueries({
         queryKey: queryKeys.waitlist.list(currentLocation.id),
       });
-      router.replace('/(host)');
+      setShowShiftSetup(true);
     } catch (error) {
       Alert.alert(
         'Could not start workday',
@@ -193,7 +212,21 @@ export default function WorkdayScreen() {
         </View>
       </View>
 
-      <ShiftSetupSheet visible={showShiftSetup} onClose={() => setShowShiftSetup(false)} />
+      <ShiftSetupSheet
+        visible={showShiftSetup}
+        requireApproval
+        onClose={() => setShowShiftSetup(false)}
+        onApproved={(approvedRouting) => {
+          const serviceDate =
+            approvedRouting.setupApproval?.serviceDate ?? approvedRouting.setupServiceDate;
+          const approvedAt =
+            approvedRouting.setupApproval?.approvedAt ?? approvedRouting.setupApprovedAt;
+          if (serviceDate && approvedAt) {
+            approveSetup(currentLocation.id, serviceDate, approvedAt);
+          }
+          router.replace('/(host)');
+        }}
+      />
     </SafeAreaView>
   );
 }

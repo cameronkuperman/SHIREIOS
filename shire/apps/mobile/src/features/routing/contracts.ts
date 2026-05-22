@@ -41,6 +41,14 @@ export function normalizeWaiterRoutingState(
     nextGratWaiterId: state?.nextGratWaiterId ?? null,
     nextGratByTable: state?.nextGratByTable ?? {},
     nextGratBySection: state?.nextGratBySection ?? {},
+    setupServiceDate: state?.setupServiceDate ?? null,
+    setupApprovedAt: state?.setupApprovedAt ?? null,
+    setupApprovedByUserId: state?.setupApprovedByUserId ?? null,
+    setupStartingMode: state?.setupStartingMode ?? null,
+    setupPlannedMode: state?.setupPlannedMode ?? null,
+    setupSectionPlanId: state?.setupSectionPlanId ?? null,
+    setupApproval: state?.setupApproval ?? null,
+    requiresSetup: state?.requiresSetup ?? true,
     updatedAt: state?.updatedAt ?? new Date().toISOString(),
   };
 }

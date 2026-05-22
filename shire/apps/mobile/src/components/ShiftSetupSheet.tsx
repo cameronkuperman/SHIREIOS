@@ -16,6 +16,7 @@ import type {
   FloorMap,
   FloorMapSectionPlan,
   FloorMapTable,
+  RoutingSetupApprovalRequest,
   RoutingWaiter,
   ShiftStartGroup,
   WaiterRoutingMode,
@@ -24,6 +25,7 @@ import type {
 import { borderRadius, shadows, spacing, textStyles, useTheme } from '@/theme';
 import {
   applySectionPlanToFloorMap,
+  buildSectionPlanFromCurrentSections,
   normalizeSectionName,
   sectionColorWithAlpha,
   sectionNamesForPlan,
@@ -42,6 +44,8 @@ import { ShiftHourGrid, type ShiftHourSlot } from './ShiftHourGrid';
 type ShiftSetupSheetProps = {
   visible: boolean;
   onClose: () => void;
+  requireApproval?: boolean;
+  onApproved?: (routing: WaiterRoutingState) => void;
   presentation?: 'modal' | 'inline';
 };
 
@@ -54,6 +58,28 @@ const MODE_HELP: Record<WaiterRoutingMode, string> = {
   manual_rotation: 'Next waiter in the rotation order takes the next table.',
   section: 'Each waiter owns a section; new tables route to that section.',
 };
+
+type SetupMode = 'rotation_sections' | 'sections_now' | 'rotation_only';
+
+const SETUP_MODE_OPTIONS: { value: SetupMode; label: string; detail: string }[] = [
+  {
+    value: 'rotation_sections',
+    label: 'Rotation now',
+    detail: 'Sections ready for later',
+  },
+  {
+    value: 'sections_now',
+    label: 'Sections now',
+    detail: 'Start service in section mode',
+  },
+  {
+    value: 'rotation_only',
+    label: 'Rotation only',
+    detail: 'Skip sections for this shift',
+  },
+];
+
+const DEFAULT_SECTION_PLAN_NAME = 'TEST';
 
 function makeRoutingWaiter(id: string, name: string): RoutingWaiter {
   return {
@@ -90,6 +116,8 @@ function withRosterWaiters(
 export function ShiftSetupSheet({
   visible,
   onClose,
+  requireApproval = false,
+  onApproved,
   presentation = 'modal',
 }: ShiftSetupSheetProps) {
   const { colors, isDark } = useTheme();
@@ -112,6 +140,7 @@ export function ShiftSetupSheet({
   const [newGroupName, setNewGroupName] = useState('9am');
   const [newGroupTime, setNewGroupTime] = useState('09:00');
   const [draftRouting, setDraftRouting] = useState<WaiterRoutingState | null>(null);
+  const [setupMode, setSetupMode] = useState<SetupMode>('rotation_sections');
   const [isCommitting, setIsCommitting] = useState(false);
   const modalBackgroundColor = isDark ? '#14181C' : '#F8FAFC';
   const seededRouting = useMemo(() => withRosterWaiters(routing, roster), [roster, routing]);
@@ -120,6 +149,13 @@ export function ShiftSetupSheet({
   useEffect(() => {
     if (visible) {
       setDraftRouting(seededRouting);
+      if (seededRouting?.mode === 'section') {
+        setSetupMode('sections_now');
+      } else if (seededRouting?.setupPlannedMode === 'section' || seededRouting?.setupSectionPlanId) {
+        setSetupMode('rotation_sections');
+      } else {
+        setSetupMode('rotation_sections');
+      }
     } else {
       setDraftRouting(null);
       setIsCommitting(false);
@@ -214,6 +250,25 @@ export function ShiftSetupSheet({
     Alert.alert('Shift update failed', error instanceof Error ? error.message : fallback);
   };
 
+  const persistFloorMap = useCallback(
+    async (map: FloorMap) => {
+      if (!locationId) {
+        setFloorMap(map);
+        return map;
+      }
+
+      const result = await upsertHostFloorMap(locationId, map);
+      const mapToPersist =
+        result.floorId && result.floorId !== map.floorId
+          ? { ...map, floorId: result.floorId }
+          : map;
+      setFloorMap(mapToPersist);
+      await saveFloorMapLayout(locationId, mapToPersist.floorId, mapToPersist);
+      return mapToPersist;
+    },
+    [locationId, setFloorMap],
+  );
+
   const handleSetMode = (mode: WaiterRoutingMode) => {
     if (!workingRouting || workingRouting.mode === mode) return;
     setDraftRouting({ ...workingRouting, mode });
@@ -297,21 +352,11 @@ export function ShiftSetupSheet({
       const appliedMap = applySectionPlanToFloorMap(floorMap, plan);
       setSelectedSectionPlanId(plan.planId);
       setTargetWaiterCountText(String(plan.waiterCount));
-      setFloorMap(appliedMap);
 
-      if (!locationId) return;
-      upsertHostFloorMap(locationId, appliedMap)
-        .then((result) => {
-          const mapToPersist =
-            result.floorId && result.floorId !== appliedMap.floorId
-              ? { ...appliedMap, floorId: result.floorId }
-              : appliedMap;
-          setFloorMap(mapToPersist);
-          return saveFloorMapLayout(locationId, mapToPersist.floorId, mapToPersist);
-        })
+      persistFloorMap(appliedMap)
         .catch(reportError('Could not save the section preset for today.'));
     },
-    [floorMap, locationId, setFloorMap],
+    [floorMap, persistFloorMap],
   );
 
   const handleAddStartGroup = () => {
@@ -363,7 +408,71 @@ export function ShiftSetupSheet({
 
     setIsCommitting(true);
     try {
-      await persistRouting(() => workingRouting);
+      let routingToSave = workingRouting;
+      let setupApproval: RoutingSetupApprovalRequest | undefined;
+      let sectionPlanForApproval = selectedSectionPlan;
+      if (requireApproval) {
+        if (activeWaiters.length === 0) {
+          Alert.alert('Add today’s team', 'Select at least one waiter before approving the shift.');
+          return;
+        }
+
+        const shouldPlanSections = setupMode !== 'rotation_only';
+        let sectionIds = shouldPlanSections ? sections : [];
+        if (shouldPlanSections) {
+          if (sectionIds.length === 0) {
+            Alert.alert('Choose a section preset', 'Pick the section preset for this shift before approving.');
+            return;
+          }
+          if (!sectionPlanForApproval && sectionPlans.length === 0) {
+            const generatedPlan = buildSectionPlanFromCurrentSections(floorMap, {
+              name: DEFAULT_SECTION_PLAN_NAME,
+              waiterCount: targetWaiterCount,
+              isDefault: true,
+            });
+            if (generatedPlan.sections.length === 0) {
+              Alert.alert('Choose a section preset', 'Pick the section preset for this shift before approving.');
+              return;
+            }
+            const mapWithGeneratedPlan: FloorMap = {
+              ...floorMap,
+              sectionPlans: [generatedPlan],
+              activeSectionPlanId: generatedPlan.planId,
+            };
+            await persistFloorMap(mapWithGeneratedPlan);
+            setSelectedSectionPlanId(generatedPlan.planId);
+            sectionPlanForApproval = generatedPlan;
+            sectionIds = sectionNamesForPlan(generatedPlan);
+          }
+          if (!sectionPlanForApproval) {
+            Alert.alert('Choose a section preset', 'Pick the section preset for this shift before approving.');
+            return;
+          }
+          const missingSections = sectionIds.filter(
+            (sectionId) => !routingToSave.sectionAssignments[sectionId],
+          );
+          if (missingSections.length > 0) {
+            Alert.alert(
+              'Assign every section',
+              `These sections still need waiters: ${missingSections.join(', ')}`,
+            );
+            return;
+          }
+        }
+
+        const startingMode: WaiterRoutingMode =
+          setupMode === 'sections_now' ? 'section' : 'manual_rotation';
+        routingToSave = { ...routingToSave, mode: startingMode };
+        setupApproval = {
+          startingMode,
+          plannedMode: shouldPlanSections ? 'section' : 'manual_rotation',
+          sectionPlanId: shouldPlanSections ? sectionPlanForApproval?.planId ?? null : null,
+          sectionIds,
+        };
+      }
+
+      const canonical = await persistRouting(() => routingToSave, { setupApproval });
+      onApproved?.(canonical);
       onClose();
     } catch (error) {
       reportError('Could not save the shift setup.')(error);
@@ -388,12 +497,16 @@ export function ShiftSetupSheet({
     >
       <View style={[styles.header, { borderBottomColor: colors.border.subtle }]}>
         <View>
-          <Text style={[styles.title, { color: colors.text.primary }]}>Shift Setup</Text>
+          <Text style={[styles.title, { color: colors.text.primary }]}>
+            {requireApproval ? 'Approve Shift Setup' : 'Shift Setup'}
+          </Text>
           <Text style={[styles.subtitle, { color: colors.text.muted }]}>
-            Pick the team, choose today's preset, assign the floor.
+            {requireApproval
+              ? 'Confirm today’s team, start times, and routing plan before the floor opens.'
+              : "Pick the team, choose today's preset, assign the floor."}
           </Text>
         </View>
-        {!isInline && (
+        {!isInline && !requireApproval && (
           <TouchableOpacity
             onPress={onClose}
             accessibilityLabel="Close"
@@ -417,42 +530,95 @@ export function ShiftSetupSheet({
           </Text>
         ) : (
           <>
-            {/* Mode toggle */}
-            <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>SEATING MODE</Text>
-            <View style={styles.modeRow}>
-              {MODE_OPTIONS.map((option) => {
-                const active = workingRouting.mode === option.value;
-                return (
-                  <TouchableOpacity
-                    key={option.value}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Set seating mode to ${option.label}`}
-                    accessibilityState={{ selected: active }}
-                    activeOpacity={0.8}
-                    onPress={() => handleSetMode(option.value)}
-                    style={[
-                      styles.modeButton,
-                      {
-                        backgroundColor: active ? colors.accent : colors.surface.level2,
-                        borderColor: active ? colors.accent : colors.border.subtle,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.modeButtonText,
-                        { color: active ? colors.white : colors.text.secondary },
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <Text style={[styles.helpText, { color: colors.text.muted }]}>
-              {MODE_HELP[workingRouting.mode]}
+            <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
+              {requireApproval ? 'TODAY STARTS' : 'SEATING MODE'}
             </Text>
+            {requireApproval ? (
+              <>
+                <View style={styles.setupModeGrid}>
+                  {SETUP_MODE_OPTIONS.map((option) => {
+                    const active = setupMode === option.value;
+                    return (
+                      <TouchableOpacity
+                        key={option.value}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        activeOpacity={0.8}
+                        onPress={() => setSetupMode(option.value)}
+                        style={[
+                          styles.setupModeButton,
+                          {
+                            backgroundColor: active ? colors.accent : colors.surface.level2,
+                            borderColor: active ? colors.accent : colors.border.subtle,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modeButtonText,
+                            { color: active ? colors.white : colors.text.primary },
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.setupModeDetail,
+                            { color: active ? 'rgba(255,255,255,0.82)' : colors.text.muted },
+                          ]}
+                        >
+                          {option.detail}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={[styles.helpText, { color: colors.text.muted }]}>
+                  {setupMode === 'rotation_sections'
+                    ? 'Seat in rotation now. Section assignments are saved for a fast switch later.'
+                    : setupMode === 'sections_now'
+                      ? 'Section routing becomes active as soon as this setup is approved.'
+                      : 'Use fair rotation for this shift without requiring a section preset.'}
+                </Text>
+              </>
+            ) : (
+              <>
+                <View style={styles.modeRow}>
+                  {MODE_OPTIONS.map((option) => {
+                    const active = workingRouting.mode === option.value;
+                    return (
+                      <TouchableOpacity
+                        key={option.value}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Set seating mode to ${option.label}`}
+                        accessibilityState={{ selected: active }}
+                        activeOpacity={0.8}
+                        onPress={() => handleSetMode(option.value)}
+                        style={[
+                          styles.modeButton,
+                          {
+                            backgroundColor: active ? colors.accent : colors.surface.level2,
+                            borderColor: active ? colors.accent : colors.border.subtle,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modeButtonText,
+                            { color: active ? colors.white : colors.text.secondary },
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={[styles.helpText, { color: colors.text.muted }]}>
+                  {MODE_HELP[workingRouting.mode]}
+                </Text>
+              </>
+            )}
 
             {/* Waiters */}
             <View style={styles.sectionHeaderRow}>
@@ -641,179 +807,198 @@ export function ShiftSetupSheet({
               })}
             </View>
 
-            {/* Section plan */}
-            <Text
-              style={[styles.sectionLabel, { color: colors.text.muted, marginTop: spacing.xl }]}
-            >
-              SECTION PLAN
-            </Text>
-            <View style={styles.planCountRow}>
-              <Text style={[styles.helpText, { color: colors.text.muted }]}>
-                Staffing count
-              </Text>
-              <TextInput
-                value={targetWaiterCountText}
-                onChangeText={setTargetWaiterCountText}
-                placeholder={String(Math.max(1, activeWaiters.length))}
-                placeholderTextColor={colors.text.muted}
-                keyboardType="number-pad"
-                style={[
-                  styles.planCountInput,
-                  {
-                    color: colors.text.primary,
-                    backgroundColor: colors.surface.level2,
-                    borderColor: colors.border.subtle,
-                  },
-                ]}
-              />
-            </View>
-            {sectionPlans.length === 0 ? (
+            {requireApproval && setupMode === 'rotation_only' ? (
               <View
                 style={[
                   styles.planEmpty,
-                  { borderColor: colors.border.subtle, backgroundColor: colors.surface.level2 },
+                  {
+                    borderColor: colors.border.subtle,
+                    backgroundColor: colors.surface.level2,
+                    marginTop: spacing.xl,
+                  },
                 ]}
               >
                 <Text style={[styles.empty, { color: colors.text.muted }]}>
-                  No saved section presets yet. Build permanent presets in Floor Builder.
+                  Sections are skipped for this shift. The floor will use rotation only.
                 </Text>
-                <TouchableOpacity
-                  style={styles.addLink}
-                  onPress={() => {
-                    onClose();
-                    router.push('/floor-builder' as Href);
-                  }}
-                >
-                  <Ionicons name="map-outline" size={18} color={colors.accent} />
-                  <Text style={[styles.addLinkText, { color: colors.accent }]}>
-                    Open Floor Builder
-                  </Text>
-                </TouchableOpacity>
               </View>
             ) : (
               <>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.planChipScroll}
+                {/* Section plan */}
+                <Text
+                  style={[styles.sectionLabel, { color: colors.text.muted, marginTop: spacing.xl }]}
                 >
-                  {sectionPlans.map((plan) => {
-                    const active = plan.planId === selectedSectionPlan?.planId;
-                    return (
-                      <TouchableOpacity
-                        key={plan.planId}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: active }}
-                        onPress={() => handleSelectSectionPlan(plan)}
-                        style={[
-                          styles.planChip,
-                          {
-                            backgroundColor: active ? colors.accent : colors.surface.level2,
-                            borderColor: active ? colors.accent : colors.border.subtle,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.planChipTitle,
-                            { color: active ? colors.white : colors.text.primary },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {plan.name}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.planChipMeta,
-                            { color: active ? 'rgba(255,255,255,0.82)' : colors.text.muted },
-                          ]}
-                        >
-                          {plan.waiterCount} waiters · {plan.sections.length} sections
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-                <SectionFloorPreview
-                  floorMap={floorMap}
-                  routing={workingRouting}
-                  selectedPlan={selectedSectionPlan}
-                  activeWaiterCount={activeWaiters.length}
-                  waiterColorMap={waiterColorMap}
-                />
-              </>
-            )}
-
-            {/* Sections */}
-            <Text
-              style={[styles.sectionLabel, { color: colors.text.muted, marginTop: spacing.xl }]}
-            >
-              SECTIONS
-            </Text>
-            {sections.length === 0 && (
-              <Text style={[styles.empty, { color: colors.text.muted }]}>
-                No sections on the floor map yet.
-              </Text>
-            )}
-            {sections.map((sectionId) => {
-              const assignedId = workingRouting.sectionAssignments[sectionId];
-              return (
-                <View
-                  key={sectionId}
-                  style={[
-                    styles.sectionRow,
-                    { borderColor: colors.border.subtle, backgroundColor: colors.surface.level2 },
-                  ]}
-                >
-                  <Text style={[styles.sectionName, { color: colors.text.primary }]}>
-                    {sectionId}
+                  SECTION PLAN
+                </Text>
+                <View style={styles.planCountRow}>
+                  <Text style={[styles.helpText, { color: colors.text.muted }]}>
+                    Staffing count
                   </Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.chipScroll}
+                  <TextInput
+                    value={targetWaiterCountText}
+                    onChangeText={setTargetWaiterCountText}
+                    placeholder={String(Math.max(1, activeWaiters.length))}
+                    placeholderTextColor={colors.text.muted}
+                    keyboardType="number-pad"
+                    style={[
+                      styles.planCountInput,
+                      {
+                        color: colors.text.primary,
+                        backgroundColor: colors.surface.level2,
+                        borderColor: colors.border.subtle,
+                      },
+                    ]}
+                  />
+                </View>
+                {sectionPlans.length === 0 ? (
+                  <View
+                    style={[
+                      styles.planEmpty,
+                      { borderColor: colors.border.subtle, backgroundColor: colors.surface.level2 },
+                    ]}
                   >
-                    {activeWaiters.length === 0 ? (
-                      <Text style={[styles.chipEmpty, { color: colors.text.muted }]}>
-                        Activate a waiter to assign
+                    <Text style={[styles.empty, { color: colors.text.muted }]}>
+                      No saved section presets yet. Build permanent presets in Floor Builder.
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.addLink}
+                      onPress={() => {
+                        onClose();
+                        router.push('/floor-builder' as Href);
+                      }}
+                    >
+                      <Ionicons name="map-outline" size={18} color={colors.accent} />
+                      <Text style={[styles.addLinkText, { color: colors.accent }]}>
+                        Open Floor Builder
                       </Text>
-                    ) : (
-                      activeWaiters.map((waiter) => {
-                        const assigned = assignedId === waiter.id;
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.planChipScroll}
+                    >
+                      {sectionPlans.map((plan) => {
+                        const active = plan.planId === selectedSectionPlan?.planId;
                         return (
                           <TouchableOpacity
-                            key={waiter.id}
-                            activeOpacity={0.75}
-                            onPress={() => handleAssignSection(sectionId, waiter.id)}
+                            key={plan.planId}
+                            activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: active }}
+                            onPress={() => handleSelectSectionPlan(plan)}
                             style={[
-                              styles.chip,
+                              styles.planChip,
                               {
-                                backgroundColor: assigned
-                                  ? (waiterColorMap[waiter.id] ?? colors.accent)
-                                  : colors.surface.level1,
-                                borderColor: assigned
-                                  ? (waiterColorMap[waiter.id] ?? colors.accent)
-                                  : colors.border.subtle,
+                                backgroundColor: active ? colors.accent : colors.surface.level2,
+                                borderColor: active ? colors.accent : colors.border.subtle,
                               },
                             ]}
                           >
                             <Text
                               style={[
-                                styles.chipText,
-                                { color: assigned ? colors.white : colors.text.secondary },
+                                styles.planChipTitle,
+                                { color: active ? colors.white : colors.text.primary },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {plan.name}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.planChipMeta,
+                                { color: active ? 'rgba(255,255,255,0.82)' : colors.text.muted },
                               ]}
                             >
-                              {waiter.name}
+                              {plan.waiterCount} waiters · {plan.sections.length} sections
                             </Text>
                           </TouchableOpacity>
                         );
-                      })
-                    )}
-                  </ScrollView>
-                </View>
-              );
-            })}
+                      })}
+                    </ScrollView>
+                    <SectionFloorPreview
+                      floorMap={floorMap}
+                      routing={workingRouting}
+                      selectedPlan={selectedSectionPlan}
+                      activeWaiterCount={activeWaiters.length}
+                      waiterColorMap={waiterColorMap}
+                    />
+                  </>
+                )}
+
+                {/* Sections */}
+                <Text
+                  style={[styles.sectionLabel, { color: colors.text.muted, marginTop: spacing.xl }]}
+                >
+                  SECTIONS
+                </Text>
+                {sections.length === 0 && (
+                  <Text style={[styles.empty, { color: colors.text.muted }]}>
+                    No sections on the floor map yet.
+                  </Text>
+                )}
+                {sections.map((sectionId) => {
+                  const assignedId = workingRouting.sectionAssignments[sectionId];
+                  return (
+                    <View
+                      key={sectionId}
+                      style={[
+                        styles.sectionRow,
+                        { borderColor: colors.border.subtle, backgroundColor: colors.surface.level2 },
+                      ]}
+                    >
+                      <Text style={[styles.sectionName, { color: colors.text.primary }]}>
+                        {sectionId}
+                      </Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.chipScroll}
+                      >
+                        {activeWaiters.length === 0 ? (
+                          <Text style={[styles.chipEmpty, { color: colors.text.muted }]}>
+                            Activate a waiter to assign
+                          </Text>
+                        ) : (
+                          activeWaiters.map((waiter) => {
+                            const assigned = assignedId === waiter.id;
+                            return (
+                              <TouchableOpacity
+                                key={waiter.id}
+                                activeOpacity={0.75}
+                                onPress={() => handleAssignSection(sectionId, waiter.id)}
+                                style={[
+                                  styles.chip,
+                                  {
+                                    backgroundColor: assigned
+                                      ? (waiterColorMap[waiter.id] ?? colors.accent)
+                                      : colors.surface.level1,
+                                    borderColor: assigned
+                                      ? (waiterColorMap[waiter.id] ?? colors.accent)
+                                      : colors.border.subtle,
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.chipText,
+                                    { color: assigned ? colors.white : colors.text.secondary },
+                                  ]}
+                                >
+                                  {waiter.name}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })
+                        )}
+                      </ScrollView>
+                    </View>
+                  );
+                })}
+              </>
+            )}
 
             {/* Hour grid */}
             <Text
@@ -834,7 +1019,7 @@ export function ShiftSetupSheet({
             onPress={() => void handleCommit()}
           >
             <Text style={styles.doneButtonText}>
-              {isSaving || isCommitting ? 'Saving...' : 'Done'}
+              {isSaving || isCommitting ? 'Saving...' : requireApproval ? 'Approve Shift' : 'Done'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1061,6 +1246,26 @@ const styles = StyleSheet.create({
   modeButtonText: {
     ...textStyles.label,
     fontWeight: '700',
+  },
+  setupModeGrid: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  setupModeButton: {
+    flex: 1,
+    minHeight: 72,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  setupModeDetail: {
+    ...textStyles.caption,
+    marginTop: 4,
+    textAlign: 'center',
   },
   helpText: {
     ...textStyles.caption,

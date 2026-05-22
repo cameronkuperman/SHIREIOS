@@ -14,6 +14,7 @@ import type {
   TableUpdateSource,
   WaiterRoutingState,
 } from '@shire/shared';
+import { resolveWaiterIdForTable } from '@/features/routing/resolveWaiter';
 
 const EMPTY_CLEAN = 'empty_clean';
 const OCCUPIED = 'occupied';
@@ -853,41 +854,14 @@ function getWaiterById(
 
 function resolveRoutingWaiter(
   routing: WaiterRoutingState | null | undefined,
+  floorMap: FloorMap,
   tableId: string,
   backendTableId: string | null | undefined,
   sectionId: string,
 ): RoutingWaiter | null {
-  if (!routing) {
-    return null;
-  }
-
-  const activeWaiterIds = new Set(routing.activeWaiterIds);
-  const byTable = (assignments: Record<string, string> | undefined) => {
-    const waiterId =
-      (backendTableId ? assignments?.[backendTableId] : undefined) ?? assignments?.[tableId];
-    return waiterId && activeWaiterIds.has(waiterId) ? waiterId : null;
-  };
-  const bySection = (assignments: Record<string, string> | undefined) => {
-    const waiterId = assignments?.[sectionId];
-    return waiterId && activeWaiterIds.has(waiterId) ? waiterId : null;
-  };
-  const nextWaiterId =
-    routing.nextWaiterId && activeWaiterIds.has(routing.nextWaiterId) ? routing.nextWaiterId : null;
-
-  if (routing.mode === 'section') {
-    return getWaiterById(
-      routing,
-      byTable(routing.tableAssignments) ??
-        bySection(routing.sectionAssignments) ??
-        byTable(routing.nextUpByTable) ??
-        bySection(routing.nextUpBySection) ??
-        nextWaiterId,
-    );
-  }
-
   return getWaiterById(
     routing,
-    byTable(routing.nextUpByTable) ?? bySection(routing.nextUpBySection) ?? nextWaiterId,
+    resolveWaiterIdForTable(routing ?? null, tableId, sectionId, backendTableId, null, floorMap),
   );
 }
 
@@ -908,6 +882,7 @@ function toTableViewModel(
   const currentWaiter = getWaiterById(routing, liveTable.currentWaiterId);
   const routedWaiter = resolveRoutingWaiter(
     routing,
+    floorMap,
     tableId,
     liveTable.backendTableId,
     mapTable.section,

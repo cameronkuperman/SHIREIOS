@@ -1,5 +1,9 @@
 import axios from 'axios';
-import type { WaiterRoutingState, WaiterRoutingUpdatePayload } from '@shire/shared';
+import type {
+  RoutingSetupApprovalRequest,
+  WaiterRoutingState,
+  WaiterRoutingUpdatePayload,
+} from '@shire/shared';
 import { apiClient } from '@/services/api/client';
 import { normalizeWaiterRoutingState } from './contracts';
 
@@ -15,8 +19,9 @@ function unwrapRoutingResponse(response: WaiterRoutingResponse): WaiterRoutingSt
 
 export function toWaiterRoutingUpdatePayload(
   state: WaiterRoutingState,
+  options: { setupApproval?: RoutingSetupApprovalRequest } = {},
 ): WaiterRoutingUpdatePayload {
-  return {
+  const payload: WaiterRoutingUpdatePayload = {
     mode: state.mode,
     waiters: state.waiters.map((waiter) => ({
       id: waiter.id,
@@ -34,6 +39,10 @@ export function toWaiterRoutingUpdatePayload(
     gratThreshold: state.gratThreshold ?? 6,
     gratRotationState: state.gratRotationState ?? {},
   };
+  if (options.setupApproval) {
+    payload.setupApproval = options.setupApproval;
+  }
+  return payload;
 }
 
 export async function fetchWaiterRouting(locationId: string): Promise<WaiterRoutingState> {

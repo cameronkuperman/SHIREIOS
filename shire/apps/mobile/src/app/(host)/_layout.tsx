@@ -2,8 +2,11 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { Redirect, Slot, usePathname, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useEffect } from 'react';
 import { useAuth } from '@/features/auth';
+import { useWaiterRoutingState } from '@/features/routing';
 import { useIsWorkdayActive } from '@/features/workday';
+import { useWorkdayStore } from '@/features/workday';
 import { useTotalUnread } from '@/features/messaging/hooks';
 import { borderRadius, fontFamily, spacing, useTheme } from '@/theme';
 
@@ -45,12 +48,24 @@ export default function HostLayout() {
   const { colors } = useTheme();
   const { isInitializing, isAuthenticated, currentLocation } = useAuth();
   const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
+  const endWorkday = useWorkdayStore((state) => state.endWorkday);
+  const { routing } = useWaiterRoutingState();
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const workdayHref = '/workday' as Href;
   const unreadCount = useTotalUnread();
   const inboxActive = pathname.includes('/inbox');
+
+  useEffect(() => {
+    if (isWorkdayActive && routing?.requiresSetup) {
+      endWorkday();
+    }
+  }, [endWorkday, isWorkdayActive, routing?.requiresSetup]);
+
+  if (isWorkdayActive && routing?.requiresSetup) {
+    return <Redirect href={workdayHref} />;
+  }
 
   if (isInitializing) {
     return (

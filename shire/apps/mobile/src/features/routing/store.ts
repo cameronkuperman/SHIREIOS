@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type {
   FloorMap,
+  RoutingSetupApprovalRequest,
   RoutingWaiter,
   ShiftStartGroup,
   WaiterRoutingMode,
@@ -10,6 +11,8 @@ import type {
 import { create } from 'zustand';
 import { queryKeys } from '@/services/api/queryKeys';
 import { toWaiterRoutingUpdatePayload, updateWaiterRouting } from './api';
+import { resolveWaiterIdForTable } from './resolveWaiter';
+import { getFloorSectionLabels, normalizeSectionLabel } from './sectionScope';
 
 export const WAITER_COLORS = [
   '#B63A3A',
@@ -62,31 +65,20 @@ type WaiterRoutingStoreState = {
   reset: () => void;
 };
 
+type PersistRoutingOptions = {
+  setupApproval?: RoutingSetupApprovalRequest;
+};
+
 function dedupe(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
 }
 
-function normalizeSectionLabel(section: string | null | undefined): string {
-  return (section ?? '').trim().replace(/\s+/g, ' ');
-}
-
-export function getFloorSectionLabels(floorMap: FloorMap): string[] {
-  const activePlan =
-    floorMap.activeSectionPlanId && floorMap.sectionPlans
-      ? floorMap.sectionPlans.find((plan) => plan.planId === floorMap.activeSectionPlanId)
-      : null;
-  const planSections = activePlan?.sections
-    .map((section) => normalizeSectionLabel(section.sectionId))
-    .filter(Boolean);
-
-  if (planSections && planSections.length > 0) {
-    return planSections.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  }
-
-  return dedupe(
-    Object.values(floorMap.tables).map((table) => normalizeSectionLabel(table.section)),
-  ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-}
+export {
+  getFloorSectionLabels,
+  getOpenSectionIds,
+  normalizeSectionLabel,
+} from './sectionScope';
+export { resolveWaiterIdForTable } from './resolveWaiter';
 
 export function getRoutingModeSwitchWarnings(
   routing: WaiterRoutingState,
@@ -305,66 +297,24 @@ export function getWaiterById(
   return routing.waiters.find((waiter) => waiter.id === waiterId) ?? null;
 }
 
-export function resolveWaiterIdForTable(
-  routing: WaiterRoutingState | null,
-  tableId: string,
-  sectionId: string | null | undefined,
-  backendTableId?: string | null,
-  partySize?: number | null,
-): string | null {
-  if (!routing) {
-    return null;
-  }
-
-  const activeWaiterIds = new Set(routing.activeWaiterIds);
-  const byTable = (assignments: Record<string, string> | undefined): string | null => {
-    const waiterId =
-      (backendTableId ? assignments?.[backendTableId] : undefined) ?? assignments?.[tableId];
-    return waiterId && activeWaiterIds.has(waiterId) ? waiterId : null;
-  };
-  const bySection = (assignments: Record<string, string> | undefined): string | null => {
-    const waiterId = sectionId ? assignments?.[sectionId] : undefined;
-    return waiterId && activeWaiterIds.has(waiterId) ? waiterId : null;
-  };
-  const nextWaiterId =
-    routing.nextWaiterId && activeWaiterIds.has(routing.nextWaiterId) ? routing.nextWaiterId : null;
-
-  if (routing.mode === 'section') {
-    return (
-      byTable(routing.tableAssignments) ??
-      bySection(routing.sectionAssignments) ??
-      byTable(routing.nextUpByTable) ??
-      bySection(routing.nextUpBySection) ??
-      nextWaiterId
-    );
-  }
-
-  const threshold = routing.gratThreshold ?? 6;
-  if (partySize != null && partySize >= threshold) {
-    const gratWaiterId =
-      byTable(routing.nextGratByTable) ??
-      bySection(routing.nextGratBySection) ??
-      (routing.nextGratWaiterId && activeWaiterIds.has(routing.nextGratWaiterId)
-        ? routing.nextGratWaiterId
-        : null);
-    if (gratWaiterId) {
-      return gratWaiterId;
-    }
-  }
-
-  return byTable(routing.nextUpByTable) ?? bySection(routing.nextUpBySection) ?? nextWaiterId;
-}
-
 export function resolveWaiterForTable(
   routing: WaiterRoutingState | null,
   tableId: string,
   sectionId: string | null | undefined,
   backendTableId?: string | null,
   partySize?: number | null,
+  floorMap?: FloorMap | null,
 ): RoutingWaiter | null {
   return getWaiterById(
     routing,
-    resolveWaiterIdForTable(routing, tableId, sectionId, backendTableId, partySize),
+    resolveWaiterIdForTable(
+      routing,
+      tableId,
+      sectionId,
+      backendTableId,
+      partySize,
+      floorMap,
+    ),
   );
 }
 
@@ -506,6 +456,7 @@ export function useWaiterRoutingActions() {
   const persistRouting = useCallback(
     async (
       updater: (current: WaiterRoutingState) => WaiterRoutingState,
+      options: PersistRoutingOptions = {},
     ): Promise<WaiterRoutingState> => {
       const store = useWaiterRoutingStore.getState();
       const { locationId, routing } = store;
@@ -527,7 +478,7 @@ export function useWaiterRoutingActions() {
       try {
         const canonical = await updateWaiterRouting(
           locationId,
-          toWaiterRoutingUpdatePayload(optimistic),
+          toWaiterRoutingUpdatePayload(optimistic, options),
         );
         store.applyRouting(locationId, canonical);
         queryClient.setQueryData(queryKeys.routing.location(locationId), canonical);

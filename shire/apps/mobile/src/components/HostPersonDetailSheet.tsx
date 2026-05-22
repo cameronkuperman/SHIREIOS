@@ -22,6 +22,7 @@ import type {
   UpdateWaitlistInput,
   WaitlistAction,
 } from '@/features/host/api';
+import { formatServiceDateLabel } from '@/features/host/dateFormat';
 import { getReservationSourceLabel } from '@/features/host/source';
 import { useFloorActions, useTableDetails } from '@/features/floor';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
@@ -581,7 +582,7 @@ export function HostPersonDetailSheet({
                   </Text>
                   <Text style={[styles.infoValue, { color: colors.text.primary }]}>
                     {reservation
-                      ? reservation.date
+                      ? formatServiceDateLabel(reservation.date)
                       : waitlistEntry
                         ? formatTimestamp(waitlistEntry.joinedAt)
                         : ''}

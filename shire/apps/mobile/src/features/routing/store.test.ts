@@ -15,6 +15,7 @@ jest.mock('@/services/api/queryKeys', () => ({
 
 import {
   getFloorSectionLabels,
+  getOpenSectionIds,
   getRoutingModeSwitchWarnings,
   resolveWaiterIdForTable,
 } from './store';
@@ -85,6 +86,27 @@ describe('waiter routing resolution', () => {
     expect(resolveWaiterIdForTable(baseRouting, 'T2', 'Patio')).toBe('section');
   });
 
+  it('uses grat recommendations for large parties in section mode', () => {
+    expect(resolveWaiterIdForTable(baseRouting, 'T2', 'Patio', null, 6)).toBe('backend-grat');
+  });
+
+  it('keeps section owner for large parties when no grat waiter is configured', () => {
+    expect(
+      resolveWaiterIdForTable(
+        {
+          ...baseRouting,
+          nextGratWaiterId: null,
+          nextGratByTable: {},
+          nextGratBySection: {},
+        },
+        'T2',
+        'Patio',
+        null,
+        8,
+      ),
+    ).toBe('section');
+  });
+
   it('falls back to backend next-up in section mode when no section owner exists', () => {
     expect(
       resolveWaiterIdForTable(
@@ -97,6 +119,68 @@ describe('waiter routing resolution', () => {
         'Patio',
       ),
     ).toBe('backend-section');
+  });
+
+  it('ignores section assignments outside the active section plan', () => {
+    const routing: WaiterRoutingState = {
+      ...baseRouting,
+      mode: 'section',
+      sectionAssignments: { Patio: 'section', Main: 'closed-waiter' },
+      nextUpBySection: {},
+      nextWaiterId: 'fallback',
+      rotationOrder: ['fallback', 'section', 'closed-waiter'],
+    };
+
+    const twoSectionPlanMap: FloorMap = {
+      ...floorMap,
+      sectionPlans: [
+        {
+          planId: 'plan-1',
+          name: 'Two Waiters',
+          waiterCount: 2,
+          sections: [
+            { sectionId: 'Front', tableIds: [] },
+            { sectionId: 'Back', tableIds: [] },
+          ],
+        },
+      ],
+      activeSectionPlanId: 'plan-1',
+    };
+
+    expect(resolveWaiterIdForTable(routing, 'T2', 'Main', null, null, twoSectionPlanMap)).toBe(
+      'fallback',
+    );
+    expect(getOpenSectionIds(twoSectionPlanMap)).toEqual(new Set(['Front', 'Back']));
+  });
+
+  it('skips grat waiters who only own closed sections', () => {
+    const routing: WaiterRoutingState = {
+      ...baseRouting,
+      mode: 'section',
+      sectionAssignments: { Patio: 'section', Main: 'closed-grat' },
+      nextGratWaiterId: 'closed-grat',
+      nextGratByTable: {},
+      nextGratBySection: {},
+      nextWaiterId: 'section',
+      rotationOrder: ['section', 'closed-grat'],
+      activeWaiterIds: ['section', 'closed-grat', 'fallback'],
+    };
+    const patioOpenFloorMap: FloorMap = {
+      ...floorMap,
+      sectionPlans: [
+        {
+          planId: 'patio-plan',
+          name: 'Patio Service',
+          waiterCount: 2,
+          sections: [{ sectionId: 'Patio', tableIds: ['T1'] }],
+        },
+      ],
+      activeSectionPlanId: 'patio-plan',
+    };
+
+    expect(
+      resolveWaiterIdForTable(routing, 'T1', 'Patio', 'backend-table-1', 6, patioOpenFloorMap),
+    ).toBe('section');
   });
 });
 

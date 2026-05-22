@@ -20,7 +20,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     slug: 'shire',
     version: packageJson.version,
     orientation: 'landscape',
-    icon: './src/assets/icon.png',
+    icon: './src/assets/shire-logo.png',
     scheme: 'shire',
     userInterfaceStyle: 'light',
     newArchEnabled: true,
@@ -37,6 +37,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       adaptiveIcon: {
+        foregroundImage: './src/assets/shire-logo.png',
         backgroundColor: '#EBEBE9',
       },
       package: 'com.shire.mobile',

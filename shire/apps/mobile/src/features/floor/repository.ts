@@ -34,7 +34,12 @@ export const floorRealtimeRepository = {
   startServiceDay(
     locationId: string,
     floorId: string,
-  ): Promise<{ didReset: boolean; snapshot: FloorSnapshot; messages: FloorStreamMessage[] }> {
+  ): Promise<{
+    didReset: boolean;
+    serviceDate: string | null;
+    snapshot: FloorSnapshot;
+    messages: FloorStreamMessage[];
+  }> {
     return startFloorServiceDay(locationId, floorId);
   },
 

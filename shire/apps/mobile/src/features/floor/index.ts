@@ -2,6 +2,7 @@ export { FLOOR_FILTERS, DEFAULT_FLOOR_ID, DEFAULT_FLOOR_MAP } from './floorMap';
 export { getSectionColor, normalizeSectionName, sectionColorWithAlpha } from './sectionColors';
 export {
   applySectionPlanToFloorMap,
+  buildSectionPlanFromCurrentSections,
   buildSectionPlanFromFloorMap,
   sectionNamesForPlan,
 } from './sectionPlans';

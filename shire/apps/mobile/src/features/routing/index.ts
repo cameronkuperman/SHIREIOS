@@ -2,6 +2,7 @@ export { WaiterRoutingProvider } from './provider';
 export {
   WAITER_COLORS,
   getFloorSectionLabels,
+  getOpenSectionIds,
   getRoutingModeSwitchWarnings,
   getWaiterById,
   getWaiterColor,

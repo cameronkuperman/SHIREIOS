@@ -34,6 +34,25 @@ export interface NextUpQueueEntry {
   tableIds: string[];
 }
 
+export interface RoutingSetupApproval {
+  serviceDate: string;
+  approvedAt: string;
+  approvedByUserId?: string | null;
+  startingMode: WaiterRoutingMode;
+  plannedMode: WaiterRoutingMode;
+  sectionPlanId?: string | null;
+}
+
+export interface RoutingSetupApprovalRequest {
+  serviceDate?: string | null;
+  approvedAt?: string | null;
+  approvedByUserId?: string | null;
+  startingMode: WaiterRoutingMode;
+  plannedMode: WaiterRoutingMode;
+  sectionPlanId?: string | null;
+  sectionIds?: string[];
+}
+
 export interface WaiterRoutingState {
   mode: WaiterRoutingMode;
   waiters: RoutingWaiter[];
@@ -51,6 +70,14 @@ export interface WaiterRoutingState {
   nextGratWaiterId?: string | null;
   nextGratByTable?: Record<string, string>;
   nextGratBySection?: Record<string, string>;
+  setupServiceDate?: string | null;
+  setupApprovedAt?: string | null;
+  setupApprovedByUserId?: string | null;
+  setupStartingMode?: WaiterRoutingMode | null;
+  setupPlannedMode?: WaiterRoutingMode | null;
+  setupSectionPlanId?: string | null;
+  setupApproval?: RoutingSetupApproval | null;
+  requiresSetup?: boolean;
   updatedAt: string;
 }
 
@@ -67,4 +94,5 @@ export interface WaiterRoutingUpdatePayload {
   shiftStartGroups?: ShiftStartGroup[];
   gratThreshold?: number;
   gratRotationState?: { rotationOrder?: string[] };
+  setupApproval?: RoutingSetupApprovalRequest;
 }

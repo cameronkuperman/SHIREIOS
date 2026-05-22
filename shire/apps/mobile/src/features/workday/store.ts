@@ -4,7 +4,13 @@ import { zustandStorage } from '@/lib/storage';
 
 type WorkdayStoreState = {
   activeLocationId: string | null;
-  startWorkday: (locationId: string) => void;
+  serviceDate: string | null;
+  setupApprovedAt: string | null;
+  startWorkday: (
+    locationId: string,
+    options?: { serviceDate?: string | null; setupApprovedAt?: string | null },
+  ) => void;
+  approveSetup: (locationId: string, serviceDate: string, setupApprovedAt: string) => void;
   endWorkday: () => void;
   reset: () => void;
 };
@@ -13,14 +19,23 @@ export const useWorkdayStore = create<WorkdayStoreState>()(
   persist(
     (set) => ({
       activeLocationId: null,
-      startWorkday: (locationId) => {
-        set({ activeLocationId: locationId });
+      serviceDate: null,
+      setupApprovedAt: null,
+      startWorkday: (locationId, options = {}) => {
+        set({
+          activeLocationId: locationId,
+          serviceDate: options.serviceDate ?? null,
+          setupApprovedAt: options.setupApprovedAt ?? null,
+        });
+      },
+      approveSetup: (locationId, serviceDate, setupApprovedAt) => {
+        set({ activeLocationId: locationId, serviceDate, setupApprovedAt });
       },
       endWorkday: () => {
-        set({ activeLocationId: null });
+        set({ activeLocationId: null, serviceDate: null, setupApprovedAt: null });
       },
       reset: () => {
-        set({ activeLocationId: null });
+        set({ activeLocationId: null, serviceDate: null, setupApprovedAt: null });
       },
     }),
     {
@@ -28,6 +43,8 @@ export const useWorkdayStore = create<WorkdayStoreState>()(
       storage: createJSONStorage(() => zustandStorage),
       partialize: (state) => ({
         activeLocationId: state.activeLocationId,
+        serviceDate: state.serviceDate,
+        setupApprovedAt: state.setupApprovedAt,
       }),
     },
   ),
@@ -35,6 +52,8 @@ export const useWorkdayStore = create<WorkdayStoreState>()(
 
 export function useIsWorkdayActive(locationId: string | null): boolean {
   return useWorkdayStore((state) =>
-    locationId ? state.activeLocationId === locationId : false,
+    locationId
+      ? state.activeLocationId === locationId && Boolean(state.serviceDate && state.setupApprovedAt)
+      : false,
   );
 }

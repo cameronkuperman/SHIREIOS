@@ -8,7 +8,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
+  type GestureResponderEvent,
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +25,7 @@ import {
   useFloorTablesByRoom,
   useTableDetails,
 } from '@/features/floor';
+import { requestCctvModeChangeConfirmation } from '@/features/floor/cctvModeConfirmation';
 import { floorRealtimeRepository } from '@/features/floor/repository';
 import { AddPartyModal } from '@/components/AddPartyModal';
 import { FloorRoomPill, type FloorRoomOption } from '@/components/FloorRoomPill';
@@ -72,6 +75,20 @@ function formatConnectionLabel(connectionState: string, hasSnapshot: boolean) {
   return 'Syncing';
 }
 
+function formatQueuePositionLabel(index: number, label: string): string {
+  if (index === 0) return `NEXT ${label}`;
+  const value = index + 1;
+  const suffix =
+    value % 10 === 1 && value % 100 !== 11
+      ? 'ST'
+      : value % 10 === 2 && value % 100 !== 12
+        ? 'ND'
+        : value % 10 === 3 && value % 100 !== 13
+          ? 'RD'
+          : 'TH';
+  return `${value}${suffix} ${label}`;
+}
+
 type TableSizeBucket = '1-2' | '3-4' | '5+';
 const TABLE_DIMENSIONS = {
   circle: { width: 64, height: 64 },
@@ -82,6 +99,8 @@ const TABLE_DIMENSIONS = {
 const MAP_BOTTOM_UI_INSET = 72;
 /** Stacking above the tables layer (transform creates a native layer that steals taps). */
 const MAP_CHROME_Z_INDEX = 100;
+const HOST_RAIL_WIDTH = 80;
+const MAX_NORMAL_NEXT_UP_CARD_COUNT = 4;
 const MOCK_NEXT_UP_TABLE_LABELS: string[][] = [
   ['12', '14', '18'],
   ['3', '7'],
@@ -126,6 +145,7 @@ function addTableLookup(
 export default function FloorPlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const { colors } = useTheme();
   const { currentLocation } = useAuth();
   const { routing, isSaving: isRoutingSaving } = useWaiterRoutingState();
@@ -154,6 +174,7 @@ export default function FloorPlanScreen() {
   const [showSeatPartyModal, setShowSeatPartyModal] = useState(false);
   const [showShiftSetup, setShowShiftSetup] = useState(false);
   const [isTableModeSaving, setIsTableModeSaving] = useState(false);
+  const [gratCardIndex, setGratCardIndex] = useState(0);
   const markPendingSeat = usePendingSeatStore((state) => state.markPendingSeat);
   const rollbackPendingSeat = usePendingSeatStore((state) => state.rollbackPendingSeat);
 
@@ -171,6 +192,26 @@ export default function FloorPlanScreen() {
     width: 0,
     height: 0,
   });
+  const hostContentWidth = Math.max(0, windowWidth - HOST_RAIL_WIDTH);
+  const isCompactHostLayout = hostContentWidth < 1180;
+  const isTightHostLayout = hostContentWidth < 1040;
+  const responsiveLayout = useMemo(
+    () => ({
+      horizontalPadding: isTightHostLayout
+        ? spacing.sm
+        : isCompactHostLayout
+          ? spacing.md
+          : spacing.lg,
+      topGap: isTightHostLayout ? spacing.sm : isCompactHostLayout ? spacing.md : spacing.lg,
+      controlGap: isTightHostLayout ? spacing.xs : spacing.sm,
+      badgePadding: isTightHostLayout ? spacing.sm : spacing.md,
+      leftPanelWidth: isTightHostLayout ? 280 : isCompactHostLayout ? 296 : 320,
+      nextUpCardWidth: isTightHostLayout ? 176 : isCompactHostLayout ? 196 : 228,
+      nextUpCardMinWidth: isTightHostLayout ? 150 : isCompactHostLayout ? 168 : 196,
+      gratCardWidth: isTightHostLayout ? 184 : isCompactHostLayout ? 204 : 228,
+    }),
+    [isCompactHostLayout, isTightHostLayout],
+  );
 
   const handleMapLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -180,6 +221,8 @@ export default function FloorPlanScreen() {
   }, []);
 
   const tableRefs = useRef<Record<string, View | null>>({});
+  const gratSwipeStartY = useRef<number | null>(null);
+  const gratSwipeHandled = useRef(false);
   const liveTable = useTableDetails(popover?.tableId ?? null);
   const visibleRooms =
     activeFilter === 'All Rooms'
@@ -251,7 +294,14 @@ export default function FloorPlanScreen() {
     const tablesByWaiter = new Map<string, typeof availableTables>();
     for (const table of availableTables) {
       const section = floorMap.tables[table.id]?.section ?? '';
-      const waiterId = resolveWaiterIdForTable(routing, table.id, section, table.backendTableId);
+      const waiterId = resolveWaiterIdForTable(
+        routing,
+        table.id,
+        section,
+        table.backendTableId,
+        null,
+        floorMap,
+      );
       if (!waiterId || !routing.activeWaiterIds.includes(waiterId)) continue;
       tablesByWaiter.set(waiterId, [...(tablesByWaiter.get(waiterId) ?? []), table]);
     }
@@ -305,15 +355,15 @@ export default function FloorPlanScreen() {
     );
     const tablesByWaiter = new Map<string, typeof gratTables>();
     for (const table of gratTables) {
-      const backendNextGratWaiter = table.backendTableId
-        ? routing.nextGratByTable?.[table.backendTableId]
-        : undefined;
       const section = floorMap.tables[table.id]?.section ?? '';
-      const waiterId =
-        backendNextGratWaiter ??
-        routing.nextGratByTable?.[table.id] ??
-        routing.nextGratBySection?.[section] ??
-        routing.nextGratWaiterId;
+      const waiterId = resolveWaiterIdForTable(
+        routing,
+        table.id,
+        section,
+        table.backendTableId,
+        threshold,
+        floorMap,
+      );
       if (!waiterId || !routing.activeWaiterIds.includes(waiterId)) continue;
       tablesByWaiter.set(waiterId, [...(tablesByWaiter.get(waiterId) ?? []), table]);
     }
@@ -335,7 +385,12 @@ export default function FloorPlanScreen() {
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }, [routing, allTablesFlat, floorMap.tables]);
 
-  const routingModeLabel = routing?.mode === 'section' ? 'Sections' : 'Rotation';
+  const sectionsReady =
+    routing?.mode === 'manual_rotation' &&
+    routing.setupPlannedMode === 'section' &&
+    Object.keys(routing.sectionAssignments).length > 0;
+  const routingModeLabel =
+    routing?.mode === 'section' ? 'Sections' : sectionsReady ? 'Sections Ready' : 'Rotation';
   const routingModeIcon = routing?.mode === 'section' ? 'grid-outline' : 'repeat-outline';
   const routingModeSwitchLabel =
     routing?.mode === 'section' ? 'Switch to rotation' : 'Switch to sections';
@@ -472,6 +527,10 @@ export default function FloorPlanScreen() {
     const nextEnabled = !cctvSyncEnabled;
     const nextMode = nextEnabled ? 'hybrid' : 'manual';
     const previousEnabled = cctvSyncEnabled;
+    const didConfirm = await requestCctvModeChangeConfirmation(nextEnabled);
+    if (!didConfirm) {
+      return;
+    }
     setIsTableModeSaving(true);
     setCctvSyncEnabled(nextEnabled);
     try {
@@ -542,8 +601,10 @@ export default function FloorPlanScreen() {
       popover.tableId,
       liveTable.section,
       liveTable.backendTableId,
+      null,
+      floorMap,
     );
-  }, [liveTable, popover, routing]);
+  }, [floorMap, liveTable, popover, routing]);
 
   useEffect(() => {
     setSeatWaiterId(null);
@@ -562,9 +623,16 @@ export default function FloorPlanScreen() {
       backendTableId?: string | null,
     ) => {
       if (!routing) return null;
-      return resolveWaiterIdForTable(routing, tableId, section, backendTableId, partySize);
+      return resolveWaiterIdForTable(
+        routing,
+        tableId,
+        section,
+        backendTableId,
+        partySize,
+        floorMap,
+      );
     },
-    [routing],
+    [floorMap, routing],
   );
   const seatWaiterIdEffective =
     seatWaiterId ??
@@ -836,6 +904,69 @@ export default function FloorPlanScreen() {
     ) : null;
 
   const leftParties = leftTab === 'waitlist' ? waitlistParties : reservationParties;
+  const visibleGratIndex = Math.min(gratCardIndex, Math.max(0, nextGratRows.length - 1));
+  const nextGratEntry = nextGratRows[visibleGratIndex] ?? null;
+  const gratBadgeLabel = nextGratEntry ? formatQueuePositionLabel(visibleGratIndex, 'GRAT') : null;
+  const nextUpStripInnerWidth = Math.max(
+    0,
+    hostContentWidth - responsiveLayout.horizontalPadding * 2,
+  );
+  const normalNextUpAreaWidth = Math.max(
+    0,
+    nextUpStripInnerWidth -
+      (nextGratEntry ? responsiveLayout.gratCardWidth + responsiveLayout.controlGap : 0),
+  );
+  const normalNextUpFitCount = Math.floor(
+    (normalNextUpAreaWidth + responsiveLayout.controlGap) /
+      (responsiveLayout.nextUpCardMinWidth + responsiveLayout.controlGap),
+  );
+  const normalNextUpCardCount =
+    nextUpRows.length === 0
+      ? 0
+      : Math.max(
+          1,
+          Math.min(MAX_NORMAL_NEXT_UP_CARD_COUNT, nextUpRows.length, normalNextUpFitCount),
+        );
+  const normalNextUpCardWidth =
+    normalNextUpCardCount > 0
+      ? Math.max(
+          responsiveLayout.nextUpCardMinWidth,
+          (normalNextUpAreaWidth - responsiveLayout.controlGap * (normalNextUpCardCount - 1)) /
+            normalNextUpCardCount,
+        )
+      : responsiveLayout.nextUpCardWidth;
+  const normalNextUpRows = nextUpRows.slice(0, normalNextUpCardCount);
+
+  useEffect(() => {
+    if (gratCardIndex >= nextGratRows.length) {
+      setGratCardIndex(0);
+    }
+  }, [gratCardIndex, nextGratRows.length]);
+
+  const handleGratTouchStart = useCallback((event: GestureResponderEvent) => {
+    gratSwipeStartY.current = event.nativeEvent.pageY;
+    gratSwipeHandled.current = false;
+  }, []);
+
+  const handleGratTouchEnd = useCallback(
+    (event: GestureResponderEvent) => {
+      const startY = gratSwipeStartY.current;
+      gratSwipeStartY.current = null;
+      if (startY == null || nextGratRows.length <= 1) return;
+      const deltaY = event.nativeEvent.pageY - startY;
+      if (Math.abs(deltaY) < 24) return;
+      gratSwipeHandled.current = true;
+      setGratCardIndex((current) => {
+        const maxIndex = nextGratRows.length - 1;
+        if (deltaY < 0) return Math.min(maxIndex, current + 1);
+        return Math.max(0, current - 1);
+      });
+      setTimeout(() => {
+        gratSwipeHandled.current = false;
+      }, 200);
+    },
+    [nextGratRows.length],
+  );
 
   return (
     <View
@@ -855,6 +986,8 @@ export default function FloorPlanScreen() {
             backgroundColor: colors.surface.level2,
             borderBottomColor: colors.border.default,
             paddingTop: insets.top + 8,
+            paddingHorizontal: responsiveLayout.horizontalPadding,
+            gap: responsiveLayout.topGap,
           },
         ]}
       >
@@ -873,20 +1006,28 @@ export default function FloorPlanScreen() {
           <TextInput
             placeholder="Search guests, tables…"
             placeholderTextColor={colors.text.muted}
+            numberOfLines={1}
             style={[styles.searchInput, { color: colors.text.primary }]}
           />
         </View>
 
-        <View style={styles.topBarRight}>
+        <View style={[styles.topBarRight, { gap: responsiveLayout.controlGap }]}>
           <View
             style={[
               styles.connectionBadge,
-              { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
+              {
+                backgroundColor: colors.surface.level1,
+                borderColor: colors.border.default,
+                paddingHorizontal: responsiveLayout.badgePadding,
+              },
             ]}
           >
             <View style={[styles.connectionDot, { backgroundColor: connectionColor }]} />
-            <Text style={[styles.connectionText, { color: colors.text.secondary }]}>
-              {connectionLabel}
+            <Text
+              numberOfLines={1}
+              style={[styles.connectionText, { color: colors.text.secondary }]}
+            >
+              {isTightHostLayout && connectionLabel === 'Synced' ? 'Sync' : connectionLabel}
             </Text>
           </View>
           <TouchableOpacity
@@ -901,6 +1042,7 @@ export default function FloorPlanScreen() {
                 backgroundColor: cctvSyncEnabled ? colors.surface.level1 : colors.status.dirty.fill,
                 borderColor: cctvSyncEnabled ? colors.border.default : colors.status.dirty.border,
                 opacity: isTableModeSaving ? 0.72 : 1,
+                paddingHorizontal: responsiveLayout.badgePadding,
               },
             ]}
           >
@@ -910,6 +1052,7 @@ export default function FloorPlanScreen() {
               color={cctvSyncEnabled ? colors.text.secondary : colors.status.dirty.text}
             />
             <Text
+              numberOfLines={1}
               style={[
                 styles.connectionText,
                 {
@@ -917,7 +1060,7 @@ export default function FloorPlanScreen() {
                 },
               ]}
             >
-              {cctvSyncEnabled ? 'CCTV' : 'CCTV Off'}
+              {isTightHostLayout && cctvSyncEnabled ? 'Cam' : cctvSyncEnabled ? 'CCTV' : 'CCTV Off'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -930,24 +1073,38 @@ export default function FloorPlanScreen() {
               styles.routingModeBadge,
               {
                 backgroundColor:
-                  routing?.mode === 'section' ? colors.accentLight : colors.surface.level1,
-                borderColor: routing?.mode === 'section' ? colors.accent : colors.border.default,
+                  routing?.mode === 'section' || sectionsReady
+                    ? colors.accentLight
+                    : colors.surface.level1,
+                borderColor:
+                  routing?.mode === 'section' || sectionsReady ? colors.accent : colors.border.default,
                 opacity: !routing || isRoutingSaving ? 0.58 : 1,
+                minWidth: isTightHostLayout ? 92 : 132,
+                paddingHorizontal: responsiveLayout.badgePadding,
               },
             ]}
           >
             <Ionicons
               name={routingModeIcon}
               size={14}
-              color={routing?.mode === 'section' ? colors.accent : colors.text.secondary}
+              color={routing?.mode === 'section' || sectionsReady ? colors.accent : colors.text.secondary}
             />
             <Text
+              numberOfLines={1}
               style={[
                 styles.routingModeLabel,
-                { color: routing?.mode === 'section' ? colors.accent : colors.text.secondary },
+                { color: routing?.mode === 'section' || sectionsReady ? colors.accent : colors.text.secondary },
               ]}
             >
-              {isRoutingSaving ? 'Mode: Saving' : `Mode: ${routingModeLabel}`}
+              {isTightHostLayout
+                ? isRoutingSaving
+                  ? 'Saving'
+                  : routingModeLabel
+                : isRoutingSaving
+                  ? 'Mode: Saving'
+                  : sectionsReady
+                    ? 'Rotation active · Sections ready'
+                    : `Mode: ${routingModeLabel}`}
             </Text>
           </TouchableOpacity>
           {[
@@ -981,9 +1138,23 @@ export default function FloorPlanScreen() {
       </View>
 
       {/* ===== NEXT UP STRIP ===== */}
-      <View style={styles.nextUpStrip}>
-        <View style={styles.routingStripGroup}>
-          {nextUpRows.slice(0, 4).map((entry, idx) => {
+      <View
+        style={[
+          styles.nextUpStrip,
+          {
+            gap: responsiveLayout.controlGap,
+            paddingHorizontal: responsiveLayout.horizontalPadding,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.routingStripGroup,
+            styles.normalRoutingStripGroup,
+            { gap: responsiveLayout.controlGap },
+          ]}
+        >
+          {normalNextUpRows.map((entry, idx) => {
             const primaryTableId = entry.tables[0]?.id;
             const canOpenTable = primaryTableId ? !primaryTableId.startsWith('mock-') : false;
             return (
@@ -994,8 +1165,14 @@ export default function FloorPlanScreen() {
                 waiterColor={waiterColorMap[entry.waiterId]}
                 tableLabels={entry.tables.map((table) => table.label)}
                 isNext={idx === 0}
-                badgeLabel="NEXT PARTY"
-                style={styles.nextUpStripCard}
+                badgeLabel={idx === 0 ? 'NEXT PARTY' : undefined}
+                style={[
+                  styles.nextUpStripCard,
+                  {
+                    width: normalNextUpCardWidth,
+                    minWidth: responsiveLayout.nextUpCardMinWidth,
+                  },
+                ]}
                 onPress={() => {
                   if (!primaryTableId || !canOpenTable) return;
                   handleTablePress(primaryTableId, tableRefs.current[primaryTableId] ?? null);
@@ -1004,38 +1181,63 @@ export default function FloorPlanScreen() {
             );
           })}
         </View>
-        <View style={styles.routingStripSpacer} />
-        {nextGratRows.length > 0 && (
-          <View style={styles.routingStripGroup}>
-            {nextGratRows.slice(0, 1).map((entry, idx) => {
-              const primaryTableId = entry.tables[0]?.id;
-              const canOpenTable = primaryTableId ? !primaryTableId.startsWith('mock-') : false;
-              return (
-                <NextUpCard
-                  key={`grat-${entry.waiterId}`}
-                  waiterId={entry.waiterId}
-                  waiterName={entry.waiterName}
-                  waiterColor={waiterColorMap[entry.waiterId]}
-                  tableLabels={entry.tables.map((table) => table.label)}
-                  isNext={idx === 0}
-                  badgeLabel={`NEXT GRAT · ${routing?.gratThreshold ?? 6}+`}
-                  tone="grat"
-                  style={styles.nextUpStripCard}
-                  onPress={() => {
-                    if (!primaryTableId || !canOpenTable) return;
-                    handleTablePress(primaryTableId, tableRefs.current[primaryTableId] ?? null);
-                  }}
-                />
-              );
-            })}
+        {nextGratEntry && (
+          <View
+            style={[
+              styles.routingStripGroup,
+              styles.gratStripGroup,
+              { gap: responsiveLayout.controlGap },
+            ]}
+          >
+            <NextUpCard
+              key={`grat-${nextGratEntry.waiterId}`}
+              waiterId={nextGratEntry.waiterId}
+              waiterName={nextGratEntry.waiterName}
+              waiterColor={waiterColorMap[nextGratEntry.waiterId]}
+              tableLabels={nextGratEntry.tables.map((table) => table.label)}
+              isNext
+              badgeLabel={gratBadgeLabel ?? 'NEXT GRAT'}
+              tone="grat"
+              style={[
+                styles.nextUpStripCard,
+                styles.gratStripCard,
+                {
+                  width: responsiveLayout.gratCardWidth,
+                  minWidth: responsiveLayout.gratCardWidth,
+                },
+              ]}
+              onTouchStart={handleGratTouchStart}
+              onTouchEnd={handleGratTouchEnd}
+              onPress={() => {
+                if (gratSwipeHandled.current) {
+                  gratSwipeHandled.current = false;
+                  return;
+                }
+                const primaryTableId = nextGratEntry.tables[0]?.id;
+                const canOpenTable = primaryTableId ? !primaryTableId.startsWith('mock-') : false;
+                if (!primaryTableId || !canOpenTable) return;
+                handleTablePress(primaryTableId, tableRefs.current[primaryTableId] ?? null);
+              }}
+            />
           </View>
         )}
       </View>
 
       {/* ===== FLOOR BODY ===== */}
-      <View style={styles.body}>
+      <View
+        style={[
+          styles.body,
+          {
+            gap: responsiveLayout.controlGap,
+            paddingHorizontal: responsiveLayout.horizontalPadding,
+          },
+        ]}
+      >
         {/* LEFT PANEL — keep above center map so Add Walk-in is never covered. */}
-        <Panel level="level2" style={styles.leftPanel}>
+        <Panel
+          level="level2"
+          style={{ ...styles.leftPanel, width: responsiveLayout.leftPanelWidth }}
+        >
           <View style={styles.leftPanelBody}>
             {selectedTablePanel ? (
               <ScrollView
@@ -1309,11 +1511,12 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
     borderBottomWidth: 1,
   },
-  brandBlock: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  brandBlock: { flexDirection: 'row', alignItems: 'baseline', gap: 6, flexShrink: 0 },
   wordmark: { ...textStyles.wordmark, fontSize: 22 },
   hostTag: { ...textStyles.caption },
   search: {
     flex: 1,
+    minWidth: 120,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
@@ -1328,7 +1531,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     padding: 0,
   },
-  topBarRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  topBarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 1,
+    minWidth: 0,
+  },
   connectionBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1337,6 +1546,8 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: borderRadius.pill,
     borderWidth: 1,
+    flexShrink: 1,
+    minWidth: 0,
   },
   connectionDot: { width: 7, height: 7, borderRadius: 4 },
   connectionText: { ...textStyles.captionMedium },
@@ -1349,6 +1560,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: borderRadius.pill,
     borderWidth: 1,
+    flexShrink: 1,
   },
   routingModeLabel: {
     ...textStyles.captionMedium,
@@ -1361,6 +1573,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
+    flexShrink: 0,
   },
   // next-up strip
   nextUpStrip: {
@@ -1375,8 +1588,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
+  normalRoutingStripGroup: {
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+  },
+  gratStripGroup: {
+    flexShrink: 0,
+  },
   nextUpStripCard: {
     width: 228,
+    flexShrink: 1,
+  },
+  gratStripCard: {
+    flexShrink: 0,
   },
   routingStripSpacer: { flex: 1 },
   // body

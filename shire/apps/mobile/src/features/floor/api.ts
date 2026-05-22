@@ -145,9 +145,15 @@ export async function updateFloorTableStateMode(
 export async function startFloorServiceDay(
   locationId: string,
   floorId: string,
-): Promise<{ didReset: boolean; snapshot: FloorSnapshot; messages: FloorStreamMessage[] }> {
+): Promise<{
+  didReset: boolean;
+  serviceDate: string | null;
+  snapshot: FloorSnapshot;
+  messages: FloorStreamMessage[];
+}> {
   const response = await apiClient.post<{
     didReset?: boolean;
+    serviceDate?: string | null;
     snapshot: BackendFloorSnapshotDto;
     messages?: unknown[];
   }>(`/locations/${locationId}/floors/${floorId}/service-day/start`);
@@ -157,6 +163,7 @@ export async function startFloorServiceDay(
   });
   return {
     didReset: Boolean(response.data.didReset),
+    serviceDate: response.data.serviceDate ?? null,
     snapshot: adaptFloorSnapshot(response.data.snapshot),
     messages,
   };

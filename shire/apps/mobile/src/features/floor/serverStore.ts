@@ -52,9 +52,9 @@ export function useTableSectionColor(tableId: string): string | undefined {
 
   return useMemo(() => {
     const sectionId = floorMap.tables[tableId]?.section ?? null;
-    const waiterId = resolveWaiterIdForTable(routing, tableId, sectionId);
+    const waiterId = resolveWaiterIdForTable(routing, tableId, sectionId, null, null, floorMap);
     return waiterId ? getServerColor(waiterId, routing?.waiters ?? []) : undefined;
-  }, [floorMap.tables, routing, tableId]);
+  }, [floorMap, routing, tableId]);
 }
 
 export function useServerForTable(tableId: string): string | undefined {
@@ -63,7 +63,7 @@ export function useServerForTable(tableId: string): string | undefined {
 
   return useMemo(() => {
     const sectionId = floorMap.tables[tableId]?.section ?? null;
-    const waiterId = resolveWaiterIdForTable(routing, tableId, sectionId);
+    const waiterId = resolveWaiterIdForTable(routing, tableId, sectionId, null, null, floorMap);
     return routing?.waiters.find((waiter) => waiter.id === waiterId)?.name;
-  }, [floorMap.tables, routing, tableId]);
+  }, [floorMap, routing, tableId]);
 }

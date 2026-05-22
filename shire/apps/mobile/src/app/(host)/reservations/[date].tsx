@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { ReservationCard } from '@/components/ReservationCard';
+import { formatServiceDateLabel } from '@/features/host/dateFormat';
 import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import { useReservationMutations, useReservations } from '@/features/host/hooks';
 import { borderRadius, spacing, textStyles, useTheme } from '@/theme';
@@ -40,7 +41,9 @@ export default function ReservationDayBookScreen() {
           <Ionicons name="chevron-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
         <View style={styles.headerText}>
-          <Text style={[styles.title, { color: colors.text.primary }]}>{selectedDate}</Text>
+          <Text style={[styles.title, { color: colors.text.primary }]}>
+            {formatServiceDateLabel(selectedDate)}
+          </Text>
           <Text style={[styles.subtitle, { color: colors.text.muted }]}>
             {reservations.length} reservations
           </Text>

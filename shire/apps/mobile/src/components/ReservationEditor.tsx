@@ -30,6 +30,7 @@ import { GlassSurface } from './GlassSurface';
 import { HostTextField } from './HostTextField';
 import { SeatingPreferencePicker, type SeatingPref } from './SeatingPreferencePicker';
 import { TimeWheelField } from './TimeWheelField';
+import { formatServiceDateLabel } from '@/features/host/dateFormat';
 import { findNearbyOpenSlots } from './findNearbyOpenSlots';
 import {
   formatSlotLabel,
@@ -57,14 +58,6 @@ type ReservationEditorProps = {
   onRemoveDuplicate?: () => Promise<void>;
   onMessageGuest?: () => void;
 };
-
-function formatDisplayDate(date: string): string {
-  try {
-    return format(parseISO(`${date}T12:00:00`), 'EEE, MMM d');
-  } catch {
-    return date;
-  }
-}
 
 function actionLabel(action: ReservationAction): string {
   switch (action) {
@@ -317,7 +310,7 @@ export function ReservationEditor({
                 {mode === 'create' ? 'New Reservation' : (reservation?.guestName ?? 'Reservation')}
               </Text>
               <Text style={[styles.subtitle, { color: colors.text.muted }]}>
-                {formatDisplayDate(selectedDate)}
+                {formatServiceDateLabel(selectedDate)}
               </Text>
             </View>
             {isSaving ? (

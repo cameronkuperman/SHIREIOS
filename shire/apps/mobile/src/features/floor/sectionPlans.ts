@@ -52,6 +52,45 @@ export function buildSectionPlanFromFloorMap(
   };
 }
 
+export function buildSectionPlanFromCurrentSections(
+  floorMap: FloorMap,
+  input: {
+    name: string;
+    waiterCount: number;
+    isDefault?: boolean;
+  },
+): FloorMapSectionPlan {
+  const groups = new Map<string, string[]>();
+  for (const table of Object.values(floorMap.tables)) {
+    const section = normalizeSectionName(table.section);
+    if (!section) continue;
+    groups.set(section, [...(groups.get(section) ?? []), table.tableId]);
+  }
+
+  const sections = [...groups.entries()]
+    .map(([sectionId, tableIds]) => ({
+      sectionId,
+      tableIds: dedupe(tableIds).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }),
+      ),
+    }))
+    .sort((left, right) =>
+      left.sectionId.localeCompare(right.sectionId, undefined, { numeric: true }),
+    );
+
+  const now = new Date().toISOString();
+  const waiterCount = Math.max(1, Math.round(input.waiterCount));
+  return {
+    planId: nextPlanId(waiterCount),
+    name: input.name.trim() || `${waiterCount} Waiters`,
+    waiterCount,
+    sections,
+    isDefault: input.isDefault,
+    updatedAt: now,
+    createdAt: now,
+  };
+}
+
 export function applySectionPlanToFloorMap(
   floorMap: FloorMap,
   plan: FloorMapSectionPlan,
@@ -90,4 +129,3 @@ export function sectionNamesForPlan(plan: FloorMapSectionPlan | null | undefined
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) ?? []
   );
 }
-

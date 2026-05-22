@@ -59,6 +59,7 @@ export function SeatPartyModal({ visible, onClose }: SeatPartyModalProps) {
       sectionId,
       table?.backendTableId,
       size,
+      floorMap,
     );
     const result = seatWalkIn(
       selectedTable,
