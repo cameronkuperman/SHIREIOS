@@ -69,6 +69,9 @@ export default function WorkdayScreen() {
     }
 
     setIsStarting(true);
+    const previousWorkday = useWorkdayStore.getState();
+    const optimisticServiceDate = new Date().toISOString().slice(0, 10);
+    startWorkday(currentLocation.id, { serviceDate: optimisticServiceDate });
     try {
       const result = await floorRealtimeRepository.startServiceDay(currentLocation.id, floorId);
       applySnapshot(result.snapshot);
@@ -84,6 +87,21 @@ export default function WorkdayScreen() {
       });
       setShowShiftSetup(true);
     } catch (error) {
+      if (previousWorkday.activeLocationId && previousWorkday.serviceDate) {
+        if (previousWorkday.setupApprovedAt) {
+          approveSetup(
+            previousWorkday.activeLocationId,
+            previousWorkday.serviceDate,
+            previousWorkday.setupApprovedAt,
+          );
+        } else {
+          startWorkday(previousWorkday.activeLocationId, {
+            serviceDate: previousWorkday.serviceDate,
+          });
+        }
+      } else {
+        useWorkdayStore.getState().endWorkday();
+      }
       Alert.alert(
         'Could not start workday',
         error instanceof Error

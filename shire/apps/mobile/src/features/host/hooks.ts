@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { AppState } from 'react-native';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import type {
   Reservation,
   ReservationAction,
@@ -79,6 +79,27 @@ function useLocationId(): string | null {
   return currentLocation?.id ?? null;
 }
 
+function useIsRealtimeHealthy(): boolean {
+  return useFloorStore((state) => state.connectionState === 'connected');
+}
+
+function createOptimisticId(prefix: string): string {
+  return `${prefix}-optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function rollbackQuerySnapshots<T>(
+  queryClient: ReturnType<typeof useQueryClient>,
+  snapshots: [QueryKey, T | undefined][],
+) {
+  for (const [queryKey, data] of snapshots) {
+    queryClient.setQueryData(queryKey, data);
+  }
+}
+
 export function waitlistToSidebarParty(entry: WaitlistEntry): HostSidebarParty {
   return {
     id: entry.id,
@@ -138,12 +159,13 @@ export function reservationToSidebarParty(reservation: Reservation): HostSidebar
 export function useWaitlist() {
   const locationId = useLocationId();
   const isWorkdayActive = useIsWorkdayActive(locationId);
+  const isRealtimeHealthy = useIsRealtimeHealthy();
   const queryClient = useQueryClient();
   const queryRef = useRef<() => void>(() => undefined);
   const polling = usePolling(() => queryRef.current(), {
     foregroundMs: FALLBACK_WAITLIST_REFETCH_MS,
     backgroundMs: FALLBACK_WAITLIST_REFETCH_MS,
-    enabled: !!locationId && isWorkdayActive,
+    enabled: !!locationId && isWorkdayActive && !isRealtimeHealthy,
   });
 
   const query = useQuery({
@@ -167,13 +189,15 @@ export function useWaitlist() {
         return;
       }
 
-      void queryClient.invalidateQueries({ queryKey: queryKeys.waitlist.list(locationId) });
+      if (!isRealtimeHealthy) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.waitlist.list(locationId) });
+      }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [isWorkdayActive, locationId, queryClient]);
+  }, [isRealtimeHealthy, isWorkdayActive, locationId, queryClient]);
 
   return query;
 }
@@ -203,13 +227,6 @@ export function useHostShiftAnalytics(range: HostAnalyticsRange) {
   return query;
 }
 
-function invalidateWaitlistQuery(
-  queryClient: ReturnType<typeof useQueryClient>,
-  locationId: string,
-) {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.waitlist.list(locationId) });
-}
-
 function invalidateReservationQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   locationId: string,
@@ -217,27 +234,285 @@ function invalidateReservationQueries(
   void queryClient.invalidateQueries({ queryKey: queryKeys.reservations.location(locationId) });
 }
 
+function snapshotReservationQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  locationId: string,
+): [QueryKey, Reservation[] | undefined][] {
+  return queryClient
+    .getQueriesData<unknown>({
+      queryKey: queryKeys.reservations.location(locationId),
+    })
+    .filter((entry): entry is [QueryKey, Reservation[]] => Array.isArray(entry[1]));
+}
+
+function patchReservationQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  locationId: string,
+  reservation: Reservation,
+  options: { previousId?: string; insertIfDateList?: boolean } = {},
+) {
+  queryClient.setQueriesData<Reservation[]>(
+    { queryKey: queryKeys.reservations.location(locationId) },
+    (currentReservations) => {
+      if (!Array.isArray(currentReservations)) {
+        return currentReservations;
+      }
+
+      const hasPrevious = options.previousId
+        ? currentReservations.some(
+            (currentReservation) => currentReservation.id === options.previousId,
+          )
+        : false;
+      const hasReservation = currentReservations.some(
+        (currentReservation) => currentReservation.id === reservation.id,
+      );
+      const isMatchingDateList =
+        options.insertIfDateList &&
+        currentReservations.every(
+          (currentReservation) => currentReservation.date === reservation.date,
+        );
+
+      if (!hasPrevious && !hasReservation && !isMatchingDateList) {
+        return currentReservations;
+      }
+
+      const withoutPrevious = options.previousId
+        ? currentReservations.filter(
+            (currentReservation) => currentReservation.id !== options.previousId,
+          )
+        : currentReservations;
+
+      return upsertReservation(withoutPrevious, reservation);
+    },
+  );
+}
+
+function removeReservationFromQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  locationId: string,
+  reservationId: string,
+) {
+  queryClient.setQueriesData<Reservation[]>(
+    { queryKey: queryKeys.reservations.location(locationId) },
+    (currentReservations) =>
+      Array.isArray(currentReservations)
+        ? currentReservations.filter((reservation) => reservation.id !== reservationId)
+        : currentReservations,
+  );
+}
+
+function findCachedReservation(
+  queryClient: ReturnType<typeof useQueryClient>,
+  locationId: string,
+  reservationId: string,
+): Reservation | null {
+  const locationQueries = snapshotReservationQueries(queryClient, locationId);
+  for (const [, reservations] of locationQueries) {
+    if (!Array.isArray(reservations)) {
+      continue;
+    }
+    const match = reservations?.find((reservation) => reservation.id === reservationId) ?? null;
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+}
+
+function buildOptimisticWaitlistEntry(input: CreateWaitlistInput): WaitlistEntry {
+  const createdAt = nowIso();
+  return {
+    id: createOptimisticId('waitlist'),
+    guest: {
+      id: createOptimisticId('guest'),
+      name: input.guestName.trim(),
+      phone: input.guestPhone.trim(),
+    },
+    partySize: input.partySize,
+    seatingPreference: input.seatingPreference,
+    status: 'waiting',
+    notes: input.notes ?? '',
+    source: input.source,
+    joinedAt: createdAt,
+    quotedWaitMinutes: input.quotedWaitMinutes ?? null,
+    arrivedAt: null,
+    seatedAt: null,
+    removedAt: null,
+    noShowAt: null,
+    assignedTableId: null,
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+function applyWaitlistInput(entry: WaitlistEntry, input: UpdateWaitlistInput): WaitlistEntry {
+  return {
+    ...entry,
+    ...(input.partySize != null ? { partySize: input.partySize } : {}),
+    ...(input.seatingPreference ? { seatingPreference: input.seatingPreference } : {}),
+    ...(input.notes != null ? { notes: input.notes } : {}),
+    ...(input.quotedWaitMinutes !== undefined
+      ? { quotedWaitMinutes: input.quotedWaitMinutes ?? null }
+      : {}),
+    updatedAt: nowIso(),
+  };
+}
+
+function applyWaitlistAction(entry: WaitlistEntry, action: WaitlistAction): WaitlistEntry {
+  const updatedAt = nowIso();
+  switch (action) {
+    case 'arrive':
+      return { ...entry, status: 'arrived', arrivedAt: updatedAt, updatedAt };
+    case 'remove':
+      return { ...entry, status: 'removed', removedAt: updatedAt, updatedAt };
+    case 'mark_no_show':
+      return { ...entry, status: 'no_show', noShowAt: updatedAt, updatedAt };
+    case 'seat':
+      return { ...entry, status: 'seated', seatedAt: updatedAt, updatedAt };
+    default:
+      return { ...entry, updatedAt };
+  }
+}
+
+function replaceWaitlistEntry(
+  entries: WaitlistEntry[],
+  entry: WaitlistEntry,
+  previousId?: string,
+): WaitlistEntry[] {
+  const withoutPrevious = previousId
+    ? entries.filter((currentEntry) => currentEntry.id !== previousId)
+    : entries;
+  return upsertWaitlistEntry(withoutPrevious, entry);
+}
+
+function buildOptimisticReservation(input: CreateReservationInput): Reservation {
+  const createdAt = nowIso();
+  return {
+    id: input.clientRequestId?.trim() || createOptimisticId('reservation'),
+    guestId: null,
+    guest: null,
+    guestName: input.guestName.trim(),
+    guestPhone: input.guestPhone.trim(),
+    partySize: input.partySize,
+    date: input.date.trim().slice(0, 10),
+    timeSlot: input.timeSlot.trim().slice(0, 5),
+    seatingPreference: input.seatingPreference,
+    status: 'booked',
+    notes: input.notes ?? input.specialRequests ?? '',
+    specialRequests: input.specialRequests ?? '',
+    internalNotes: input.internalNotes ?? '',
+    source: input.source,
+    linkedVisitId: null,
+    assignedTableId: null,
+    pacingOverrideApplied: Boolean(input.pacingOverride),
+    createdAt,
+    updatedAt: createdAt,
+    confirmedAt: null,
+    checkedInAt: null,
+    seatedAt: null,
+    completedAt: null,
+    canceledAt: null,
+    noShowAt: null,
+    archivedAt: null,
+    archivedByUserId: null,
+    archiveReason: null,
+    messageDelivery: null,
+  };
+}
+
+function applyReservationInput(
+  reservation: Reservation,
+  input: UpdateReservationInput,
+): Reservation {
+  return {
+    ...reservation,
+    ...(input.guestName != null ? { guestName: input.guestName.trim() } : {}),
+    ...(input.guestPhone != null ? { guestPhone: input.guestPhone.trim() } : {}),
+    ...(input.partySize != null ? { partySize: input.partySize } : {}),
+    ...(input.date != null ? { date: input.date.trim().slice(0, 10) } : {}),
+    ...(input.timeSlot != null ? { timeSlot: input.timeSlot.trim().slice(0, 5) } : {}),
+    ...(input.seatingPreference ? { seatingPreference: input.seatingPreference } : {}),
+    ...(input.source ? { source: input.source } : {}),
+    ...(input.notes != null ? { notes: input.notes } : {}),
+    ...(input.specialRequests != null ? { specialRequests: input.specialRequests } : {}),
+    ...(input.internalNotes != null ? { internalNotes: input.internalNotes } : {}),
+    ...(input.pacingOverride != null ? { pacingOverrideApplied: input.pacingOverride } : {}),
+    updatedAt: nowIso(),
+  };
+}
+
+function applyReservationAction(
+  reservation: Reservation,
+  action: ReservationAction,
+  input?: ReservationActionInput,
+): Reservation {
+  const updatedAt = nowIso();
+  switch (action) {
+    case 'confirm':
+      return { ...reservation, status: 'confirmed', confirmedAt: updatedAt, updatedAt };
+    case 'arrive':
+    case 'check_in':
+      return { ...reservation, status: 'checked_in', checkedInAt: updatedAt, updatedAt };
+    case 'seat':
+      return {
+        ...reservation,
+        status: 'seated',
+        assignedTableId: input?.tableId ?? reservation.assignedTableId,
+        seatedAt: updatedAt,
+        updatedAt,
+      };
+    case 'complete':
+      return { ...reservation, status: 'completed', completedAt: updatedAt, updatedAt };
+    case 'cancel':
+      return { ...reservation, status: 'canceled', canceledAt: updatedAt, updatedAt };
+    case 'mark_no_show':
+      return { ...reservation, status: 'no_show', noShowAt: updatedAt, updatedAt };
+    default:
+      return { ...reservation, updatedAt };
+  }
+}
+
 export function useWaitlistMutations() {
   const locationId = useLocationId();
   const queryClient = useQueryClient();
 
-  const patchWaitlistEntry = (entry: WaitlistEntry) => {
+  const patchWaitlistEntry = (entry: WaitlistEntry, previousId?: string) => {
     if (!locationId) {
       return;
     }
 
     queryClient.setQueryData<WaitlistEntry[]>(
       queryKeys.waitlist.list(locationId),
-      (currentEntries) => upsertWaitlistEntry(currentEntries ?? [], entry),
+      (currentEntries) => replaceWaitlistEntry(currentEntries ?? [], entry, previousId),
     );
   };
 
   const createMutation = useMutation({
     mutationFn: (input: CreateWaitlistInput) => createWaitlistEntry(locationId!, input),
-    onSuccess: (entry) => {
+    onMutate: async (input) => {
+      if (!locationId) {
+        return;
+      }
+
+      const queryKey = queryKeys.waitlist.list(locationId);
+      await queryClient.cancelQueries({ queryKey });
+      const previousEntries = queryClient.getQueryData<WaitlistEntry[]>(queryKey);
+      const optimisticEntry = buildOptimisticWaitlistEntry(input);
+      queryClient.setQueryData<WaitlistEntry[]>(queryKey, (currentEntries) =>
+        upsertWaitlistEntry(currentEntries ?? [], optimisticEntry),
+      );
+
+      return { optimisticId: optimisticEntry.id, previousEntries };
+    },
+    onError: (_error, _input, context) => {
+      if (!locationId || !context) {
+        return;
+      }
+      queryClient.setQueryData(queryKeys.waitlist.list(locationId), context.previousEntries);
+    },
+    onSuccess: (entry, _input, context) => {
       if (locationId) {
-        patchWaitlistEntry(entry);
-        invalidateWaitlistQuery(queryClient, locationId);
+        patchWaitlistEntry(entry, context?.optimisticId);
       }
     },
   });
@@ -250,10 +525,31 @@ export function useWaitlistMutations() {
       waitlistEntryId: string;
       input: UpdateWaitlistInput;
     }) => updateWaitlistEntry(locationId!, waitlistEntryId, input),
+    onMutate: async ({ waitlistEntryId, input }) => {
+      if (!locationId) {
+        return;
+      }
+
+      const queryKey = queryKeys.waitlist.list(locationId);
+      await queryClient.cancelQueries({ queryKey });
+      const previousEntries = queryClient.getQueryData<WaitlistEntry[]>(queryKey);
+      queryClient.setQueryData<WaitlistEntry[]>(queryKey, (currentEntries) =>
+        currentEntries?.map((entry) =>
+          entry.id === waitlistEntryId ? applyWaitlistInput(entry, input) : entry,
+        ),
+      );
+
+      return { previousEntries };
+    },
+    onError: (_error, _input, context) => {
+      if (!locationId || !context) {
+        return;
+      }
+      queryClient.setQueryData(queryKeys.waitlist.list(locationId), context.previousEntries);
+    },
     onSuccess: (entry) => {
       if (locationId) {
         patchWaitlistEntry(entry);
-        invalidateWaitlistQuery(queryClient, locationId);
       }
     },
   });
@@ -266,10 +562,31 @@ export function useWaitlistMutations() {
       waitlistEntryId: string;
       action: WaitlistAction;
     }) => runWaitlistAction(locationId!, waitlistEntryId, action),
+    onMutate: async ({ waitlistEntryId, action }) => {
+      if (!locationId) {
+        return;
+      }
+
+      const queryKey = queryKeys.waitlist.list(locationId);
+      await queryClient.cancelQueries({ queryKey });
+      const previousEntries = queryClient.getQueryData<WaitlistEntry[]>(queryKey);
+      queryClient.setQueryData<WaitlistEntry[]>(queryKey, (currentEntries) =>
+        currentEntries?.map((entry) =>
+          entry.id === waitlistEntryId ? applyWaitlistAction(entry, action) : entry,
+        ),
+      );
+
+      return { previousEntries };
+    },
+    onError: (_error, _input, context) => {
+      if (!locationId || !context) {
+        return;
+      }
+      queryClient.setQueryData(queryKeys.waitlist.list(locationId), context.previousEntries);
+    },
     onSuccess: (entry) => {
       if (locationId) {
         patchWaitlistEntry(entry);
-        invalidateWaitlistQuery(queryClient, locationId);
       }
     },
   });
@@ -285,11 +602,12 @@ export function useWaitlistMutations() {
 export function useReservations(filters: ReservationListFilters = {}) {
   const locationId = useLocationId();
   const isWorkdayActive = useIsWorkdayActive(locationId);
+  const isRealtimeHealthy = useIsRealtimeHealthy();
   const queryRef = useRef<() => void>(() => undefined);
   const polling = usePolling(() => queryRef.current(), {
     foregroundMs: FALLBACK_RESERVATIONS_REFETCH_MS,
     backgroundMs: FALLBACK_RESERVATIONS_REFETCH_MS,
-    enabled: !!locationId && isWorkdayActive,
+    enabled: !!locationId && isWorkdayActive && !isRealtimeHealthy,
   });
 
   const query = useQuery({
@@ -402,6 +720,9 @@ export function useReservationDetail(reservationId: string | null, date?: string
     });
 
     for (const [, reservations] of locationQueries) {
+      if (!Array.isArray(reservations)) {
+        continue;
+      }
       const match = reservations?.find((reservation) => reservation.id === reservationId) ?? null;
       if (match) {
         return match;
@@ -418,16 +739,43 @@ export function useReservationMutations() {
 
   const createMutation = useMutation({
     mutationFn: (input: CreateReservationInput) => createReservation(locationId!, input),
-    onSuccess: (reservation) => {
+    onMutate: async (input) => {
       if (!locationId) {
         return;
       }
 
-      queryClient.setQueryData<Reservation[]>(
-        queryKeys.reservations.list(locationId, { date: reservation.date }),
-        (currentReservations) => upsertReservation(currentReservations ?? [], reservation),
+      const queryKey = queryKeys.reservations.list(locationId, { date: input.date });
+      await queryClient.cancelQueries({ queryKey: queryKeys.reservations.location(locationId) });
+      const snapshots = snapshotReservationQueries(queryClient, locationId);
+      const previousCreatedReservations = queryClient.getQueryData<Reservation[]>(queryKey);
+      const optimisticReservation = buildOptimisticReservation(input);
+      queryClient.setQueryData<Reservation[]>(queryKey, (currentReservations) =>
+        upsertReservation(currentReservations ?? [], optimisticReservation),
       );
-      invalidateReservationQueries(queryClient, locationId);
+
+      return {
+        optimisticId: optimisticReservation.id,
+        previousCreatedReservations,
+        queryKey,
+        snapshots,
+      };
+    },
+    onError: (_error, _input, context) => {
+      if (!locationId || !context) {
+        return;
+      }
+      rollbackQuerySnapshots(queryClient, context.snapshots);
+      queryClient.setQueryData(context.queryKey, context.previousCreatedReservations);
+    },
+    onSuccess: (reservation, _input, context) => {
+      if (!locationId) {
+        return;
+      }
+
+      patchReservationQueries(queryClient, locationId, reservation, {
+        previousId: context?.optimisticId,
+        insertIfDateList: true,
+      });
     },
   });
 
@@ -439,9 +787,33 @@ export function useReservationMutations() {
       reservationId: string;
       input: UpdateReservationInput;
     }) => updateReservation(locationId!, reservationId, input),
-    onSuccess: () => {
+    onMutate: async ({ reservationId, input }) => {
+      if (!locationId) {
+        return;
+      }
+
+      await queryClient.cancelQueries({ queryKey: queryKeys.reservations.location(locationId) });
+      const snapshots = snapshotReservationQueries(queryClient, locationId);
+      const cachedReservation = findCachedReservation(queryClient, locationId, reservationId);
+      if (cachedReservation) {
+        patchReservationQueries(
+          queryClient,
+          locationId,
+          applyReservationInput(cachedReservation, input),
+        );
+      }
+
+      return { snapshots };
+    },
+    onError: (_error, _input, context) => {
+      if (!locationId || !context) {
+        return;
+      }
+      rollbackQuerySnapshots(queryClient, context.snapshots);
+    },
+    onSuccess: (reservation) => {
       if (locationId) {
-        invalidateReservationQueries(queryClient, locationId);
+        patchReservationQueries(queryClient, locationId, reservation);
       }
     },
   });
@@ -456,9 +828,33 @@ export function useReservationMutations() {
       action: ReservationAction;
       input?: ReservationActionInput;
     }) => runReservationAction(locationId!, reservationId, action, input),
-    onSuccess: () => {
+    onMutate: async ({ reservationId, action, input }) => {
+      if (!locationId) {
+        return;
+      }
+
+      await queryClient.cancelQueries({ queryKey: queryKeys.reservations.location(locationId) });
+      const snapshots = snapshotReservationQueries(queryClient, locationId);
+      const cachedReservation = findCachedReservation(queryClient, locationId, reservationId);
+      if (cachedReservation) {
+        patchReservationQueries(
+          queryClient,
+          locationId,
+          applyReservationAction(cachedReservation, action, input),
+        );
+      }
+
+      return { snapshots };
+    },
+    onError: (_error, _input, context) => {
+      if (!locationId || !context) {
+        return;
+      }
+      rollbackQuerySnapshots(queryClient, context.snapshots);
+    },
+    onSuccess: (reservation) => {
       if (locationId) {
-        invalidateReservationQueries(queryClient, locationId);
+        patchReservationQueries(queryClient, locationId, reservation);
       }
     },
   });
@@ -471,9 +867,34 @@ export function useReservationMutations() {
       reservationId: string;
       input?: ArchiveReservationInput;
     }) => archiveReservation(locationId!, reservationId, input ?? {}),
-    onSuccess: () => {
+    onMutate: async ({ reservationId, input }) => {
+      if (!locationId) {
+        return;
+      }
+
+      await queryClient.cancelQueries({ queryKey: queryKeys.reservations.location(locationId) });
+      const snapshots = snapshotReservationQueries(queryClient, locationId);
+      const cachedReservation = findCachedReservation(queryClient, locationId, reservationId);
+      if (cachedReservation) {
+        patchReservationQueries(queryClient, locationId, {
+          ...cachedReservation,
+          archivedAt: nowIso(),
+          archiveReason: input?.reason ?? cachedReservation.archiveReason,
+          updatedAt: nowIso(),
+        });
+      }
+
+      return { snapshots };
+    },
+    onError: (_error, _input, context) => {
+      if (!locationId || !context) {
+        return;
+      }
+      rollbackQuerySnapshots(queryClient, context.snapshots);
+    },
+    onSuccess: (reservation) => {
       if (locationId) {
-        invalidateReservationQueries(queryClient, locationId);
+        patchReservationQueries(queryClient, locationId, reservation);
       }
     },
   });
@@ -481,9 +902,35 @@ export function useReservationMutations() {
   const restoreMutation = useMutation({
     mutationFn: ({ reservationId }: { reservationId: string }) =>
       restoreReservation(locationId!, reservationId),
-    onSuccess: () => {
+    onMutate: async ({ reservationId }) => {
+      if (!locationId) {
+        return;
+      }
+
+      await queryClient.cancelQueries({ queryKey: queryKeys.reservations.location(locationId) });
+      const snapshots = snapshotReservationQueries(queryClient, locationId);
+      const cachedReservation = findCachedReservation(queryClient, locationId, reservationId);
+      if (cachedReservation) {
+        patchReservationQueries(queryClient, locationId, {
+          ...cachedReservation,
+          archivedAt: null,
+          archivedByUserId: null,
+          archiveReason: null,
+          updatedAt: nowIso(),
+        });
+      }
+
+      return { snapshots };
+    },
+    onError: (_error, _input, context) => {
+      if (!locationId || !context) {
+        return;
+      }
+      rollbackQuerySnapshots(queryClient, context.snapshots);
+    },
+    onSuccess: (reservation) => {
       if (locationId) {
-        invalidateReservationQueries(queryClient, locationId);
+        patchReservationQueries(queryClient, locationId, reservation);
       }
     },
   });
@@ -491,10 +938,22 @@ export function useReservationMutations() {
   const removeDuplicateMutation = useMutation({
     mutationFn: ({ reservationId }: { reservationId: string }) =>
       removeDuplicateReservation(locationId!, reservationId),
-    onSuccess: () => {
-      if (locationId) {
-        invalidateReservationQueries(queryClient, locationId);
+    onMutate: async ({ reservationId }) => {
+      if (!locationId) {
+        return;
       }
+
+      await queryClient.cancelQueries({ queryKey: queryKeys.reservations.location(locationId) });
+      const snapshots = snapshotReservationQueries(queryClient, locationId);
+      removeReservationFromQueries(queryClient, locationId, reservationId);
+
+      return { snapshots };
+    },
+    onError: (_error, _input, context) => {
+      if (!locationId || !context) {
+        return;
+      }
+      rollbackQuerySnapshots(queryClient, context.snapshots);
     },
   });
 

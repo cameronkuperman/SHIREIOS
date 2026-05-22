@@ -1,8 +1,22 @@
-import type { FloorStreamMessage, TableCommand, TableParty } from '@shire/shared';
+import type {
+  FloorStreamMessage,
+  Reservation,
+  TableCommand,
+  TableLiveState,
+  TableParty,
+  WaitlistEntry,
+} from '@shire/shared';
 import { useAuthStore } from '@/features/auth';
+import {
+  markReservationSeated,
+  markWaitlistEntrySeated,
+  upsertWaitlistEntry,
+} from '@/features/host/contracts';
 import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
 import { fetchWaiterRouting } from '@/features/routing/api';
 import { useWaiterRoutingStore } from '@/features/routing/store';
+import { queryClient } from '@/services/api/queryClient';
+import { queryKeys } from '@/services/api/queryKeys';
 import { useFloorStore } from './store';
 import { getActiveFloorTransport } from './transport';
 import { createCommandId, createSeatPartyCommand, createSeatWalkInCommand } from './commands';
@@ -43,6 +57,96 @@ function dispatchTableCommand(command: TableCommand): DispatchResult {
   return { ok: true, commandId: command.commandId };
 }
 
+function resolveCanonicalSeatTable(
+  tables: TableLiveState[],
+  tableId: string,
+): TableLiveState | null {
+  return tables.find((table) => table.tableId === tableId) ?? tables[0] ?? null;
+}
+
+function isReservationSeatConfirmed(table: TableLiveState, reservationId: string): boolean {
+  return table.currentReservationId === reservationId && Boolean(table.currentVisitId);
+}
+
+function updateWaitlistQuery(
+  locationId: string,
+  updater: (entries: WaitlistEntry[]) => WaitlistEntry[],
+) {
+  queryClient.setQueryData<WaitlistEntry[]>(queryKeys.waitlist.list(locationId), (currentEntries) =>
+    updater(currentEntries ?? []),
+  );
+}
+
+function updateReservationQueries(
+  locationId: string,
+  updater: (reservations: Reservation[]) => Reservation[],
+) {
+  queryClient.setQueriesData<Reservation[]>(
+    { queryKey: queryKeys.reservations.location(locationId) },
+    (currentReservations) =>
+      Array.isArray(currentReservations) ? updater(currentReservations) : currentReservations,
+  );
+}
+
+function syncSeatedPartyQueryCache(message: FloorStreamMessage) {
+  if (
+    message.type !== 'table.updated' &&
+    message.type !== 'table.batch_updated' &&
+    message.type !== 'waitlist.updated'
+  ) {
+    return;
+  }
+
+  const locationId = useAuthStore.getState().currentLocationId;
+  if (!locationId) {
+    return;
+  }
+
+  if (message.type === 'waitlist.updated') {
+    updateWaitlistQuery(locationId, (entries) => upsertWaitlistEntry(entries, message.entry));
+    return;
+  }
+
+  if (!message.commandId) {
+    return;
+  }
+
+  const pendingSeat = usePendingSeatStore.getState().pendingSeats[message.commandId];
+  if (!pendingSeat) {
+    return;
+  }
+
+  const canonicalTable =
+    message.type === 'table.updated'
+      ? message.table
+      : resolveCanonicalSeatTable(message.tables, pendingSeat.tableId);
+  if (!canonicalTable) {
+    return;
+  }
+
+  const seatedAt = canonicalTable.seatedAt ?? canonicalTable.updatedAt;
+  if (pendingSeat.source === 'waitlist') {
+    updateWaitlistQuery(locationId, (entries) =>
+      markWaitlistEntrySeated(entries, pendingSeat.entityId, canonicalTable.tableId, seatedAt),
+    );
+    return;
+  }
+
+  if (!isReservationSeatConfirmed(canonicalTable, pendingSeat.entityId)) {
+    return;
+  }
+
+  updateReservationQueries(locationId, (reservations) =>
+    markReservationSeated(
+      reservations,
+      pendingSeat.entityId,
+      canonicalTable.tableId,
+      seatedAt,
+      canonicalTable.currentVisitId,
+    ),
+  );
+}
+
 function applyCommandResponseMessage(message: FloorStreamMessage, command: TableCommand) {
   console.info('[FloorActions] HTTP command message', {
     commandId: command.commandId,
@@ -52,8 +156,10 @@ function applyCommandResponseMessage(message: FloorStreamMessage, command: Table
   });
   if (message.type === 'routing.updated') {
     useWaiterRoutingStore.getState().applyRouting(message.locationId, message.routing);
+    queryClient.setQueryData(queryKeys.routing.location(message.locationId), message.routing);
     return;
   }
+  syncSeatedPartyQueryCache(message);
   useFloorStore.getState().applyStreamMessage(message);
   if (message.type === 'command.rejected') {
     usePendingSeatStore.getState().rollbackPendingSeat(message.commandId);
