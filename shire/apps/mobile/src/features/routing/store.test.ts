@@ -55,6 +55,96 @@ describe('waiter routing resolution', () => {
     ).toBe('backend-next');
   });
 
+  it('ignores section ownership in rotation mode', () => {
+    const patioOpenFloorMap: FloorMap = {
+      ...floorMap,
+      sectionPlans: [
+        {
+          planId: 'patio-plan',
+          name: 'Patio Service',
+          waiterCount: 1,
+          sections: [{ sectionId: 'Patio', tableIds: ['T1'] }],
+        },
+      ],
+      activeSectionPlanId: 'patio-plan',
+    };
+
+    expect(
+      resolveWaiterIdForTable(
+        {
+          ...baseRouting,
+          mode: 'manual_rotation',
+          activeWaiterIds: ['backend-next', 'fallback'],
+          sectionAssignments: { Main: 'backend-next' },
+          tableAssignments: {},
+          nextUpByTable: {},
+          nextUpBySection: {},
+          nextWaiterId: 'backend-next',
+          rotationOrder: ['backend-next', 'fallback'],
+        },
+        'T1',
+        'Patio',
+        null,
+        null,
+        patioOpenFloorMap,
+      ),
+    ).toBe('backend-next');
+  });
+
+  it('does not fall back to section next-up in rotation mode', () => {
+    expect(
+      resolveWaiterIdForTable(
+        {
+          ...baseRouting,
+          mode: 'manual_rotation',
+          tableAssignments: {},
+          nextUpByTable: {},
+          nextUpBySection: { Patio: 'backend-section' },
+          nextWaiterId: 'fallback',
+          rotationOrder: ['fallback', 'backend-section'],
+        },
+        'T2',
+        'Patio',
+      ),
+    ).toBe('fallback');
+  });
+
+  it('uses active-only eligibility for backend table next-up in rotation mode', () => {
+    const patioOpenFloorMap: FloorMap = {
+      ...floorMap,
+      sectionPlans: [
+        {
+          planId: 'patio-plan',
+          name: 'Patio Service',
+          waiterCount: 2,
+          sections: [{ sectionId: 'Patio', tableIds: ['T1'] }],
+        },
+      ],
+      activeSectionPlanId: 'patio-plan',
+    };
+
+    expect(
+      resolveWaiterIdForTable(
+        {
+          ...baseRouting,
+          mode: 'manual_rotation',
+          activeWaiterIds: ['fallback', 'backend-next'],
+          sectionAssignments: { Main: 'backend-next' },
+          tableAssignments: {},
+          nextUpByTable: { T1: 'backend-next' },
+          nextUpBySection: {},
+          nextWaiterId: 'fallback',
+          rotationOrder: ['fallback', 'backend-next'],
+        },
+        'T1',
+        'Patio',
+        null,
+        null,
+        patioOpenFloorMap,
+      ),
+    ).toBe('backend-next');
+  });
+
   it('uses grat recommendations for large parties in rotation mode', () => {
     expect(
       resolveWaiterIdForTable(
@@ -86,8 +176,14 @@ describe('waiter routing resolution', () => {
     expect(resolveWaiterIdForTable(baseRouting, 'T2', 'Patio')).toBe('section');
   });
 
-  it('uses grat recommendations for large parties in section mode', () => {
-    expect(resolveWaiterIdForTable(baseRouting, 'T2', 'Patio', null, 6)).toBe('backend-grat');
+  it('uses grat recommendations for unassigned large-party sections in section mode', () => {
+    expect(resolveWaiterIdForTable(baseRouting, 'T2', 'Main', null, 6)).toBe('backend-grat');
+  });
+
+  it('keeps grat-sized section tables with their section owner in section mode', () => {
+    expect(
+      resolveWaiterIdForTable(baseRouting, 'T1', 'Patio', 'backend-table-1', 6, floorMap),
+    ).toBe('section');
   });
 
   it('keeps section owner for large parties when no grat waiter is configured', () => {

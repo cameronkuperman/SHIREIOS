@@ -24,13 +24,19 @@ type WaitlistCardProps = {
   onSeat?: () => void;
   onCall?: () => void;
   onMessage?: () => void;
+  quickSeatSuggestion?: {
+    tableLabel: string;
+    reason: string;
+    isSelected?: boolean;
+  } | null;
   // legacy props — accepted for compatibility, unused
   onNotify?: () => void;
   onNotifyMore?: () => void;
   isNotifying?: boolean;
 };
 
-const GREEN = '#4BA05A';
+const ACTION_DARK = '#242016';
+const ACTION_GREEN = '#2F8F74';
 
 export function WaitlistCard({
   party,
@@ -39,6 +45,7 @@ export function WaitlistCard({
   onSeat,
   onCall,
   onMessage,
+  quickSeatSuggestion,
 }: WaitlistCardProps) {
   const { colors } = useTheme();
   const [now, setNow] = useState(Date.now());
@@ -78,6 +85,38 @@ export function WaitlistCard({
         isSelected ? { backgroundColor: colors.accentLight, borderWidth: 2 } : null,
       ]}
     >
+      {quickSeatSuggestion && (
+        <View style={styles.quickSeatRow}>
+          <Pressable
+            onPress={onSeat ?? onPress}
+            style={({ pressed }) => [
+              styles.quickSeatCopy,
+              pressed ? { opacity: 0.72 } : null,
+            ]}
+          >
+            <View style={styles.quickSeatBadgeLine}>
+              <View style={[styles.quickSeatBadge, { backgroundColor: colors.accentLight }]}>
+                <Ionicons name="sparkles-outline" size={11} color={colors.accent} />
+                <Text
+                  numberOfLines={1}
+                  style={[styles.quickSeatBadgeText, { color: colors.accent }]}
+                >
+                  Suggested T{quickSeatSuggestion.tableLabel}
+                </Text>
+              </View>
+            </View>
+            <Text
+              numberOfLines={1}
+              style={[styles.quickSeatReason, { color: colors.text.muted }]}
+            >
+              {quickSeatSuggestion.isSelected
+                ? 'Tap any open table'
+                : quickSeatSuggestion.reason}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
       <Pressable onPress={onPress}>
         {/* Header */}
         <View style={styles.header}>
@@ -131,12 +170,21 @@ export function WaitlistCard({
         <Pressable
           onPress={onSeat ?? onPress}
           style={({ pressed }) => [
-            styles.seatBtn,
-            { backgroundColor: GREEN },
+            quickSeatSuggestion ? styles.quickSeatActionBtn : styles.seatBtn,
+            {
+              backgroundColor: quickSeatSuggestion?.isSelected
+                ? ACTION_GREEN
+                : quickSeatSuggestion
+                  ? ACTION_DARK
+                  : ACTION_GREEN,
+              borderColor: quickSeatSuggestion?.isSelected ? '#246D59' : '#17140E',
+            },
             pressed ? { transform: [{ scale: 0.98 }] } : null,
           ]}
         >
-          <Text style={styles.seatText}>Seat</Text>
+          <Text style={quickSeatSuggestion ? styles.quickSeatActionText : styles.seatText}>
+            {quickSeatSuggestion?.isSelected ? 'Seat' : quickSeatSuggestion ? 'Quick Seat' : 'Seat'}
+          </Text>
         </Pressable>
         <Pressable
           onPress={onCall ?? onPress}
@@ -211,6 +259,43 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
+  quickSeatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  quickSeatCopy: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'flex-start',
+    gap: 5,
+  },
+  quickSeatBadgeLine: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  quickSeatBadge: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  quickSeatBadgeText: {
+    fontFamily: fontFamily.sansSemibold,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  quickSeatReason: {
+    fontFamily: fontFamily.sans,
+    fontSize: 12,
+    lineHeight: 16,
+  },
   tagRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -248,11 +333,38 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    shadowColor: '#1E1C18',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
   },
   seatText: {
     fontFamily: fontFamily.sansSemibold,
     fontSize: 13,
     fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  quickSeatActionBtn: {
+    height: 36,
+    minWidth: 92,
+    flexShrink: 0,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    shadowColor: '#1E1C18',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  quickSeatActionText: {
+    fontFamily: fontFamily.sansSemibold,
+    fontSize: 12,
+    fontWeight: '700',
     color: '#FFFFFF',
   },
   ghostBtn: {
