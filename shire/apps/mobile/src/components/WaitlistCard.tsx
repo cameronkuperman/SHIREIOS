@@ -36,8 +36,6 @@ type WaitlistCardProps = {
 };
 
 const ACTION_DARK = '#242016';
-const ACTION_GREEN = '#2F8F74';
-
 export function WaitlistCard({
   party,
   onPress,
@@ -167,25 +165,33 @@ export function WaitlistCard({
 
       {/* Actions */}
       <View style={styles.actions}>
-        <Pressable
-          onPress={onSeat ?? onPress}
-          style={({ pressed }) => [
-            quickSeatSuggestion ? styles.quickSeatActionBtn : styles.seatBtn,
-            {
-              backgroundColor: quickSeatSuggestion?.isSelected
-                ? ACTION_GREEN
-                : quickSeatSuggestion
-                  ? ACTION_DARK
-                  : ACTION_GREEN,
-              borderColor: quickSeatSuggestion?.isSelected ? '#246D59' : '#17140E',
-            },
-            pressed ? { transform: [{ scale: 0.98 }] } : null,
-          ]}
-        >
-          <Text style={quickSeatSuggestion ? styles.quickSeatActionText : styles.seatText}>
-            {quickSeatSuggestion?.isSelected ? 'Seat' : quickSeatSuggestion ? 'Quick Seat' : 'Seat'}
-          </Text>
-        </Pressable>
+        {quickSeatSuggestion ? (
+          <Pressable
+            onPress={onSeat ?? onPress}
+            style={({ pressed }) => [
+              styles.seatPressable,
+              pressed ? { transform: [{ scale: 0.98 }], opacity: 0.82 } : null,
+            ]}
+          >
+            <View style={styles.seatBtn}>
+              <Text style={styles.seatText}>Seat</Text>
+              <Ionicons name="arrow-forward" size={11} color="#FFFFFF" />
+            </View>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={onSeat ?? onPress}
+            style={({ pressed }) => [
+              styles.seatPressable,
+              pressed ? { transform: [{ scale: 0.98 }] } : null,
+            ]}
+          >
+            <View style={styles.seatBtn}>
+              <Text style={styles.seatText}>Seat</Text>
+              <Ionicons name="arrow-forward" size={11} color="#FFFFFF" />
+            </View>
+          </Pressable>
+        )}
         <Pressable
           onPress={onCall ?? onPress}
           accessibilityLabel="Call guest"
@@ -327,44 +333,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  seatPressable: {
+    flexShrink: 0,
+  },
   seatBtn: {
-    flex: 1,
-    height: 36,
-    borderRadius: 8,
+    height: 26,
+    minWidth: 58,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 10,
     borderWidth: 1,
+    backgroundColor: ACTION_DARK,
+    borderColor: '#17140E',
     shadowColor: '#1E1C18',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.14,
+    shadowRadius: 3,
+    elevation: 2,
   },
   seatText: {
     fontFamily: fontFamily.sansSemibold,
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  quickSeatActionBtn: {
-    height: 36,
-    minWidth: 92,
-    flexShrink: 0,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    shadowColor: '#1E1C18',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  quickSeatActionText: {
-    fontFamily: fontFamily.sansSemibold,
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
     color: '#FFFFFF',
   },
   ghostBtn: {

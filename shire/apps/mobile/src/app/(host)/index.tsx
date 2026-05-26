@@ -46,11 +46,17 @@ import {
   useReservationMutations,
   useWaitlistMutations,
 } from '@/features/host/hooks';
+import {
+  MIMOSAS_ROUTING,
+  activateMimosasScenario,
+  useMimosasScenarioStore,
+} from '@/features/host/mimosasScenario';
 import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
 import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import {
   getRoutingModeSwitchWarnings,
   getWaiterById,
+  getWaiterColor,
   resolveWaiterForTable,
   resolveWaiterIdForTable,
   useWaiterRoutingActions,
@@ -239,10 +245,34 @@ export default function FloorPlanScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const { colors } = useTheme();
   const { currentLocation } = useAuth();
-  const { routing, isSaving: isRoutingSaving } = useWaiterRoutingState();
+  const isMimosasScenarioActive = useMimosasScenarioStore((state) => state.isActive);
+  const routingState = useWaiterRoutingState();
+  const routing = isMimosasScenarioActive ? MIMOSAS_ROUTING : routingState.routing;
+  const isRoutingSaving = routingState.isSaving;
   const { setRoutingMode } = useWaiterRoutingActions();
-  const waiterColorMap = useWaiterColorMap();
-  const waiterChips = useWaiterChips();
+  const liveWaiterColorMap = useWaiterColorMap();
+  const liveWaiterChips = useWaiterChips();
+  const waiterColorMap = useMemo(() => {
+    if (!isMimosasScenarioActive) return liveWaiterColorMap;
+    return Object.fromEntries(
+      MIMOSAS_ROUTING.waiters.map((waiter) => [
+        waiter.id,
+        getWaiterColor(waiter.id, MIMOSAS_ROUTING.waiters),
+      ]),
+    );
+  }, [isMimosasScenarioActive, liveWaiterColorMap]);
+  const waiterChips = useMemo(() => {
+    if (!isMimosasScenarioActive) return liveWaiterChips;
+    return MIMOSAS_ROUTING.waiters.map((waiter) => ({
+      id: waiter.id,
+      name: waiter.name,
+      color: getWaiterColor(waiter.id, MIMOSAS_ROUTING.waiters),
+      tableCount: waiter.liveTables,
+      isNext: waiter.id === MIMOSAS_ROUTING.nextWaiterId,
+      isActive: MIMOSAS_ROUTING.activeWaiterIds.includes(waiter.id),
+      isTemporary: waiter.isTemporary,
+    }));
+  }, [isMimosasScenarioActive, liveWaiterChips]);
   const liveRooms = useFloorTablesByRoom();
   const floorMap = useFloorStore((state) => state.floorMap);
   const floorIdForCommands = useFloorStore((state) => state.floorId);
@@ -309,6 +339,16 @@ export default function FloorPlanScreen() {
       prev.width === width && prev.height === height ? prev : { width, height },
     );
   }, []);
+
+  useEffect(() => {
+    if (!currentLocation?.id || isMimosasScenarioActive) return;
+    activateMimosasScenario(currentLocation.id);
+    setActiveFilter('All Rooms');
+    setLeftTab('waitlist');
+    setPopover(null);
+    setDetailTarget(null);
+    setSelectedPartyId(null);
+  }, [currentLocation?.id, isMimosasScenarioActive]);
 
   const rooms = liveRooms;
 
@@ -441,7 +481,10 @@ export default function FloorPlanScreen() {
         );
         return { waiterId, waiterName: waiter.name, tables: tablesForWaiter };
       })
-      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+      .filter(
+        (entry): entry is NonNullable<typeof entry> =>
+          entry !== null && entry.tables.length > 0,
+      );
   }, [routing, allTablesFlat, floorMap]);
   const nextUpRows = useMemo<NextUpEntry[]>(() => {
     if (nextUpRotation.length > 0) return nextUpRotation;
@@ -470,6 +513,41 @@ export default function FloorPlanScreen() {
   const nextGratRows = useMemo<NextUpEntry[]>(() => {
     if (!routing) return [];
     const threshold = routing.gratThreshold ?? 6;
+    const tableByRoutingId = new Map<string, (typeof allTablesFlat)[number]>();
+    for (const table of allTablesFlat) {
+      addTableLookup(tableByRoutingId, table.id, table);
+      addTableLookup(tableByRoutingId, table.backendTableId, table);
+      addTableLookup(tableByRoutingId, table.label, table);
+    }
+    const explicitTablesByWaiter = new Map<string, typeof allTablesFlat>();
+    for (const [tableId, waiterId] of Object.entries(routing.nextGratByTable ?? {})) {
+      if (!routing.activeWaiterIds.includes(waiterId)) continue;
+      const table = tableByRoutingId.get(tableId);
+      if (!table || table.status !== 'available' || table.isBlocked || table.capacity < threshold) {
+        continue;
+      }
+      explicitTablesByWaiter.set(waiterId, [
+        ...(explicitTablesByWaiter.get(waiterId) ?? []),
+        table,
+      ]);
+    }
+    if (explicitTablesByWaiter.size > 0) {
+      const explicitWaiterIds = [
+        ...(routing.nextGratWaiterId ? [routing.nextGratWaiterId] : []),
+        ...(routing.gratRotationState?.rotationOrder ?? []),
+        ...routing.activeWaiterIds,
+      ].filter((waiterId, index, values) => values.indexOf(waiterId) === index);
+      return explicitWaiterIds
+        .map((waiterId) => {
+          const waiter = routing.waiters.find((w) => w.id === waiterId);
+          const tablesForWaiter = (explicitTablesByWaiter.get(waiterId) ?? []).sort((a, b) =>
+            a.label.localeCompare(b.label, undefined, { numeric: true }),
+          );
+          if (!waiter || tablesForWaiter.length === 0) return null;
+          return { waiterId, waiterName: waiter.name, tables: tablesForWaiter };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    }
     const gratTables = allTablesFlat.filter(
       (table) => table.status === 'available' && !table.isBlocked && table.capacity >= threshold,
     );
@@ -505,7 +583,10 @@ export default function FloorPlanScreen() {
         );
         return { waiterId, waiterName: waiter.name, tables: tablesForWaiter };
       })
-      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+      .filter(
+        (entry): entry is NonNullable<typeof entry> =>
+          entry !== null && entry.tables.length > 0,
+      );
   }, [routing, allTablesFlat, floorMap]);
 
   const sectionsReady =
@@ -828,7 +909,7 @@ export default function FloorPlanScreen() {
     // TODO(host-routing): when backend table scoring lands, keep Quick Seat as
     // party-selection mode and let the recommendation rank the best table
     // without forcing the host to use it.
-    setSelectedPartyId(party.id);
+    setSelectedPartyId((current) => (current === party.id ? null : party.id));
     setDetailTarget(null);
     setSeatWaiterId(null);
     setPopover(null);

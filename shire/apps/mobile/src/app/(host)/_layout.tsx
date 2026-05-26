@@ -32,6 +32,12 @@ const RAIL_ITEMS: RailItem[] = [
     match: (pathname) => pathname.includes('/analytics'),
   },
   {
+    label: 'Menu',
+    icon: 'pricetag-outline',
+    href: '/(host)/pricing' as Href,
+    match: (pathname) => pathname.includes('/pricing'),
+  },
+  {
     label: 'Queue',
     icon: 'people-outline',
     href: '/(host)/waitlist' as Href,
