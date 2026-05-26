@@ -26,6 +26,7 @@ type TimeWheelFieldProps = {
   minuteInterval?: MinuteInterval;
   disabled?: boolean;
   testID?: string;
+  variant?: 'default' | 'compact';
 };
 
 function toAnchorDate(value: string | null, intervalMin: number): Date {
@@ -41,15 +42,19 @@ export function TimeWheelField({
   minuteInterval = 15,
   disabled = false,
   testID,
+  variant = 'default',
 }: TimeWheelFieldProps) {
   const { colors, isDark } = useTheme();
   const [pickerVisible, setPickerVisible] = useState(false);
   const [draft, setDraft] = useState(() => toAnchorDate(value, minuteInterval));
+  const isCompact = variant === 'compact';
 
-  const label = useMemo(
-    () => (value ? formatSlotLabel(value) : 'Select a time'),
-    [value],
-  );
+  const label = useMemo(() => {
+    if (!value) {
+      return isCompact ? '--:--' : 'Select a time';
+    }
+    return isCompact ? value : formatSlotLabel(value);
+  }, [isCompact, value]);
 
   const commit = useCallback(
     (date: Date | undefined) => {
@@ -112,24 +117,24 @@ export function TimeWheelField({
         activeOpacity={0.7}
         disabled={disabled}
         style={[
-          styles.field,
+          isCompact ? styles.compactField : styles.field,
           {
             backgroundColor: colors.surface.level2,
-            borderColor: colors.glass.borderSubtle,
+            borderColor: isCompact ? colors.border.subtle : colors.glass.borderSubtle,
             opacity: disabled ? 0.5 : 1,
           },
         ]}
       >
-        <Ionicons name="time-outline" size={18} color={colors.text.muted} />
+        {!isCompact && <Ionicons name="time-outline" size={18} color={colors.text.muted} />}
         <Text
           style={[
-            styles.fieldLabel,
+            isCompact ? styles.compactLabel : styles.fieldLabel,
             { color: value ? colors.text.primary : colors.text.muted },
           ]}
         >
           {label}
         </Text>
-        <Ionicons name="chevron-forward" size={18} color={colors.text.muted} />
+        {!isCompact && <Ionicons name="chevron-forward" size={18} color={colors.text.muted} />}
       </TouchableOpacity>
 
       {Platform.OS === 'ios' && (
@@ -184,6 +189,20 @@ const styles = StyleSheet.create({
   fieldLabel: {
     ...textStyles.body,
     flex: 1,
+  },
+  compactField: {
+    width: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  compactLabel: {
+    ...textStyles.body,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '600',
   },
   modalBackdrop: {
     flex: 1,

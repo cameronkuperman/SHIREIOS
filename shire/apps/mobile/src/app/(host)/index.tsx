@@ -25,11 +25,6 @@ import {
   useFloorTablesByRoom,
   useTableDetails,
 } from '@/features/floor';
-import {
-  buildDefaultTablesById,
-  selectTablesByRoom,
-  type TableDetailsViewModel,
-} from '@/features/floor/state';
 import { requestCctvModeChangeConfirmation } from '@/features/floor/cctvModeConfirmation';
 import { floorRealtimeRepository } from '@/features/floor/repository';
 import { AddPartyModal } from '@/components/AddPartyModal';
@@ -63,16 +58,7 @@ import {
   useWaiterColorMap,
   useWaiterRoutingState,
 } from '@/features/routing';
-import type { WaiterChipData } from '@/features/routing';
-import type {
-  FloorMap,
-  TableDisplayStatus,
-  TableLiveState,
-  TableParty,
-  WaitlistEntry,
-  WaiterRoutingMode,
-  WaiterRoutingState,
-} from '@shire/shared';
+import type { FloorMap, TableParty, WaiterRoutingMode, WaiterRoutingState } from '@shire/shared';
 import { borderRadius, fontFamily, spacing, type StatusKey, textStyles, useTheme } from '@/theme';
 
 function toTableParty(party: HostSidebarParty): TableParty {
@@ -122,28 +108,6 @@ const MOCK_NEXT_UP_TABLE_LABELS: string[][] = [
   ['21', '22'],
   ['5', '6', '8'],
 ];
-const GIF_DEMO_WAITERS = [
-  { id: 'b8c8bd03-c86f-4aa0-bc68-ed05a1b0e044', name: 'Maria' },
-  { id: '371847a3-ddc6-4cc0-87f8-3636b0c1264f', name: 'Fernando' },
-  { id: '1f24e762-4b80-4b15-bae1-7331b055219e', name: 'Lola' },
-  { id: 'fe96080c-486a-4f05-abd0-00d21f9eaf34', name: 'Kiersten' },
-  { id: 'c146a54b-3c4d-4e34-a66c-9f9238cfa895', name: 'Makayla' },
-  { id: '39e44fab-59af-44e1-8858-dae07bada373', name: 'Sava' },
-] as const;
-const GIF_DEMO_WAITER_COLORS: Record<string, string> = {
-  'b8c8bd03-c86f-4aa0-bc68-ed05a1b0e044': '#8E5CF4',
-  '371847a3-ddc6-4cc0-87f8-3636b0c1264f': '#2F8F74',
-  '1f24e762-4b80-4b15-bae1-7331b055219e': '#D36D43',
-  'fe96080c-486a-4f05-abd0-00d21f9eaf34': '#3E83C4',
-  'c146a54b-3c4d-4e34-a66c-9f9238cfa895': '#C2517A',
-  '39e44fab-59af-44e1-8858-dae07bada373': '#B58B21',
-};
-
-type GifDemoSeat = {
-  party: HostSidebarParty;
-  waiterId: string | null;
-  seatedAt: string;
-};
 
 function tableSizeBucket(capacity: number): TableSizeBucket {
   if (capacity <= 2) return '1-2';
@@ -159,343 +123,6 @@ function initialsForName(name: string): string {
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return `${parts[0]![0] ?? ''}${parts[parts.length - 1]![0] ?? ''}`.toUpperCase();
-}
-
-function isoMinutesAgo(minutes: number, now = Date.now()): string {
-  return new Date(now - minutes * 60_000).toISOString();
-}
-
-function tableStateForDisplayStatus(status: TableDisplayStatus): TableLiveState['sensedState'] {
-  if (status === 'occupied') return 'occupied';
-  if (status === 'dirty') return 'empty_dirty';
-  return 'empty_clean';
-}
-
-function orderedFloorTableIds(floorMap: FloorMap): string[] {
-  return floorMap.rooms.flatMap((room) =>
-    room.layoutMode === 'freeform'
-      ? Object.values(floorMap.tables)
-          .filter((table) => table.roomId === room.roomId)
-          .map((table) => table.tableId)
-      : room.rows.flatMap((row) => row),
-  );
-}
-
-function tableIdByLabel(floorMap: FloorMap, label: string): string | null {
-  return (
-    Object.values(floorMap.tables).find((table) => table.tableNumber === label)?.tableId ?? null
-  );
-}
-
-function getGifDemoTableSlots(floorMap: FloorMap) {
-  const orderedIds = orderedFloorTableIds(floorMap);
-  const recommended =
-    tableIdByLabel(floorMap, '8') ??
-    orderedIds.find((id) => (floorMap.tables[id]?.capacity ?? 0) >= 4) ??
-    orderedIds[0] ??
-    null;
-  const alternate =
-    tableIdByLabel(floorMap, '11') ??
-    orderedIds.find((id) => id !== recommended && (floorMap.tables[id]?.capacity ?? 0) >= 4) ??
-    orderedIds.find((id) => id !== recommended) ??
-    null;
-  const dirty =
-    tableIdByLabel(floorMap, '6') ??
-    orderedIds.find((id) => id !== recommended && id !== alternate) ??
-    null;
-  const blocked =
-    tableIdByLabel(floorMap, '4') ??
-    orderedIds.find((id) => id !== recommended && id !== alternate && id !== dirty) ??
-    null;
-  const remaining = orderedIds.filter((id) => ![recommended, alternate, dirty, blocked].includes(id));
-  const clean = remaining.slice(5, 9);
-  const occupied = remaining.slice(0, 5);
-
-  return { recommended, alternate, dirty, blocked, clean, occupied };
-}
-
-function buildGifDemoParties(hiddenPartyIds: Set<string>, now = Date.now()): HostSidebarParty[] {
-  const parties: HostSidebarParty[] = [
-    {
-      id: 'gif-martinez',
-      source: 'waitlist',
-      sourceLabel: 'Waitlist',
-      name: 'Martinez',
-      phone: '(843) 555-0142',
-      size: 4,
-      status: 'Arrived',
-      seatingPreference: 'none',
-      joinedAt: isoMinutesAgo(12, now),
-      waitLabel: '8m',
-      quotedWaitMinutes: 8,
-      notes: 'Ready at host stand',
-    },
-    {
-      id: 'gif-robinson',
-      source: 'waitlist',
-      sourceLabel: 'Waitlist',
-      name: 'Robinson',
-      phone: '(843) 555-0178',
-      size: 2,
-      status: 'Waiting',
-      seatingPreference: 'booth',
-      joinedAt: isoMinutesAgo(18, now),
-      waitLabel: '14m',
-      quotedWaitMinutes: 14,
-      notes: 'Prefers booth',
-    },
-    {
-      id: 'gif-patel',
-      source: 'waitlist',
-      sourceLabel: 'Waitlist',
-      name: 'Patel',
-      phone: '(843) 555-0109',
-      size: 5,
-      status: 'Waiting',
-      seatingPreference: 'none',
-      joinedAt: isoMinutesAgo(24, now),
-      waitLabel: '18m',
-      quotedWaitMinutes: 18,
-      notes: 'High chair',
-    },
-    {
-      id: 'gif-harris',
-      source: 'waitlist',
-      sourceLabel: 'Waitlist',
-      name: 'Harris',
-      phone: '(843) 555-0191',
-      size: 3,
-      status: 'Waiting',
-      seatingPreference: 'patio',
-      joinedAt: isoMinutesAgo(9, now),
-      waitLabel: '10m',
-      quotedWaitMinutes: 10,
-      notes: 'Patio if open',
-    },
-    {
-      id: 'gif-nguyen',
-      source: 'waitlist',
-      sourceLabel: 'Waitlist',
-      name: 'Nguyen',
-      phone: '(843) 555-0137',
-      size: 6,
-      status: 'Waiting',
-      seatingPreference: 'none',
-      joinedAt: isoMinutesAgo(31, now),
-      waitLabel: '22m',
-      quotedWaitMinutes: 22,
-      notes: 'Birthday',
-    },
-  ];
-
-  return parties.filter((party) => !hiddenPartyIds.has(party.id));
-}
-
-function buildGifDemoWaitlistEntry(party: HostSidebarParty): WaitlistEntry {
-  const timestamp = new Date().toISOString();
-  return {
-    id: party.id,
-    guest: {
-      id: `${party.id}-guest`,
-      name: party.name,
-      phone: party.phone,
-    },
-    partySize: party.size,
-    seatingPreference: party.seatingPreference,
-    status: party.status === 'Arrived' ? 'arrived' : 'waiting',
-    notes: party.notes,
-    source: 'manual',
-    joinedAt: party.joinedAt ?? timestamp,
-    quotedWaitMinutes: party.quotedWaitMinutes,
-    arrivedAt: party.status === 'Arrived' ? (party.joinedAt ?? timestamp) : null,
-    seatedAt: null,
-    removedAt: null,
-    noShowAt: null,
-    assignedTableId: null,
-    createdAt: party.joinedAt ?? timestamp,
-    updatedAt: timestamp,
-  };
-}
-
-function buildGifDemoRouting(
-  floorMap: FloorMap,
-  seatsByTableId: Record<string, GifDemoSeat>,
-): WaiterRoutingState {
-  const slots = getGifDemoTableSlots(floorMap);
-  const activeWaiterIds: string[] = GIF_DEMO_WAITERS.map((waiter) => waiter.id);
-  const seatedTables = Object.values(seatsByTableId);
-  const seatCount = seatedTables.length;
-  const lastSeat = seatedTables[seatCount - 1] ?? null;
-  const lastWaiterIndex = activeWaiterIds.indexOf(lastSeat?.waiterId ?? '');
-  const rotationStart = lastWaiterIndex >= 0 ? lastWaiterIndex + 1 : seatCount;
-  const rotationOrder = [
-    ...activeWaiterIds.slice(rotationStart % activeWaiterIds.length),
-    ...activeWaiterIds.slice(0, rotationStart % activeWaiterIds.length),
-  ];
-  const seatedTableIds = new Set(Object.keys(seatsByTableId));
-  const nextTableIds = [
-    slots.recommended,
-    slots.alternate,
-    ...slots.clean,
-    slots.dirty,
-  ].filter((id): id is string => typeof id === 'string' && !seatedTableIds.has(id));
-  const sectionAssignments = Object.values(floorMap.tables)
-    .map((table) => normalizeRoutingSection(table.section))
-    .filter((section, index, sections) => Boolean(section) && sections.indexOf(section) === index)
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-    .reduce<Record<string, string>>((acc, section, index) => {
-      acc[section] = activeWaiterIds[index % activeWaiterIds.length]!;
-      return acc;
-    }, {});
-  const nextUpByTable = nextTableIds
-    .filter((id): id is string => Boolean(id))
-    .reduce<Record<string, string>>((acc, tableId) => {
-      const section = normalizeRoutingSection(floorMap.tables[tableId]?.section);
-      acc[tableId] = sectionAssignments[section] ?? rotationOrder[0]!;
-      return acc;
-    }, {});
-  const currentTableIdsByWaiter = Object.entries(seatsByTableId).reduce<Record<string, string[]>>(
-    (acc, [tableId, seat]) => {
-      if (!seat.waiterId) return acc;
-      acc[seat.waiterId] = [...(acc[seat.waiterId] ?? []), tableId];
-      return acc;
-    },
-    {},
-  );
-
-  return {
-    mode: 'section',
-    waiters: GIF_DEMO_WAITERS.map((waiter, index) => ({
-      id: waiter.id,
-      name: waiter.name,
-      isTemporary: false,
-      status: 'available',
-      isActive: true,
-      assignedSectionIds: [],
-      assignedTableIds: [],
-      currentTableIds: currentTableIdsByWaiter[waiter.id] ?? [],
-      servedTableIds: [],
-      liveTables: index < 3 ? 4 : 3,
-      servedSeatingCount: 8 + index,
-      currentCovers: index < 2 ? 14 : 10,
-      recentHourCovers: index < 2 ? 8 : 6,
-      shiftClockIn: null,
-      gratCountToday: index === 0 ? 1 : 0,
-      lastGratAt: null,
-      lastAssignedAt: null,
-    })),
-    activeWaiterIds,
-    sectionAssignments,
-    tableAssignments: {},
-    rotationOrder,
-    nextWaiterId: rotationOrder[0] ?? null,
-    nextUpQueue: rotationOrder.slice(0, 4).map((waiterId) => {
-      const ownedTableIds = nextTableIds.filter((tableId) => nextUpByTable[tableId] === waiterId);
-      const fallbackTableIds = nextTableIds.filter((tableId) => nextUpByTable[tableId] !== waiterId);
-      const rotatedTableIds = [...ownedTableIds, ...fallbackTableIds].slice(0, 5);
-      return {
-        waiterId,
-        tableIds: rotatedTableIds,
-      };
-    }),
-    nextUpByTable,
-    nextUpBySection: {},
-    gratThreshold: 6,
-    gratRotationState: { rotationOrder },
-    nextGratWaiterId: rotationOrder[3] ?? null,
-    nextGratByTable: {},
-    nextGratBySection: {},
-    requiresSetup: false,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function buildGifDemoTables(
-  floorMap: FloorMap,
-  demoStep: number,
-  seatsByTableId: Record<string, GifDemoSeat>,
-): Record<string, TableLiveState> {
-  const now = new Date().toISOString();
-  const slots = getGifDemoTableSlots(floorMap);
-  const tables = buildDefaultTablesById(floorMap);
-  const setStatus = (
-    tableId: string | null,
-    status: TableDisplayStatus,
-    waiterIndex: number | null = null,
-    party: TableParty | null = null,
-  ) => {
-    if (!tableId || !tables[tableId]) return;
-    const waiter = waiterIndex == null ? null : GIF_DEMO_WAITERS[waiterIndex % GIF_DEMO_WAITERS.length];
-    tables[tableId] = {
-      ...tables[tableId]!,
-      displayStatus: status,
-      sensedState: tableStateForDisplayStatus(status),
-      stateConfidence: status === 'dirty' ? 0.91 : 0.97,
-      lastStateChange: now,
-      updatedAt: now,
-      sequence: 10 + demoStep,
-      party,
-      seatedAt: party ? now : null,
-      currentPartySize: party?.size ?? null,
-      currentWaiterId: waiter?.id ?? null,
-      currentWaiterName: waiter?.name ?? null,
-      lastUpdateSource: status === 'occupied' ? 'host' : 'ml',
-    };
-  };
-
-  slots.occupied.forEach((tableId, index) =>
-    setStatus(tableId, 'occupied', index, {
-      id: `gif-party-${tableId}`,
-      name: 'Dining',
-      size: floorMap.tables[tableId]?.capacity ?? 2,
-      source: 'walk_in',
-    }),
-  );
-  slots.clean.forEach((tableId, index) => {
-    const isFreshlyCleared = index === demoStep % Math.max(1, slots.clean.length);
-    setStatus(tableId, isFreshlyCleared && demoStep % 3 === 0 ? 'dirty' : 'available', null);
-  });
-  setStatus(slots.dirty, demoStep % 4 >= 2 ? 'available' : 'dirty', null);
-  setStatus(slots.blocked, 'dirty', null);
-  setStatus(slots.recommended, 'available', null);
-  setStatus(slots.alternate, 'available', null);
-
-  for (const [tableId, seat] of Object.entries(seatsByTableId)) {
-    const waiterIndex = GIF_DEMO_WAITERS.findIndex((waiter) => waiter.id === seat.waiterId);
-    setStatus(tableId, 'occupied', Math.max(0, waiterIndex), toTableParty(seat.party));
-    tables[tableId] = {
-      ...tables[tableId]!,
-      seatedAt: seat.seatedAt,
-      lastUpdateSource: 'host',
-      currentWaitlistEntryId: seat.party.source === 'waitlist' ? seat.party.id : null,
-    };
-  }
-
-  return tables;
-}
-
-function buildGifDemoTableDetails(
-  floorMap: FloorMap,
-  tablesById: Record<string, TableLiveState>,
-  routing: WaiterRoutingState,
-  tableId: string | null | undefined,
-): TableDetailsViewModel | null {
-  if (!tableId) return null;
-  const table = selectTablesByRoom(floorMap, tablesById, {}, routing)
-    .flatMap((room) => room.tables)
-    .find((candidate) => candidate.id === tableId);
-  const liveTable = tablesById[tableId];
-  const mapTable = floorMap.tables[tableId];
-  if (!table || !liveTable || !mapTable) return null;
-
-  return {
-    ...table,
-    section: mapTable.section,
-    override: liveTable.override,
-    currentWaiterId: liveTable.currentWaiterId ?? null,
-    currentWaiterName: liveTable.currentWaiterName ?? null,
-    currentPartySize: liveTable.currentPartySize ?? null,
-  };
 }
 
 type NextUpEntry = {
@@ -639,14 +266,6 @@ export default function FloorPlanScreen() {
   const [showShiftSetup, setShowShiftSetup] = useState(false);
   const [isTableModeSaving, setIsTableModeSaving] = useState(false);
   const [gratCardIndex, setGratCardIndex] = useState(0);
-  const gifModeEnabled = false;
-  const [gifDemoStep, setGifDemoStep] = useState(0);
-  const [gifDemoSeatsByTableId, setGifDemoSeatsByTableId] = useState<
-    Record<string, GifDemoSeat>
-  >({});
-  const [gifDemoHiddenPartyIds, setGifDemoHiddenPartyIds] = useState<Set<string>>(
-    () => new Set(),
-  );
   const markPendingSeat = usePendingSeatStore((state) => state.markPendingSeat);
   const rollbackPendingSeat = usePendingSeatStore((state) => state.rollbackPendingSeat);
 
@@ -684,12 +303,6 @@ export default function FloorPlanScreen() {
     }),
     [isCompactHostLayout, isTightHostLayout],
   );
-  const gifDemoParties = useMemo(
-    () => buildGifDemoParties(gifDemoHiddenPartyIds),
-    [gifDemoHiddenPartyIds],
-  );
-  const activeHostParties = gifModeEnabled ? gifDemoParties : hostParties;
-
   const handleMapLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     setMapSize((prev) =>
@@ -697,37 +310,12 @@ export default function FloorPlanScreen() {
     );
   }, []);
 
-  const gifDemoRouting = useMemo(
-    () => buildGifDemoRouting(floorMap, gifDemoSeatsByTableId),
-    [floorMap, gifDemoSeatsByTableId],
-  );
-  const activeRouting = gifModeEnabled ? gifDemoRouting : routing;
-  const activeWaiterColorMap = gifModeEnabled ? GIF_DEMO_WAITER_COLORS : waiterColorMap;
-  const gifDemoTablesById = useMemo(
-    () => buildGifDemoTables(floorMap, gifDemoStep, gifDemoSeatsByTableId),
-    [floorMap, gifDemoSeatsByTableId, gifDemoStep],
-  );
-  const gifDemoRooms = useMemo(
-    () => selectTablesByRoom(floorMap, gifDemoTablesById, {}, gifDemoRouting),
-    [floorMap, gifDemoRouting, gifDemoTablesById],
-  );
-  const rooms = gifModeEnabled ? gifDemoRooms : liveRooms;
+  const rooms = liveRooms;
 
   const tableRefs = useRef<Record<string, View | null>>({});
   const gratSwipeStartY = useRef<number | null>(null);
   const gratSwipeHandled = useRef(false);
-  const liveTableDetails = useTableDetails(popover?.tableId ?? null);
-  const gifDemoLiveTable = useMemo(
-    () =>
-      buildGifDemoTableDetails(
-        floorMap,
-        gifDemoTablesById,
-        gifDemoRouting,
-        popover?.tableId ?? null,
-      ),
-    [floorMap, gifDemoRouting, gifDemoTablesById, popover?.tableId],
-  );
-  const liveTable = gifModeEnabled ? gifDemoLiveTable : liveTableDetails;
+  const liveTable = useTableDetails(popover?.tableId ?? null);
   const visibleRooms =
     activeFilter === 'All Rooms'
       ? rooms
@@ -751,12 +339,12 @@ export default function FloorPlanScreen() {
   }, [rooms]);
 
   const waitlistParties = useMemo(
-    () => activeHostParties.filter((party) => party.source === 'waitlist'),
-    [activeHostParties],
+    () => hostParties.filter((party) => party.source === 'waitlist'),
+    [hostParties],
   );
   const reservationParties = useMemo(
-    () => activeHostParties.filter((party) => party.source === 'reservations'),
-    [activeHostParties],
+    () => hostParties.filter((party) => party.source === 'reservations'),
+    [hostParties],
   );
   const visibleTablesFlat = useMemo(
     () => visibleRooms.flatMap((room) => room.tables),
@@ -770,14 +358,14 @@ export default function FloorPlanScreen() {
           party,
           allTablesFlat,
           floorMap,
-          activeRouting,
+          routing,
         );
         if (recommendation) {
           acc[party.id] = recommendation;
         }
         return acc;
       }, {}),
-    [activeRouting, allTablesFlat, floorMap, waitlistParties],
+    [allTablesFlat, floorMap, routing, waitlistParties],
   );
   const shiftStats = useMemo(() => {
     const availableCount = allTablesFlat.filter(
@@ -793,18 +381,18 @@ export default function FloorPlanScreen() {
   }, [allTablesFlat]);
 
   const nextUpRotation = useMemo<NextUpEntry[]>(() => {
-    if (!activeRouting) return [];
+    if (!routing) return [];
     const tableByRoutingId = new Map<string, { id: string; label: string }>();
     for (const table of allTablesFlat) {
       addTableLookup(tableByRoutingId, table.id, table);
       addTableLookup(tableByRoutingId, table.backendTableId, table);
       addTableLookup(tableByRoutingId, table.label, table);
     }
-    const queueRows = (activeRouting.nextUpQueue ?? [])
+    const queueRows = (routing.nextUpQueue ?? [])
       .slice(0, 4)
       .map((entry) => {
-        if (!activeRouting.activeWaiterIds.includes(entry.waiterId)) return null;
-        const waiter = activeRouting.waiters.find((w) => w.id === entry.waiterId);
+        if (!routing.activeWaiterIds.includes(entry.waiterId)) return null;
+        const waiter = routing.waiters.find((w) => w.id === entry.waiterId);
         if (!waiter) return null;
         const tables = entry.tableIds
           .map((tableId) => tableByRoutingId.get(tableId))
@@ -827,26 +415,26 @@ export default function FloorPlanScreen() {
     for (const table of availableTables) {
       const section = floorMap.tables[table.id]?.section ?? '';
       const waiterId = resolveWaiterIdForTable(
-        activeRouting,
+        routing,
         table.id,
         section,
         table.backendTableId,
         null,
         floorMap,
       );
-      if (!waiterId || !activeRouting.activeWaiterIds.includes(waiterId)) continue;
+      if (!waiterId || !routing.activeWaiterIds.includes(waiterId)) continue;
       tablesByWaiter.set(waiterId, [...(tablesByWaiter.get(waiterId) ?? []), table]);
     }
     const orderedWaiterIds = [
-      ...(activeRouting.nextWaiterId ? [activeRouting.nextWaiterId] : []),
-      ...activeRouting.rotationOrder,
-      ...activeRouting.activeWaiterIds,
+      ...(routing.nextWaiterId ? [routing.nextWaiterId] : []),
+      ...routing.rotationOrder,
+      ...routing.activeWaiterIds,
     ].filter((waiterId, index, values) => values.indexOf(waiterId) === index);
 
     return orderedWaiterIds
-      .filter((waiterId) => activeRouting.activeWaiterIds.includes(waiterId))
+      .filter((waiterId) => routing.activeWaiterIds.includes(waiterId))
       .map((waiterId) => {
-        const waiter = activeRouting.waiters.find((w) => w.id === waiterId);
+        const waiter = routing.waiters.find((w) => w.id === waiterId);
         if (!waiter) return null;
         const tablesForWaiter = (tablesByWaiter.get(waiterId) ?? []).sort((a, b) =>
           a.label.localeCompare(b.label, undefined, { numeric: true }),
@@ -854,10 +442,10 @@ export default function FloorPlanScreen() {
         return { waiterId, waiterName: waiter.name, tables: tablesForWaiter };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-  }, [activeRouting, allTablesFlat, floorMap]);
+  }, [routing, allTablesFlat, floorMap]);
   const nextUpRows = useMemo<NextUpEntry[]>(() => {
     if (nextUpRotation.length > 0) return nextUpRotation;
-    if (activeRouting) return [];
+    if (routing) return [];
 
     const availableTables = allTablesFlat
       .filter((table) => table.status === 'available' && !table.isBlocked)
@@ -878,10 +466,10 @@ export default function FloorPlanScreen() {
             : mockLabels.map((label) => ({ id: `mock-${waiter.id}-${label}`, label })),
       };
     });
-  }, [nextUpRotation, activeRouting, allTablesFlat]);
+  }, [nextUpRotation, routing, allTablesFlat]);
   const nextGratRows = useMemo<NextUpEntry[]>(() => {
-    if (!activeRouting) return [];
-    const threshold = activeRouting.gratThreshold ?? 6;
+    if (!routing) return [];
+    const threshold = routing.gratThreshold ?? 6;
     const gratTables = allTablesFlat.filter(
       (table) => table.status === 'available' && !table.isBlocked && table.capacity >= threshold,
     );
@@ -889,28 +477,28 @@ export default function FloorPlanScreen() {
     for (const table of gratTables) {
       const section = routingSectionForTable(floorMap, table.id);
       const waiterId =
-        activeRouting.mode === 'section'
-          ? waiterAssignedToTableSection(activeRouting, floorMap, table.id)
+        routing.mode === 'section'
+          ? waiterAssignedToTableSection(routing, floorMap, table.id)
           : resolveWaiterIdForTable(
-              activeRouting,
+              routing,
               table.id,
               section,
               table.backendTableId,
               threshold,
               floorMap,
             );
-      if (!waiterId || !activeRouting.activeWaiterIds.includes(waiterId)) continue;
+      if (!waiterId || !routing.activeWaiterIds.includes(waiterId)) continue;
       tablesByWaiter.set(waiterId, [...(tablesByWaiter.get(waiterId) ?? []), table]);
     }
     const orderedWaiterIds = [
-      ...(activeRouting.nextGratWaiterId ? [activeRouting.nextGratWaiterId] : []),
-      ...(activeRouting.gratRotationState?.rotationOrder ?? []),
-      ...activeRouting.activeWaiterIds,
+      ...(routing.nextGratWaiterId ? [routing.nextGratWaiterId] : []),
+      ...(routing.gratRotationState?.rotationOrder ?? []),
+      ...routing.activeWaiterIds,
     ].filter((waiterId, index, values) => values.indexOf(waiterId) === index);
     return orderedWaiterIds
-      .filter((waiterId) => activeRouting.activeWaiterIds.includes(waiterId))
+      .filter((waiterId) => routing.activeWaiterIds.includes(waiterId))
       .map((waiterId) => {
-        const waiter = activeRouting.waiters.find((w) => w.id === waiterId);
+        const waiter = routing.waiters.find((w) => w.id === waiterId);
         if (!waiter) return null;
         const tablesForWaiter = (tablesByWaiter.get(waiterId) ?? []).sort((a, b) =>
           a.label.localeCompare(b.label, undefined, { numeric: true }),
@@ -918,17 +506,17 @@ export default function FloorPlanScreen() {
         return { waiterId, waiterName: waiter.name, tables: tablesForWaiter };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-  }, [activeRouting, allTablesFlat, floorMap]);
+  }, [routing, allTablesFlat, floorMap]);
 
   const sectionsReady =
-    activeRouting?.mode === 'manual_rotation' &&
-    activeRouting.setupPlannedMode === 'section' &&
-    Object.keys(activeRouting.sectionAssignments).length > 0;
+    routing?.mode === 'manual_rotation' &&
+    routing.setupPlannedMode === 'section' &&
+    Object.keys(routing.sectionAssignments).length > 0;
   const routingModeLabel =
-    activeRouting?.mode === 'section' ? 'Sections' : sectionsReady ? 'Sections Ready' : 'Rotation';
-  const routingModeIcon = activeRouting?.mode === 'section' ? 'grid-outline' : 'repeat-outline';
+    routing?.mode === 'section' ? 'Sections' : sectionsReady ? 'Sections Ready' : 'Rotation';
+  const routingModeIcon = routing?.mode === 'section' ? 'grid-outline' : 'repeat-outline';
   const routingModeSwitchLabel =
-    activeRouting?.mode === 'section' ? 'Switch to rotation' : 'Switch to sections';
+    routing?.mode === 'section' ? 'Switch to rotation' : 'Switch to sections';
 
   const commitRoutingMode = useCallback(
     (mode: WaiterRoutingMode) => {
@@ -943,7 +531,6 @@ export default function FloorPlanScreen() {
   );
 
   const handleToggleRoutingMode = useCallback(() => {
-    if (gifModeEnabled) return;
     if (!routing || isRoutingSaving) return;
     const nextMode: WaiterRoutingMode = routing.mode === 'section' ? 'manual_rotation' : 'section';
     const warnings = getRoutingModeSwitchWarnings(routing, floorMap, nextMode);
@@ -967,7 +554,7 @@ export default function FloorPlanScreen() {
         { text: 'Switch Anyway', onPress: () => commitRoutingMode(nextMode) },
       ],
     );
-  }, [commitRoutingMode, floorMap, gifModeEnabled, isRoutingSaving, routing]);
+  }, [commitRoutingMode, floorMap, isRoutingSaving, routing]);
 
   const serverBadgeForTable = useCallback(
     (serverName?: string, serverId?: string | null) => {
@@ -975,11 +562,11 @@ export default function FloorPlanScreen() {
       return {
         initials: initialsForName(serverName),
         color: serverId
-          ? (activeWaiterColorMap[serverId] ?? colors.status.occupied.text)
+          ? (waiterColorMap[serverId] ?? colors.status.occupied.text)
           : colors.status.occupied.text,
       };
     },
-    [activeWaiterColorMap, colors.status.occupied.text],
+    [waiterColorMap, colors.status.occupied.text],
   );
 
   // Render the floor at the proportions it was designed with in the builder,
@@ -1044,24 +631,20 @@ export default function FloorPlanScreen() {
   }, [visibleRooms, mapSize, floorDesign]);
 
   const isUsingStarterMap =
-    !gifModeEnabled &&
     floorMap.floorId === DEFAULT_FLOOR_MAP.floorId &&
     floorMap.mapVersion === DEFAULT_FLOOR_MAP.mapVersion;
 
   const hasSnapshot = Boolean(lastSnapshotAt);
-  const connectionLabel = gifModeEnabled
-    ? 'Synced'
-    : formatConnectionLabel(connectionState, hasSnapshot);
+  const connectionLabel = formatConnectionLabel(connectionState, hasSnapshot);
   const connectionColor =
     connectionLabel === 'Manual'
       ? colors.status.dirty.text
       : connectionLabel === 'Synced'
         ? colors.status.available.text
         : colors.status.reserved.text;
-  const isCctvActive = gifModeEnabled ? true : cctvSyncEnabled;
+  const isCctvActive = cctvSyncEnabled;
 
   const handleToggleCctvSync = useCallback(async () => {
-    if (gifModeEnabled) return;
     if (!currentLocation || isTableModeSaving) {
       return;
     }
@@ -1094,26 +677,20 @@ export default function FloorPlanScreen() {
     applySnapshot,
     cctvSyncEnabled,
     currentLocation,
-    gifModeEnabled,
     floorIdForCommands,
     isTableModeSaving,
     setCctvSyncEnabled,
   ]);
 
   const selectedParty = selectedPartyId
-    ? (activeHostParties.find((party) => party.id === selectedPartyId) ?? null)
+    ? (hostParties.find((party) => party.id === selectedPartyId) ?? null)
     : null;
   const selectedWaitlistEntry =
     detailTarget?.source === 'waitlist'
-      ? gifModeEnabled
-        ? activeHostParties
-            .filter((party) => party.source === 'waitlist')
-            .map(buildGifDemoWaitlistEntry)
-            .find((entry) => entry.id === detailTarget.id) ?? null
-        : (activeWaitlistEntries.find((entry) => entry.id === detailTarget.id) ?? null)
+      ? (activeWaitlistEntries.find((entry) => entry.id === detailTarget.id) ?? null)
       : null;
   const selectedReservation =
-    !gifModeEnabled && detailTarget?.source === 'reservations'
+    detailTarget?.source === 'reservations'
       ? (reservationBook.find((reservation) => reservation.id === detailTarget.id) ?? null)
       : null;
 
@@ -1127,31 +704,6 @@ export default function FloorPlanScreen() {
       setDetailTarget(null);
     }
   }, [detailTarget, selectedReservation, selectedWaitlistEntry]);
-
-  useEffect(() => {
-    if (!gifModeEnabled) return undefined;
-    const interval = setInterval(() => {
-      setGifDemoStep((current) => (current + 1) % 6);
-    }, 1400);
-    return () => clearInterval(interval);
-  }, [gifModeEnabled]);
-
-  useEffect(() => {
-    if (gifModeEnabled) return;
-    setGifDemoStep(0);
-    setGifDemoSeatsByTableId({});
-    setGifDemoHiddenPartyIds(new Set<string>());
-  }, [gifModeEnabled]);
-
-  const resetGifDemo = useCallback(() => {
-    setGifDemoStep(0);
-    setGifDemoSeatsByTableId({});
-    setGifDemoHiddenPartyIds(new Set<string>());
-    setSelectedPartyId(null);
-    setDetailTarget(null);
-    setPopover(null);
-    setSeatWaiterId(null);
-  }, []);
 
   const seatWarning = useMemo(() => {
     if (!popover || !selectedParty || selectedParty.seatingPreference === 'none') return undefined;
@@ -1169,36 +721,23 @@ export default function FloorPlanScreen() {
   const popoverResolvedWaiter = useMemo(() => {
     if (!popover || !liveTable) return null;
     return resolveWaiterForTable(
-      activeRouting,
+      routing,
       popover.tableId,
       liveTable.section,
       liveTable.backendTableId,
       null,
       floorMap,
     );
-  }, [activeRouting, floorMap, liveTable, popover]);
+  }, [routing, floorMap, liveTable, popover]);
 
   useEffect(() => {
     setSeatWaiterId(null);
   }, [popover?.tableId]);
 
-  const isRotationMode = activeRouting?.mode === 'manual_rotation';
-  const gifWaiterChips = useMemo<WaiterChipData[]>(
-    () =>
-      gifDemoRouting.waiters.map((waiter) => ({
-        id: waiter.id,
-        name: waiter.name,
-        color: GIF_DEMO_WAITER_COLORS[waiter.id] ?? colors.accent,
-        tableCount: waiter.liveTables,
-        isNext: waiter.id === gifDemoRouting.nextWaiterId,
-        isActive: true,
-        isTemporary: false,
-      })),
-    [colors.accent, gifDemoRouting],
-  );
+  const isRotationMode = routing?.mode === 'manual_rotation';
   const activeWaiterChips = useMemo(
-    () => (gifModeEnabled ? gifWaiterChips : waiterChips.filter((chip) => chip.isActive)),
-    [gifModeEnabled, gifWaiterChips, waiterChips],
+    () => waiterChips.filter((chip) => chip.isActive),
+    [waiterChips],
   );
   const resolveDefaultSeatWaiterId = useCallback(
     (
@@ -1207,9 +746,9 @@ export default function FloorPlanScreen() {
       partySize?: number | null,
       backendTableId?: string | null,
     ) => {
-      if (!activeRouting) return null;
+      if (!routing) return null;
       return resolveWaiterIdForTable(
-        activeRouting,
+        routing,
         tableId,
         section,
         backendTableId,
@@ -1217,7 +756,7 @@ export default function FloorPlanScreen() {
         floorMap,
       );
     },
-    [activeRouting, floorMap],
+    [routing, floorMap],
   );
   const seatWaiterIdEffective =
     seatWaiterId ??
@@ -1229,17 +768,17 @@ export default function FloorPlanScreen() {
           liveTable.backendTableId,
         )
       : null);
-  const seatWaiterEffective = getWaiterById(activeRouting, seatWaiterIdEffective);
+  const seatWaiterEffective = getWaiterById(routing, seatWaiterIdEffective);
   const canPickSeatWaiter = Boolean(
     isRotationMode && liveTable && liveTable.status === 'available' && !liveTable.isBlocked,
   );
   const resolveAutoAssignmentLabel = useCallback(
     (partySize: number | null) => {
-      if (!popover || !liveTable || !activeRouting) return null;
-      const threshold = activeRouting.gratThreshold ?? 6;
+      if (!popover || !liveTable || !routing) return null;
+      const threshold = routing.gratThreshold ?? 6;
       const effectiveSize = partySize ?? selectedParty?.size ?? null;
       const normalWaiter = getWaiterById(
-        activeRouting,
+        routing,
         resolveDefaultSeatWaiterId(
           popover.tableId,
           liveTable.section,
@@ -1248,7 +787,7 @@ export default function FloorPlanScreen() {
         ),
       );
       const gratWaiter = getWaiterById(
-        activeRouting,
+        routing,
         resolveDefaultSeatWaiterId(
           popover.tableId,
           liveTable.section,
@@ -1268,52 +807,14 @@ export default function FloorPlanScreen() {
       if (normalWaiter) return `Auto route: Next up ${normalWaiter.name}`;
       return null;
     },
-    [activeRouting, liveTable, popover, resolveDefaultSeatWaiterId, selectedParty?.size],
+    [routing, liveTable, popover, resolveDefaultSeatWaiterId, selectedParty?.size],
   );
   const popoverAutoAssignmentLabel = useMemo(
     () => resolveAutoAssignmentLabel(selectedParty?.size ?? null),
     [resolveAutoAssignmentLabel, selectedParty?.size],
   );
 
-  const seatGifPartyAtTable = useCallback(
-    (party: HostSidebarParty, tableId: string) => {
-      const mapTable = floorMap.tables[tableId];
-      const live = gifDemoTablesById[tableId];
-      if (!mapTable || !live || live.displayStatus !== 'available' || live.isBlocked) {
-        Alert.alert('Table Unavailable', 'Choose an open table for this party.');
-        return false;
-      }
-
-      const waiterId = resolveDefaultSeatWaiterId(
-        tableId,
-        mapTable.section,
-        party.size,
-        live.backendTableId,
-      );
-      setGifDemoSeatsByTableId((current) => ({
-        ...current,
-        [tableId]: {
-          party,
-          waiterId,
-          seatedAt: new Date().toISOString(),
-        },
-      }));
-      setGifDemoHiddenPartyIds((current) => new Set([...current, party.id]));
-      setSeatWaiterId(null);
-      setSelectedPartyId(null);
-      setPopover(null);
-      return true;
-    },
-    [floorMap.tables, gifDemoTablesById, resolveDefaultSeatWaiterId],
-  );
-
   const handleTablePress = (tableId: string, ref: View | null | undefined) => {
-    if (gifModeEnabled && selectedParty) {
-      if (seatGifPartyAtTable(selectedParty, tableId)) {
-        return;
-      }
-    }
-
     if (!ref) {
       setPopover({ tableId, layout: { x: 0, y: 0, width: 0, height: 0 } });
       return;
@@ -1353,10 +854,6 @@ export default function FloorPlanScreen() {
       waiterId: waiterId ?? null,
       source: selectedParty.source,
     });
-    if (gifModeEnabled) {
-      seatGifPartyAtTable(selectedParty, tableId);
-      return;
-    }
     if (selectedParty.source === 'reservations') {
       const commandId = createReservationSeatCommandId();
       const requestedAt = new Date().toISOString();
@@ -1433,33 +930,6 @@ export default function FloorPlanScreen() {
       cctvSyncEnabled,
       tableStateMode,
     });
-    if (gifModeEnabled) {
-      const party: HostSidebarParty = {
-        id: `gif-walkin-${Date.now()}`,
-        source: 'waitlist',
-        sourceLabel: 'Waitlist',
-        name: name || 'Walk-in',
-        phone: '',
-        size,
-        status: 'Arrived',
-        seatingPreference: 'none',
-        joinedAt: new Date().toISOString(),
-        waitLabel: '<1m',
-        quotedWaitMinutes: 0,
-        notes: 'Walk-in',
-      };
-      setGifDemoSeatsByTableId((current) => ({
-        ...current,
-        [liveTable.id]: {
-          party,
-          waiterId,
-          seatedAt: new Date().toISOString(),
-        },
-      }));
-      setSeatWaiterId(null);
-      setPopover(null);
-      return;
-    }
     const result = seatWalkIn(liveTable.id, name, size, waiterId ?? undefined, backendTableId);
     console.info('[HostFloor] seat walk-in dispatch result', result);
     if (result.ok) {
@@ -1470,15 +940,6 @@ export default function FloorPlanScreen() {
 
   const handleMarkAvailable = () => {
     if (!liveTable) return;
-    if (gifModeEnabled) {
-      setGifDemoSeatsByTableId((current) => {
-        const next = { ...current };
-        delete next[liveTable.id];
-        return next;
-      });
-      setPopover(null);
-      return;
-    }
     if (liveTable.isBlocked) {
       if (unblockTable(liveTable.id).ok) setPopover(null);
       return;
@@ -1498,15 +959,6 @@ export default function FloorPlanScreen() {
 
   const handleMarkDirty = () => {
     if (!liveTable) return;
-    if (gifModeEnabled) {
-      setGifDemoSeatsByTableId((current) => {
-        const next = { ...current };
-        delete next[liveTable.id];
-        return next;
-      });
-      setPopover(null);
-      return;
-    }
     if (liveTable.status === 'occupied') {
       if (clearTable(liveTable.id).ok) setPopover(null);
       return;
@@ -1518,10 +970,6 @@ export default function FloorPlanScreen() {
 
   const handleBlock = () => {
     if (!liveTable) return;
-    if (gifModeEnabled) {
-      setPopover(null);
-      return;
-    }
     const didDispatch = liveTable.isBlocked
       ? unblockTable(liveTable.id).ok
       : blockTable(liveTable.id).ok;
@@ -1551,12 +999,12 @@ export default function FloorPlanScreen() {
         serverColor={
           canPickSeatWaiter
             ? seatWaiterEffective
-              ? activeWaiterColorMap[seatWaiterEffective.id]
+              ? waiterColorMap[seatWaiterEffective.id]
               : undefined
             : popoverResolvedWaiter?.id
-              ? activeWaiterColorMap[popoverResolvedWaiter.id]
+              ? waiterColorMap[popoverResolvedWaiter.id]
               : liveTable.serverId
-                ? activeWaiterColorMap[liveTable.serverId]
+                ? waiterColorMap[liveTable.serverId]
                 : undefined
         }
         partyName={liveTable.partyName}
@@ -1568,13 +1016,13 @@ export default function FloorPlanScreen() {
           popoverResolvedWaiter
             ? {
                 name: popoverResolvedWaiter.name,
-                color: activeWaiterColorMap[popoverResolvedWaiter.id],
+                color: waiterColorMap[popoverResolvedWaiter.id],
               }
             : null
         }
         autoAssignmentLabel={popoverAutoAssignmentLabel}
         resolveAutoAssignmentLabel={resolveAutoAssignmentLabel}
-        routingModeLabel={activeRouting?.mode === 'manual_rotation' ? 'rotation' : undefined}
+        routingModeLabel={routing?.mode === 'manual_rotation' ? 'rotation' : undefined}
         servers={canPickSeatWaiter ? activeWaiterChips : undefined}
         currentServerId={canPickSeatWaiter ? (seatWaiterIdEffective ?? undefined) : undefined}
         serverOverrideActive={Boolean(seatWaiterId)}
@@ -1753,20 +1201,20 @@ export default function FloorPlanScreen() {
             activeOpacity={0.72}
             accessibilityRole="button"
             accessibilityLabel={routingModeSwitchLabel}
-            disabled={gifModeEnabled || !activeRouting || isRoutingSaving}
+            disabled={!routing || isRoutingSaving}
             onPress={handleToggleRoutingMode}
             style={[
               styles.routingModeBadge,
               {
                 backgroundColor:
-                  activeRouting?.mode === 'section' || sectionsReady
+                  routing?.mode === 'section' || sectionsReady
                     ? colors.accentLight
                     : colors.surface.level1,
                 borderColor:
-                  activeRouting?.mode === 'section' || sectionsReady
+                  routing?.mode === 'section' || sectionsReady
                     ? colors.accent
                     : colors.border.default,
-                opacity: !activeRouting || isRoutingSaving ? 0.58 : 1,
+                opacity: !routing || isRoutingSaving ? 0.58 : 1,
                 minWidth: isTightHostLayout ? 92 : 132,
                 paddingHorizontal: responsiveLayout.badgePadding,
               },
@@ -1776,7 +1224,7 @@ export default function FloorPlanScreen() {
               name={routingModeIcon}
               size={14}
               color={
-                activeRouting?.mode === 'section' || sectionsReady
+                routing?.mode === 'section' || sectionsReady
                   ? colors.accent
                   : colors.text.secondary
               }
@@ -1787,7 +1235,7 @@ export default function FloorPlanScreen() {
                 styles.routingModeLabel,
                 {
                   color:
-                    activeRouting?.mode === 'section' || sectionsReady
+                    routing?.mode === 'section' || sectionsReady
                       ? colors.accent
                       : colors.text.secondary,
                 },
@@ -1807,11 +1255,11 @@ export default function FloorPlanScreen() {
           {[
             {
               icon: 'add-circle-outline' as const,
-              onPress: () => (gifModeEnabled ? resetGifDemo() : setShowSeatPartyModal(true)),
+              onPress: () => setShowSeatPartyModal(true),
             },
             {
               icon: 'people-circle-outline' as const,
-              onPress: () => (gifModeEnabled ? resetGifDemo() : setShowShiftSetup(true)),
+              onPress: () => setShowShiftSetup(true),
             },
             {
               icon: 'map-outline' as const,
@@ -1862,7 +1310,7 @@ export default function FloorPlanScreen() {
                 key={entry.waiterId}
                 waiterId={entry.waiterId}
                 waiterName={entry.waiterName}
-                waiterColor={activeWaiterColorMap[entry.waiterId]}
+                waiterColor={waiterColorMap[entry.waiterId]}
                 tableLabels={entry.tables.map((table) => table.label)}
                 isNext={idx === 0}
                 badgeLabel={idx === 0 ? 'NEXT PARTY' : undefined}
@@ -1893,7 +1341,7 @@ export default function FloorPlanScreen() {
               key={`grat-${nextGratEntry.waiterId}`}
               waiterId={nextGratEntry.waiterId}
               waiterName={nextGratEntry.waiterName}
-              waiterColor={activeWaiterColorMap[nextGratEntry.waiterId]}
+              waiterColor={waiterColorMap[nextGratEntry.waiterId]}
               tableLabels={nextGratEntry.tables.map((table) => table.label)}
               isNext
               badgeLabel={gratBadgeLabel ?? 'NEXT GRAT'}
@@ -2029,16 +1477,12 @@ export default function FloorPlanScreen() {
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => {
-              if (gifModeEnabled) {
-                return;
-              }
               setPopover(null);
               setShowAddPartyModal(true);
             }}
             style={[styles.addWalkIn, { borderColor: colors.border.strong }]}
             accessibilityRole="button"
             accessibilityLabel="Add walk-in to waitlist"
-            onLongPress={gifModeEnabled ? resetGifDemo : undefined}
           >
             <Ionicons name="add" size={18} color={colors.text.secondary} />
             <Text style={[styles.addWalkInText, { color: colors.text.secondary }]}>
@@ -2192,9 +1636,6 @@ export default function FloorPlanScreen() {
         }}
         isSelectedForSeating={selectedPartyId === detailTarget?.id}
         onSaveWaitlist={async (waitlistEntryId, input) => {
-          if (gifModeEnabled) {
-            return;
-          }
           try {
             await updateWaitlistEntry({ waitlistEntryId, input });
           } catch (error) {
@@ -2204,9 +1645,6 @@ export default function FloorPlanScreen() {
           }
         }}
         onRunWaitlistAction={async (waitlistEntryId, action) => {
-          if (gifModeEnabled) {
-            return;
-          }
           try {
             await runWaitlistAction({ waitlistEntryId, action });
           } catch (error) {

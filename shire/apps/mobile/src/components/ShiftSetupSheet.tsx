@@ -42,6 +42,7 @@ import {
   type ShiftSetupDraftSnapshot,
 } from '@/features/routing/shiftSetupDraft';
 import { storage } from '@/lib/storage';
+import { TimeWheelField } from '@/components/TimeWheelField';
 import {
   useWaiterColorMap,
   useWaiterRoutingActions,
@@ -514,8 +515,8 @@ export function ShiftSetupSheet({
     if (!workingRouting) return;
     const name = newGroupName.trim();
     const startTime = newGroupTime.trim();
-    if (!name || !/^\d{2}:\d{2}$/.test(startTime)) {
-      Alert.alert('Start group needs a name and HH:MM time.');
+    if (!name || !startTime) {
+      Alert.alert('Start group needs a name and start time.');
       return;
     }
     const group: ShiftStartGroup = {
@@ -1065,19 +1066,11 @@ export function ShiftSetupSheet({
                     value={newGroupName}
                     onChangeText={setNewGroupName}
                   />
-                  <TextInput
-                    style={[
-                      styles.timeInput,
-                      {
-                        color: colors.text.primary,
-                        backgroundColor: colors.surface.level2,
-                        borderColor: colors.border.subtle,
-                      },
-                    ]}
-                    placeholder="09:00"
-                    placeholderTextColor={colors.text.muted}
+                  <TimeWheelField
                     value={newGroupTime}
-                    onChangeText={setNewGroupTime}
+                    onChange={setNewGroupTime}
+                    minuteInterval={15}
+                    variant="compact"
                   />
                   <TouchableOpacity
                     style={[styles.addConfirm, { backgroundColor: colors.accent }]}
@@ -1789,14 +1782,6 @@ const styles = StyleSheet.create({
   },
   groupInput: {
     flex: 1,
-    ...textStyles.body,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  timeInput: {
-    width: 88,
     ...textStyles.body,
     borderRadius: borderRadius.md,
     borderWidth: 1,

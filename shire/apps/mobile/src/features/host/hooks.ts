@@ -217,6 +217,9 @@ export function useHostShiftAnalytics(range: HostAnalyticsRange) {
       : ['analytics', 'shift', 'disabled', range],
     queryFn: () => fetchShiftAnalytics(locationId!, range),
     enabled: !!locationId,
+    placeholderData: (previousData) => previousData,
+    retry: false,
+    staleTime: 30_000,
     ...polling,
   });
 
@@ -225,6 +228,31 @@ export function useHostShiftAnalytics(range: HostAnalyticsRange) {
   };
 
   return query;
+}
+
+const DEFAULT_ANALYTICS_PREFETCH_RANGES: readonly HostAnalyticsRange[] = ['current_shift'];
+
+export function usePrefetchHostShiftAnalytics(
+  ranges: readonly HostAnalyticsRange[] = DEFAULT_ANALYTICS_PREFETCH_RANGES,
+) {
+  const locationId = useLocationId();
+  const isWorkdayActive = useIsWorkdayActive(locationId);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!locationId || !isWorkdayActive) {
+      return;
+    }
+
+    for (const range of ranges) {
+      void queryClient.prefetchQuery({
+        queryKey: queryKeys.analytics.shift(locationId, range),
+        queryFn: () => fetchShiftAnalytics(locationId, range),
+        retry: false,
+        staleTime: 30_000,
+      });
+    }
+  }, [isWorkdayActive, locationId, queryClient, ranges]);
 }
 
 function invalidateReservationQueries(
@@ -833,7 +861,6 @@ export function useReservationMutations() {
         return;
       }
 
-      await queryClient.cancelQueries({ queryKey: queryKeys.reservations.location(locationId) });
       const snapshots = snapshotReservationQueries(queryClient, locationId);
       const cachedReservation = findCachedReservation(queryClient, locationId, reservationId);
       if (cachedReservation) {
@@ -844,6 +871,7 @@ export function useReservationMutations() {
         );
       }
 
+      void queryClient.cancelQueries({ queryKey: queryKeys.reservations.location(locationId) });
       return { snapshots };
     },
     onError: (_error, _input, context) => {
@@ -857,6 +885,7 @@ export function useReservationMutations() {
         patchReservationQueries(queryClient, locationId, reservation);
       }
     },
+    retry: false,
   });
 
   const archiveMutation = useMutation({

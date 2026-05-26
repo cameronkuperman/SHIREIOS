@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect } from 'react';
 import { useAuth } from '@/features/auth';
 import { useWaiterRoutingState } from '@/features/routing';
+import { usePrefetchHostShiftAnalytics } from '@/features/host/hooks';
 import { useIsWorkdayActive } from '@/features/workday';
 import { useWorkdayStore } from '@/features/workday';
 import { useTotalUnread } from '@/features/messaging/hooks';
@@ -44,6 +45,8 @@ const RAIL_ITEMS: RailItem[] = [
   },
 ];
 
+const ANALYTICS_PREFETCH_RANGES = ['current_shift', 'today', 'week'] as const;
+
 export default function HostLayout() {
   const { colors } = useTheme();
   const { isInitializing, isAuthenticated, currentLocation } = useAuth();
@@ -56,6 +59,7 @@ export default function HostLayout() {
   const workdayHref = '/workday' as Href;
   const unreadCount = useTotalUnread();
   const inboxActive = pathname.includes('/inbox');
+  usePrefetchHostShiftAnalytics(ANALYTICS_PREFETCH_RANGES);
 
   useEffect(() => {
     if (isWorkdayActive && routing?.requiresSetup) {
