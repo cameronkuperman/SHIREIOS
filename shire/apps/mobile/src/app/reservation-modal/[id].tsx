@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityIndicator, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { ReservationEditor } from '@/components/ReservationEditor';
+import { fireHostMutation } from '@/features/host/backgroundMutation';
 import { useReservationDetail, useReservationMutations } from '@/features/host/hooks';
 import { textStyles, useTheme } from '@/theme';
 
@@ -47,10 +48,11 @@ export default function ReservationDetailModal() {
       isSaving={isSaving}
       onClose={() => router.back()}
       onSave={async (values) => {
-        await updateReservation({
-          reservationId: reservation.id,
-          input: values,
-        });
+        fireHostMutation(
+          updateReservation({ reservationId: reservation.id, input: values }),
+          'Unable to Save Reservation',
+          'The reservation could not be updated.',
+        );
         router.back();
       }}
       onRunAction={async (action) => {
@@ -69,15 +71,27 @@ export default function ReservationDetailModal() {
         } as Href)
       }
       onArchive={async () => {
-        await archiveReservation({ reservationId: reservation.id });
+        fireHostMutation(
+          archiveReservation({ reservationId: reservation.id }),
+          'Unable to Archive Reservation',
+          'The reservation could not be archived.',
+        );
         router.back();
       }}
       onRestore={async () => {
-        await restoreReservation({ reservationId: reservation.id });
+        fireHostMutation(
+          restoreReservation({ reservationId: reservation.id }),
+          'Unable to Restore Reservation',
+          'The reservation could not be restored.',
+        );
         router.back();
       }}
       onRemoveDuplicate={async () => {
-        await removeDuplicateReservation({ reservationId: reservation.id });
+        fireHostMutation(
+          removeDuplicateReservation({ reservationId: reservation.id }),
+          'Unable to Remove Reservation',
+          'The reservation could not be removed.',
+        );
         router.back();
       }}
     />

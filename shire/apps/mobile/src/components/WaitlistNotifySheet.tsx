@@ -43,7 +43,10 @@ export function WaitlistNotifySheet({
   const [body, setBody] = useState('');
   const [notes, setNotes] = useState('');
   const selectedTemplate = waitlistTemplates.find((template) => template.id === selectedTemplateId);
-  const firstTemplateId = waitlistTemplates[0]?.id ?? null;
+  const defaultTemplateId =
+    waitlistTemplates.find((template) => template.key === 'waitlist_ready')?.id ??
+    waitlistTemplates[0]?.id ??
+    null;
 
   useEffect(() => {
     if (!visible) {
@@ -56,10 +59,10 @@ export function WaitlistNotifySheet({
   }, [resetKey, visible]);
 
   useEffect(() => {
-    if (!selectedTemplateId && firstTemplateId) {
-      setSelectedTemplateId(firstTemplateId);
+    if (!selectedTemplateId && defaultTemplateId) {
+      setSelectedTemplateId(defaultTemplateId);
     }
-  }, [firstTemplateId, selectedTemplateId]);
+  }, [defaultTemplateId, selectedTemplateId]);
   const preview = useMemo(
     () =>
       selectedTemplate

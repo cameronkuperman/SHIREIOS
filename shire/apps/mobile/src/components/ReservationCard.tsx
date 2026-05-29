@@ -1,8 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { textStyles, spacing, borderRadius, shadows } from '@/theme';
-import { useTheme } from '@/theme';
+import { textStyles, spacing, borderRadius, shadows, useTheme } from '@/theme';
 import type { Reservation, ReservationStatus } from '@shire/shared';
 import { getReservationSourceLabel } from '@/features/host/source';
 import { seatingPrefIcon, seatingPrefLabel } from './SeatingPreferencePicker';
@@ -28,21 +27,61 @@ function useStatusConfig(status: ReservationStatus): StatusConfig {
   const { colors } = useTheme();
   switch (status) {
     case 'booked':
-      return { bg: colors.surface.level2, border: colors.border.default, text: colors.text.secondary, label: 'Booked' };
+      return {
+        bg: colors.surface.level2,
+        border: colors.border.default,
+        text: colors.text.secondary,
+        label: 'Booked',
+      };
     case 'confirmed':
-      return { bg: colors.status.available.fill, border: colors.status.available.border, text: colors.status.available.text, label: 'Confirmed' };
+      return {
+        bg: colors.status.available.fill,
+        border: colors.status.available.border,
+        text: colors.status.available.text,
+        label: 'Confirmed',
+      };
     case 'checked_in':
-      return { bg: colors.status.reserved.fill, border: colors.status.reserved.border, text: colors.status.reserved.text, label: 'Checked In' };
+      return {
+        bg: colors.status.reserved.fill,
+        border: colors.status.reserved.border,
+        text: colors.status.reserved.text,
+        label: 'Checked In',
+      };
     case 'canceled':
-      return { bg: colors.status.dirty.fill, border: colors.status.dirty.border, text: colors.status.dirty.text, label: 'Cancelled' };
+      return {
+        bg: colors.status.dirty.fill,
+        border: colors.status.dirty.border,
+        text: colors.status.dirty.text,
+        label: 'Cancelled',
+      };
     case 'seated':
-      return { bg: colors.status.occupied.fill, border: colors.status.occupied.border, text: colors.status.occupied.text, label: 'Seated' };
+      return {
+        bg: colors.status.occupied.fill,
+        border: colors.status.occupied.border,
+        text: colors.status.occupied.text,
+        label: 'Seated',
+      };
     case 'completed':
-      return { bg: colors.status.available.fill, border: colors.status.available.border, text: colors.status.available.text, label: 'Completed' };
+      return {
+        bg: colors.status.available.fill,
+        border: colors.status.available.border,
+        text: colors.status.available.text,
+        label: 'Completed',
+      };
     case 'no_show':
-      return { bg: colors.status.dirty.fill, border: colors.status.dirty.border, text: colors.status.dirty.text, label: 'No Show' };
+      return {
+        bg: colors.status.dirty.fill,
+        border: colors.status.dirty.border,
+        text: colors.status.dirty.text,
+        label: 'No Show',
+      };
     default:
-      return { bg: colors.surface.level2, border: colors.border.default, text: colors.text.muted, label: status };
+      return {
+        bg: colors.surface.level2,
+        border: colors.border.default,
+        text: colors.text.muted,
+        label: status,
+      };
   }
 }
 
@@ -50,9 +89,17 @@ type ReservationCardProps = {
   reservation: Reservation;
   onPress?: () => void;
   isSelected?: boolean;
+  onCall?: () => void;
+  onMessage?: () => void;
 };
 
-export function ReservationCard({ reservation, onPress, isSelected }: ReservationCardProps) {
+export function ReservationCard({
+  reservation,
+  onPress,
+  isSelected,
+  onCall,
+  onMessage,
+}: ReservationCardProps) {
   const { colors } = useTheme();
   const statusConfig = useStatusConfig(reservation.status);
   const pref = reservation.seatingPreference as SeatingPref;
@@ -76,9 +123,7 @@ export function ReservationCard({ reservation, onPress, isSelected }: Reservatio
     >
       <View style={styles.topRow}>
         <View style={styles.nameRow}>
-          <Text style={[styles.name, { color: colors.text.primary }]}>
-            {reservation.guestName}
-          </Text>
+          <Text style={[styles.name, { color: colors.text.primary }]}>{reservation.guestName}</Text>
           <Text style={[styles.time, { color: colors.text.secondary }]}>
             {formatTime(reservation.timeSlot)}
           </Text>
@@ -99,26 +144,48 @@ export function ReservationCard({ reservation, onPress, isSelected }: Reservatio
       </View>
 
       <View style={styles.bottomRow}>
-        <View style={styles.metaItem}>
-          <Ionicons name="people-outline" size={14} color={colors.text.muted} />
-          <Text style={[styles.metaText, { color: colors.text.secondary }]}>
-            {reservation.partySize}
-          </Text>
-        </View>
-        {pref !== 'none' && (
-          <View style={[styles.prefChip, { backgroundColor: colors.surface.level3 }]}>
-            <Ionicons name={seatingPrefIcon(pref)} size={12} color={colors.text.muted} />
-            <Text style={[styles.prefText, { color: colors.text.muted }]}>
-              {seatingPrefLabel(pref)}
+        <View style={styles.metaRow}>
+          <View style={styles.metaItem}>
+            <Ionicons name="people-outline" size={14} color={colors.text.muted} />
+            <Text style={[styles.metaText, { color: colors.text.secondary }]}>
+              {reservation.partySize}
             </Text>
           </View>
-        )}
-        {sourceLabel && (
-          <View style={styles.metaItem}>
-            <Ionicons name="globe-outline" size={14} color={colors.text.muted} />
-            <Text style={[styles.metaText, { color: colors.text.secondary }]}>
-              {sourceLabel}
-            </Text>
+          {pref !== 'none' && (
+            <View style={[styles.prefChip, { backgroundColor: colors.surface.level3 }]}>
+              <Ionicons name={seatingPrefIcon(pref)} size={12} color={colors.text.muted} />
+              <Text style={[styles.prefText, { color: colors.text.muted }]}>
+                {seatingPrefLabel(pref)}
+              </Text>
+            </View>
+          )}
+          {sourceLabel && (
+            <View style={styles.metaItem}>
+              <Ionicons name="globe-outline" size={14} color={colors.text.muted} />
+              <Text style={[styles.metaText, { color: colors.text.secondary }]}>{sourceLabel}</Text>
+            </View>
+          )}
+        </View>
+        {(onMessage || onCall) && (
+          <View style={styles.actionRow}>
+            {onMessage && (
+              <TouchableOpacity
+                onPress={onMessage}
+                accessibilityLabel="Message guest"
+                style={[styles.iconButton, { backgroundColor: colors.surface.level2 }]}
+              >
+                <Ionicons name="chatbubble-outline" size={15} color={colors.text.secondary} />
+              </TouchableOpacity>
+            )}
+            {onCall && (
+              <TouchableOpacity
+                onPress={onCall}
+                accessibilityLabel="Call guest"
+                style={[styles.iconButton, { backgroundColor: colors.surface.level2 }]}
+              >
+                <Ionicons name="call-outline" size={15} color={colors.text.secondary} />
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>
@@ -165,6 +232,15 @@ const styles = StyleSheet.create({
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  metaRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
     gap: spacing.md,
   },
   metaItem: {
@@ -185,5 +261,17 @@ const styles = StyleSheet.create({
   },
   prefText: {
     ...textStyles.tiny,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  iconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

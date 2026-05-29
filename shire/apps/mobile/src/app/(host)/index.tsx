@@ -3,10 +3,10 @@ import {
   Alert,
   LayoutChangeEvent,
   LayoutRectangle,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -28,6 +28,7 @@ import {
 import { requestCctvModeChangeConfirmation } from '@/features/floor/cctvModeConfirmation';
 import { floorRealtimeRepository } from '@/features/floor/repository';
 import { AddPartyModal } from '@/components/AddPartyModal';
+import { HostFloorSearch } from '@/components/HostFloorSearch';
 import { FloorRoomPill, type FloorRoomOption } from '@/components/FloorRoomPill';
 import { FloorStatusBar } from '@/components/FloorStatusBar';
 import { HostPersonDetailSheet } from '@/components/HostPersonDetailSheet';
@@ -44,19 +45,17 @@ import {
   useFloorSidebarParties,
   useReservationDayBook,
   useReservationMutations,
+  useSeatingRecommendations,
   useWaitlistMutations,
 } from '@/features/host/hooks';
-import {
-  MIMOSAS_ROUTING,
-  activateMimosasScenario,
-  useMimosasScenarioStore,
-} from '@/features/host/mimosasScenario';
+import { useWaitlistNotify } from '@/features/messaging/hooks';
+import type { SeatingRecommendationItem } from '@/features/host/api';
 import { usePendingSeatStore } from '@/features/host/pendingSeatStore';
+import { fireHostMutation } from '@/features/host/backgroundMutation';
 import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import {
   getRoutingModeSwitchWarnings,
   getWaiterById,
-  getWaiterColor,
   resolveWaiterForTable,
   resolveWaiterIdForTable,
   useWaiterRoutingActions,
@@ -65,7 +64,7 @@ import {
   useWaiterRoutingState,
 } from '@/features/routing';
 import type { FloorMap, TableParty, WaiterRoutingMode, WaiterRoutingState } from '@shire/shared';
-import { borderRadius, fontFamily, spacing, type StatusKey, textStyles, useTheme } from '@/theme';
+import { borderRadius, spacing, type StatusKey, textStyles, useTheme } from '@/theme';
 
 function toTableParty(party: HostSidebarParty): TableParty {
   return { id: party.id, name: party.name, size: party.size, source: party.source };
@@ -145,10 +144,10 @@ type QuickSeatRecommendation = {
   reason: string;
 };
 
-function addTableLookup(
-  lookup: Map<string, { id: string; label: string }>,
+function addTableLookup<T extends { id: string; label: string }>(
+  lookup: Map<string, T>,
   key: string | null | undefined,
-  table: { id: string; label: string },
+  table: T,
 ) {
   const normalized = key?.trim();
   if (normalized) {
@@ -204,8 +203,7 @@ function buildQuickSeatRecommendation(
   const availableTables = tables
     .filter((table) => table.status === 'available' && !table.isBlocked)
     .sort((a, b) => {
-      const capacityDelta =
-        Math.abs(a.capacity - party.size) - Math.abs(b.capacity - party.size);
+      const capacityDelta = Math.abs(a.capacity - party.size) - Math.abs(b.capacity - party.size);
       if (capacityDelta !== 0) return capacityDelta;
       return a.label.localeCompare(b.label, undefined, { numeric: true });
     });
@@ -239,40 +237,59 @@ function buildQuickSeatRecommendation(
   };
 }
 
+function buildBackendQuickSeatRecommendation(
+  party: HostSidebarParty,
+  recommendation: SeatingRecommendationItem | null | undefined,
+  tableLookup: Map<
+    string,
+    { id: string; label: string; capacity: number; section: string; backendTableId?: string | null }
+  >,
+  floorMap: FloorMap,
+  routing: WaiterRoutingState | null,
+): QuickSeatRecommendation | null {
+  const option = recommendation?.primaryRecommendation;
+  if (!option?.canSeat) {
+    return null;
+  }
+
+  const table = tableLookup.get(option.tableId) ?? tableLookup.get(option.tableNumber);
+  if (!table) {
+    return null;
+  }
+
+  const waiterId = resolveWaiterIdForTable(
+    routing,
+    table.id,
+    table.section,
+    table.backendTableId ?? option.tableId,
+    party.size,
+    floorMap,
+  );
+  const routedWaiterName =
+    routing?.waiters.find((waiter) => waiter.id === waiterId)?.name ?? option.waiterName ?? null;
+  const reason = option.displayReason
+    ? `${option.displayReason}${routedWaiterName ? ` · ${routedWaiterName} next` : ''}`
+    : `Backend pick${routedWaiterName ? ` · ${routedWaiterName} next` : ''}`;
+
+  return {
+    party,
+    tableId: table.id,
+    tableLabel: table.label,
+    waiterName: routedWaiterName,
+    reason,
+  };
+}
+
 export default function FloorPlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const { colors } = useTheme();
   const { currentLocation } = useAuth();
-  const isMimosasScenarioActive = useMimosasScenarioStore((state) => state.isActive);
-  const routingState = useWaiterRoutingState();
-  const routing = isMimosasScenarioActive ? MIMOSAS_ROUTING : routingState.routing;
-  const isRoutingSaving = routingState.isSaving;
+  const { routing, isSaving: isRoutingSaving } = useWaiterRoutingState();
   const { setRoutingMode } = useWaiterRoutingActions();
-  const liveWaiterColorMap = useWaiterColorMap();
-  const liveWaiterChips = useWaiterChips();
-  const waiterColorMap = useMemo(() => {
-    if (!isMimosasScenarioActive) return liveWaiterColorMap;
-    return Object.fromEntries(
-      MIMOSAS_ROUTING.waiters.map((waiter) => [
-        waiter.id,
-        getWaiterColor(waiter.id, MIMOSAS_ROUTING.waiters),
-      ]),
-    );
-  }, [isMimosasScenarioActive, liveWaiterColorMap]);
-  const waiterChips = useMemo(() => {
-    if (!isMimosasScenarioActive) return liveWaiterChips;
-    return MIMOSAS_ROUTING.waiters.map((waiter) => ({
-      id: waiter.id,
-      name: waiter.name,
-      color: getWaiterColor(waiter.id, MIMOSAS_ROUTING.waiters),
-      tableCount: waiter.liveTables,
-      isNext: waiter.id === MIMOSAS_ROUTING.nextWaiterId,
-      isActive: MIMOSAS_ROUTING.activeWaiterIds.includes(waiter.id),
-      isTemporary: waiter.isTemporary,
-    }));
-  }, [isMimosasScenarioActive, liveWaiterChips]);
+  const waiterColorMap = useWaiterColorMap();
+  const waiterChips = useWaiterChips();
   const liveRooms = useFloorTablesByRoom();
   const floorMap = useFloorStore((state) => state.floorMap);
   const floorIdForCommands = useFloorStore((state) => state.floorId);
@@ -287,8 +304,10 @@ export default function FloorPlanScreen() {
   const { connectionState, lastSnapshotAt } = useFloorConnectionState();
   const activeWaitlistEntries = useActiveWaitlistEntries();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const seatingRecommendationsQuery = useSeatingRecommendations(today);
   const reservationBook = useReservationDayBook(today);
   const hostParties = useFloorSidebarParties();
+  const waitlistNotify = useWaitlistNotify();
   const { updateReservation, runReservationAction } = useReservationMutations();
   const { createWaitlistEntry, updateWaitlistEntry, runWaitlistAction } = useWaitlistMutations();
   const [showAddPartyModal, setShowAddPartyModal] = useState(false);
@@ -340,16 +359,6 @@ export default function FloorPlanScreen() {
     );
   }, []);
 
-  useEffect(() => {
-    if (!currentLocation?.id || isMimosasScenarioActive) return;
-    activateMimosasScenario(currentLocation.id);
-    setActiveFilter('All Rooms');
-    setLeftTab('waitlist');
-    setPopover(null);
-    setDetailTarget(null);
-    setSelectedPartyId(null);
-  }, [currentLocation?.id, isMimosasScenarioActive]);
-
   const rooms = liveRooms;
 
   const tableRefs = useRef<Record<string, View | null>>({});
@@ -391,21 +400,66 @@ export default function FloorPlanScreen() {
     [visibleRooms],
   );
   const allTablesFlat = useMemo(() => rooms.flatMap((room) => room.tables), [rooms]);
+  const backendRecommendationsByEntityId = useMemo(() => {
+    const rows = seatingRecommendationsQuery.data?.recommendations ?? [];
+    return Object.fromEntries(rows.map((item) => [item.entityId, item]));
+  }, [seatingRecommendationsQuery.data?.recommendations]);
+  const tableLookupForRecommendations = useMemo(() => {
+    const lookup = new Map<
+      string,
+      {
+        id: string;
+        label: string;
+        capacity: number;
+        section: string;
+        backendTableId?: string | null;
+      }
+    >();
+    for (const table of allTablesFlat) {
+      const section = floorMap.tables[table.id]?.section ?? '';
+      const value = {
+        id: table.id,
+        label: table.label,
+        capacity: table.capacity,
+        section,
+        backendTableId: table.backendTableId ?? null,
+      };
+      addTableLookup(lookup, table.id, value);
+      addTableLookup(lookup, table.label, value);
+      addTableLookup(lookup, table.backendTableId, value);
+    }
+    return lookup;
+  }, [allTablesFlat, floorMap.tables]);
   const quickSeatRecommendationsByPartyId = useMemo(
     () =>
-      waitlistParties.reduce<Record<string, QuickSeatRecommendation>>((acc, party) => {
-        const recommendation = buildQuickSeatRecommendation(
-          party,
-          allTablesFlat,
-          floorMap,
-          routing,
-        );
-        if (recommendation) {
-          acc[party.id] = recommendation;
-        }
-        return acc;
-      }, {}),
-    [allTablesFlat, floorMap, routing, waitlistParties],
+      [...waitlistParties, ...reservationParties].reduce<Record<string, QuickSeatRecommendation>>(
+        (acc, party) => {
+          const backendRecommendation = buildBackendQuickSeatRecommendation(
+            party,
+            backendRecommendationsByEntityId[party.id],
+            tableLookupForRecommendations,
+            floorMap,
+            routing,
+          );
+          const recommendation =
+            backendRecommendation ??
+            buildQuickSeatRecommendation(party, allTablesFlat, floorMap, routing);
+          if (recommendation) {
+            acc[party.id] = recommendation;
+          }
+          return acc;
+        },
+        {},
+      ),
+    [
+      allTablesFlat,
+      backendRecommendationsByEntityId,
+      floorMap,
+      routing,
+      tableLookupForRecommendations,
+      reservationParties,
+      waitlistParties,
+    ],
   );
   const shiftStats = useMemo(() => {
     const availableCount = allTablesFlat.filter(
@@ -482,8 +536,7 @@ export default function FloorPlanScreen() {
         return { waiterId, waiterName: waiter.name, tables: tablesForWaiter };
       })
       .filter(
-        (entry): entry is NonNullable<typeof entry> =>
-          entry !== null && entry.tables.length > 0,
+        (entry): entry is NonNullable<typeof entry> => entry !== null && entry.tables.length > 0,
       );
   }, [routing, allTablesFlat, floorMap]);
   const nextUpRows = useMemo<NextUpEntry[]>(() => {
@@ -584,8 +637,7 @@ export default function FloorPlanScreen() {
         return { waiterId, waiterName: waiter.name, tables: tablesForWaiter };
       })
       .filter(
-        (entry): entry is NonNullable<typeof entry> =>
-          entry !== null && entry.tables.length > 0,
+        (entry): entry is NonNullable<typeof entry> => entry !== null && entry.tables.length > 0,
       );
   }, [routing, allTablesFlat, floorMap]);
 
@@ -1211,20 +1263,19 @@ export default function FloorPlanScreen() {
           <Text style={[styles.hostTag, { color: colors.text.muted }]}>Host</Text>
         </View>
 
-        <View
-          style={[
-            styles.search,
-            { backgroundColor: colors.surface.level1, borderColor: colors.border.default },
-          ]}
-        >
-          <Ionicons name="search" size={15} color={colors.text.muted} />
-          <TextInput
-            placeholder="Search guests, tables…"
-            placeholderTextColor={colors.text.muted}
-            numberOfLines={1}
-            style={[styles.searchInput, { color: colors.text.primary }]}
-          />
-        </View>
+        <HostFloorSearch
+          parties={hostParties}
+          tables={allTablesFlat}
+          onSelectParty={(party) => {
+            setLeftTab(party.source === 'waitlist' ? 'waitlist' : 'reservations');
+            setDetailTarget({ source: party.source, id: party.id });
+            setSelectedPartyId(null);
+            setPopover(null);
+          }}
+          onSelectTable={(tableId) => {
+            handleTablePress(tableId, tableRefs.current[tableId] ?? null);
+          }}
+        />
 
         <View style={[styles.topBarRight, { gap: responsiveLayout.controlGap }]}>
           <View
@@ -1305,9 +1356,7 @@ export default function FloorPlanScreen() {
               name={routingModeIcon}
               size={14}
               color={
-                routing?.mode === 'section' || sectionsReady
-                  ? colors.accent
-                  : colors.text.secondary
+                routing?.mode === 'section' || sectionsReady ? colors.accent : colors.text.secondary
               }
             />
             <Text
@@ -1537,6 +1586,44 @@ export default function FloorPlanScreen() {
                           onPress={() => {
                             setDetailTarget({ source: party.source, id: party.id });
                           }}
+                          isNotifying={waitlistNotify.isPending}
+                          onNotify={
+                            party.source === 'waitlist'
+                              ? async () => {
+                                  try {
+                                    await waitlistNotify.mutateAsync({
+                                      entryId: party.id,
+                                      input: { templateKey: 'waitlist_ready' },
+                                    });
+                                  } catch (error) {
+                                    Alert.alert(
+                                      'Unable to Notify',
+                                      extractHostRequestErrorMessage(
+                                        error,
+                                        'The guest could not be notified.',
+                                      ),
+                                    );
+                                  }
+                                }
+                              : undefined
+                          }
+                          onMessage={() =>
+                            router.push({
+                              pathname: '/(host)/inbox/new',
+                              params: {
+                                ...(party.source === 'waitlist'
+                                  ? { waitlistId: party.id }
+                                  : { reservationId: party.id }),
+                                guestName: party.name,
+                                phone: party.phone,
+                              },
+                            })
+                          }
+                          onCall={() => {
+                            if (party.phone?.trim()) {
+                              void Linking.openURL(`tel:${party.phone.trim()}`);
+                            }
+                          }}
                           onSeat={() => handleQuickSeatParty(party)}
                           quickSeatSuggestion={
                             recommendation
@@ -1682,8 +1769,10 @@ export default function FloorPlanScreen() {
         presentation="modal"
         onClose={() => setShowAddPartyModal(false)}
         onAdd={async (data) => {
-          try {
-            await createWaitlistEntry({
+          // Optimistic onMutate already shows the party; close instantly and
+          // reconcile in the background.
+          fireHostMutation(
+            createWaitlistEntry({
               guestName: data.name,
               guestPhone: data.phone,
               partySize: data.size,
@@ -1691,17 +1780,10 @@ export default function FloorPlanScreen() {
               notes: data.notes,
               quotedWaitMinutes: data.quotedWaitMinutes,
               source: 'manual',
-            });
-          } catch (error) {
-            Alert.alert(
-              'Unable to Add Party',
-              extractHostRequestErrorMessage(
-                error,
-                'The party could not be added to the waitlist.',
-              ),
-            );
-            throw error;
-          }
+            }),
+            'Unable to Add Party',
+            'The party could not be added to the waitlist.',
+          );
         }}
       />
 
@@ -1783,23 +1865,6 @@ const styles = StyleSheet.create({
   brandBlock: { flexDirection: 'row', alignItems: 'baseline', gap: 6, flexShrink: 0 },
   wordmark: { ...textStyles.wordmark, fontSize: 22 },
   hostTag: { ...textStyles.caption },
-  search: {
-    flex: 1,
-    minWidth: 120,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    height: 34,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.sm,
-    borderWidth: 1,
-  },
-  searchInput: {
-    flex: 1,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
-    padding: 0,
-  },
   topBarRight: {
     flexDirection: 'row',
     alignItems: 'center',

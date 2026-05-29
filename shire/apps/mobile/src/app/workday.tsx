@@ -76,16 +76,21 @@ export default function WorkdayScreen() {
       const result = await floorRealtimeRepository.startServiceDay(currentLocation.id, floorId);
       applySnapshot(result.snapshot);
       startWorkday(currentLocation.id, { serviceDate: result.serviceDate });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.bootstrap.location(currentLocation.id),
-      });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.routing.location(currentLocation.id),
-      });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.waitlist.list(currentLocation.id),
-      });
+      // Open the shift sheet immediately — it renders from cache + the snapshot
+      // we just applied. Refresh supporting data in parallel in the background
+      // instead of making the host wait on three sequential refetches.
       setShowShiftSetup(true);
+      void Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.bootstrap.location(currentLocation.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.routing.location(currentLocation.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.waitlist.list(currentLocation.id),
+        }),
+      ]);
     } catch (error) {
       if (previousWorkday.activeLocationId && previousWorkday.serviceDate) {
         if (previousWorkday.setupApprovedAt) {

@@ -280,6 +280,23 @@ export function ShiftSetupSheet({
     () => new Map(shiftWaiters.map((waiter) => [waiter.id, waiter.name])),
     [shiftWaiters],
   );
+  const startGroupByWaiterId = useMemo(() => {
+    const map = new Map<string, ShiftStartGroup>();
+    for (const group of workingRouting?.shiftStartGroups ?? []) {
+      for (const waiterId of group.waiterIds) {
+        map.set(waiterId, group);
+      }
+    }
+    return map;
+  }, [workingRouting?.shiftStartGroups]);
+  const orderedActiveWaiters = useMemo(() => {
+    const byId = new Map(activeWaiters.map((waiter) => [waiter.id, waiter]));
+    const ordered = (workingRouting?.rotationOrder ?? [])
+      .map((waiterId) => byId.get(waiterId))
+      .filter((waiter): waiter is (typeof activeWaiters)[number] => Boolean(waiter));
+    const orderedIds = new Set(ordered.map((waiter) => waiter.id));
+    return [...ordered, ...activeWaiters.filter((waiter) => !orderedIds.has(waiter.id))];
+  }, [activeWaiters, workingRouting?.rotationOrder]);
   const targetWaiterCount = useMemo(() => {
     const parsed = Number.parseInt(targetWaiterCountText, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : Math.max(1, activeWaiters.length);
@@ -483,6 +500,37 @@ export function ShiftSetupSheet({
               ? (rotationOrder[0] ?? activeWaiterIds[0] ?? null)
               : base.nextWaiterId,
       };
+    });
+  };
+
+  const handleMoveRotationWaiter = (waiterId: string, direction: 'up' | 'down') => {
+    if (!workingRouting) return;
+    const currentOrder = orderedActiveWaiters.map((waiter) => waiter.id);
+    const currentIndex = currentOrder.indexOf(waiterId);
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= currentOrder.length) return;
+    const nextOrder = [...currentOrder];
+    const [waiter] = nextOrder.splice(currentIndex, 1);
+    if (!waiter) return;
+    nextOrder.splice(targetIndex, 0, waiter);
+    setDraftRouting({
+      ...workingRouting,
+      rotationOrder: nextOrder,
+      nextWaiterId:
+        workingRouting.nextWaiterId && nextOrder.includes(workingRouting.nextWaiterId)
+          ? workingRouting.nextWaiterId
+          : (nextOrder[0] ?? null),
+    });
+  };
+
+  const handleStartWaiterNow = (waiterId: string) => {
+    if (!workingRouting) return;
+    setDraftRouting({
+      ...workingRouting,
+      shiftStartGroups: (workingRouting.shiftStartGroups ?? []).map((group) => ({
+        ...group,
+        waiterIds: group.waiterIds.filter((id) => id !== waiterId),
+      })),
     });
   };
 
@@ -985,6 +1033,106 @@ export function ShiftSetupSheet({
                     </Text>
                   </TouchableOpacity>
                 ))}
+                {orderedActiveWaiters.length > 0 && (
+                  <View style={styles.rotationPanel}>
+                    <View style={styles.groupHeader}>
+                      <Text style={[styles.sectionName, { color: colors.text.primary }]}>
+                        Rotation order
+                      </Text>
+                      <Text style={[styles.countPill, { color: colors.text.secondary }]}>
+                        Optional
+                      </Text>
+                    </View>
+                    <Text style={[styles.helpText, { color: colors.text.muted }]}>
+                      Reorder only if the open needs a specific first turn.
+                    </Text>
+                    {orderedActiveWaiters.map((waiter, index) => {
+                      const startGroup = startGroupByWaiterId.get(waiter.id);
+                      return (
+                        <View
+                          key={waiter.id}
+                          style={[
+                            styles.rotationRow,
+                            {
+                              borderColor: colors.border.subtle,
+                              backgroundColor: colors.surface.level1,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.rotationRank, { color: colors.text.muted }]}>
+                            {index + 1}
+                          </Text>
+                          <View
+                            style={[
+                              styles.waiterDot,
+                              {
+                                backgroundColor: waiterColorMap[waiter.id] ?? colors.border.default,
+                              },
+                            ]}
+                          />
+                          <View style={styles.rotationCopy}>
+                            <Text style={[styles.waiterName, { color: colors.text.primary }]}>
+                              {waiter.name}
+                            </Text>
+                            {startGroup ? (
+                              <Text style={[styles.rotationMeta, { color: colors.text.muted }]}>
+                                Starts at {startGroup.startTime}
+                              </Text>
+                            ) : (
+                              <Text style={[styles.rotationMeta, { color: colors.text.muted }]}>
+                                In rotation now
+                              </Text>
+                            )}
+                          </View>
+                          {startGroup ? (
+                            <TouchableOpacity
+                              activeOpacity={0.78}
+                              onPress={() => handleStartWaiterNow(waiter.id)}
+                              style={[
+                                styles.startNowButton,
+                                { backgroundColor: colors.accentLight, borderColor: colors.accent },
+                              ]}
+                            >
+                              <Text style={[styles.startNowText, { color: colors.accent }]}>
+                                Start now
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          <View style={styles.rotationControls}>
+                            <TouchableOpacity
+                              accessibilityLabel={`Move ${waiter.name} earlier in rotation`}
+                              disabled={index === 0}
+                              onPress={() => handleMoveRotationWaiter(waiter.id, 'up')}
+                              style={styles.rotationIconButton}
+                            >
+                              <Ionicons
+                                name="chevron-up"
+                                size={18}
+                                color={index === 0 ? colors.text.muted : colors.text.primary}
+                              />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              accessibilityLabel={`Move ${waiter.name} later in rotation`}
+                              disabled={index === orderedActiveWaiters.length - 1}
+                              onPress={() => handleMoveRotationWaiter(waiter.id, 'down')}
+                              style={styles.rotationIconButton}
+                            >
+                              <Ionicons
+                                name="chevron-down"
+                                size={18}
+                                color={
+                                  index === orderedActiveWaiters.length - 1
+                                    ? colors.text.muted
+                                    : colors.text.primary
+                                }
+                              />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
                 <TouchableOpacity style={styles.addLink} onPress={handleOpenTeamSettings}>
                   <Ionicons name="people-circle-outline" size={18} color={colors.accent} />
                   <Text style={[styles.addLinkText, { color: colors.accent }]}>
@@ -1755,6 +1903,54 @@ const styles = StyleSheet.create({
   waiterName: {
     ...textStyles.label,
     fontWeight: '600',
+  },
+  rotationPanel: {
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  rotationRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  rotationRank: {
+    width: 22,
+    ...textStyles.captionMedium,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  rotationCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rotationMeta: {
+    ...textStyles.tiny,
+    marginTop: 1,
+  },
+  startNowButton: {
+    borderWidth: 1,
+    borderRadius: borderRadius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+  },
+  startNowText: {
+    ...textStyles.tiny,
+    fontWeight: '800',
+  },
+  rotationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rotationIconButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   addLink: {
     flexDirection: 'row',

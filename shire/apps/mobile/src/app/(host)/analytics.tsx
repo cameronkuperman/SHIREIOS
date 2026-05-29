@@ -13,12 +13,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import { useHostShiftAnalytics } from '@/features/host/hooks';
-import {
-  MIMOSAS_FLOOR_SIGNALS,
-  MIMOSAS_OPPORTUNITY_SUMMARY,
-  MIMOSAS_PRICING_RECOMMENDATIONS,
-  useMimosasScenarioStore,
-} from '@/features/host/mimosasScenario';
 import type { HostAnalyticsRange, HostShiftAnalyticsResponse } from '@/features/host/api';
 import { WAITER_COLORS, useWaiterColorMap } from '@/features/routing';
 import { borderRadius, fontFamily, spacing, textStyles, useTheme } from '@/theme';
@@ -299,106 +293,6 @@ function LongOccupiedList({ rows }: { rows: LongOccupiedTable[] }) {
   );
 }
 
-function FloorSignalList() {
-  const { colors } = useTheme();
-
-  return (
-    <View style={styles.floorSignalList}>
-      {MIMOSAS_FLOOR_SIGNALS.map((signal) => (
-        <View
-          key={signal.tableLabel}
-          style={[
-            styles.floorSignalRow,
-            { backgroundColor: colors.surface.level3, borderColor: colors.border.subtle },
-          ]}
-        >
-          <View style={[styles.tableBadge, { backgroundColor: colors.surface.level1 }]}>
-            <Text style={[styles.tableBadgeText, { color: colors.text.primary }]}>
-              T{signal.tableLabel}
-            </Text>
-          </View>
-          <View style={styles.floorSignalCopy}>
-            <Text style={[styles.floorSignalTitle, { color: colors.text.primary }]}>
-              {signal.status} - {signal.owner}
-            </Text>
-            <Text style={[styles.floorSignalDetail, { color: colors.text.muted }]}>
-              {signal.detail}
-            </Text>
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function OpportunitySummary() {
-  const { colors } = useTheme();
-  const stats = [
-    { label: 'Waiting On Check', value: MIMOSAS_OPPORTUNITY_SUMMARY.waitingOnCheck },
-    { label: 'Ready To Order', value: MIMOSAS_OPPORTUNITY_SUMMARY.readyToOrder },
-    { label: 'Next 2 Turns', value: MIMOSAS_OPPORTUNITY_SUMMARY.nextTurns },
-    { label: 'Recovered Tonight', value: `$${MIMOSAS_OPPORTUNITY_SUMMARY.recoveredTonight}` },
-    { label: 'Revenue At Risk', value: `$${MIMOSAS_OPPORTUNITY_SUMMARY.revenueAtRisk}` },
-    { label: 'Capacity Opening', value: MIMOSAS_OPPORTUNITY_SUMMARY.capacityOpening },
-  ];
-
-  return (
-    <View style={styles.opportunityGrid}>
-      {stats.map((stat, index) => (
-        <View
-          key={stat.label}
-          style={[
-            styles.opportunityCard,
-            index < 3 ? styles.opportunityCardPrimary : null,
-            {
-              backgroundColor: index < 3 ? colors.accentLight : colors.surface.level3,
-              borderColor: index < 3 ? colors.accent : colors.border.subtle,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.opportunityValue,
-              { color: index < 3 ? colors.accent : colors.text.primary },
-            ]}
-          >
-            {stat.value}
-          </Text>
-          <Text style={[styles.opportunityLabel, { color: colors.text.muted }]}>
-            {stat.label}
-          </Text>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function PricingPreview() {
-  const { colors } = useTheme();
-
-  return (
-    <View style={styles.pricingPreviewList}>
-      {MIMOSAS_PRICING_RECOMMENDATIONS.map((recommendation) => (
-        <View key={recommendation.id} style={styles.pricingPreviewRow}>
-          <View style={styles.pricingPreviewCopy}>
-            <Text style={[styles.pricingPreviewItem, { color: colors.text.primary }]}>
-              {recommendation.item}
-            </Text>
-            <Text style={[styles.pricingPreviewReason, { color: colors.text.muted }]}>
-              {recommendation.reasoningTrace.marginImpact}
-            </Text>
-          </View>
-          <View style={[styles.pricingPreviewPill, { backgroundColor: colors.accentLight }]}>
-            <Text style={[styles.pricingPreviewAction, { color: colors.accent }]}>
-              {recommendation.action}
-            </Text>
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 function EmptyStateText({ label }: { label: string }) {
   const { colors } = useTheme();
   return <Text style={[styles.emptyStateText, { color: colors.text.muted }]}>{label}</Text>;
@@ -483,7 +377,6 @@ export default function HostAnalyticsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const waiterColorMap = useWaiterColorMap();
-  const isMimosasScenarioActive = useMimosasScenarioStore((state) => state.isActive);
   const [activeRange, setActiveRange] = useState<HostAnalyticsRange>('current_shift');
   const analyticsQuery = useHostShiftAnalytics(activeRange);
   const analytics = analyticsQuery.data;
@@ -556,24 +449,6 @@ export default function HostAnalyticsScreen() {
           <>
             <KPIGrid analytics={analytics} />
             <InsightGrid insights={analytics.insights} />
-            {isMimosasScenarioActive ? (
-              <View style={styles.signalOverviewGrid}>
-                <Section
-                  title="Live Floor Signals"
-                  note="Turn, cleaning, and seating context"
-                  style={styles.floorSignalsSection}
-                >
-                  <FloorSignalList />
-                </Section>
-                <Section
-                  title="Revenue Opportunity"
-                  note="Capacity and menu impact"
-                  style={styles.opportunitySection}
-                >
-                  <OpportunitySummary />
-                </Section>
-              </View>
-            ) : null}
 
             <View style={styles.mainDashboardGrid}>
               <Section
@@ -592,12 +467,6 @@ export default function HostAnalyticsScreen() {
                 <Section title="Long Occupied" note="Watch list">
                   <LongOccupiedList rows={analytics.bottlenecks.longOccupiedTables} />
                 </Section>
-
-                {isMimosasScenarioActive ? (
-                  <Section title="Menu Signals" note="Manager recommendations">
-                    <PricingPreview />
-                  </Section>
-                ) : null}
               </View>
             </View>
           </>
@@ -753,11 +622,6 @@ const styles = StyleSheet.create({
     marginTop: 3,
     lineHeight: 18,
   },
-  signalOverviewGrid: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: spacing.md,
-  },
   mainDashboardGrid: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -767,14 +631,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: borderRadius.sm,
     padding: spacing.lg,
-  },
-  floorSignalsSection: {
-    flex: 1.2,
-    minWidth: 420,
-  },
-  opportunitySection: {
-    flex: 2.4,
-    minWidth: 560,
   },
   timelineSection: {
     flex: 1,
@@ -909,94 +765,5 @@ const styles = StyleSheet.create({
   bottleneckText: {
     flex: 1,
     ...textStyles.caption,
-  },
-  floorSignalList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  floorSignalRow: {
-    flexGrow: 1,
-    flexBasis: '48%',
-    minWidth: 230,
-    minHeight: 92,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderRadius: borderRadius.sm,
-    padding: spacing.md,
-  },
-  floorSignalCopy: {
-    flex: 1,
-    gap: 3,
-  },
-  floorSignalTitle: {
-    ...textStyles.captionMedium,
-    fontWeight: '800',
-  },
-  floorSignalDetail: {
-    ...textStyles.caption,
-    lineHeight: 18,
-  },
-  opportunityGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  opportunityCard: {
-    minWidth: 188,
-    minHeight: 72,
-    flexGrow: 1,
-    flexBasis: '31%',
-    borderWidth: 1,
-    borderRadius: borderRadius.sm,
-    padding: spacing.md,
-    justifyContent: 'center',
-  },
-  opportunityCardPrimary: {
-    flexBasis: '31%',
-  },
-  opportunityValue: {
-    ...textStyles.captionMedium,
-    fontWeight: '900',
-  },
-  opportunityLabel: {
-    ...textStyles.tiny,
-    marginTop: 3,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  pricingPreviewList: {
-    gap: spacing.sm,
-  },
-  pricingPreviewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  pricingPreviewCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  pricingPreviewItem: {
-    ...textStyles.captionMedium,
-    fontWeight: '800',
-  },
-  pricingPreviewReason: {
-    ...textStyles.tiny,
-    marginTop: 2,
-    lineHeight: 16,
-  },
-  pricingPreviewPill: {
-    minHeight: 30,
-    borderRadius: borderRadius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  pricingPreviewAction: {
-    ...textStyles.tiny,
-    fontWeight: '900',
   },
 });

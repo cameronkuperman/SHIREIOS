@@ -64,6 +64,11 @@ export const queryKeys = {
     detail: (locationId: string, id: string) =>
       [...queryKeys.waitlist.all, 'detail', locationId, id] as const,
   },
+  seating: {
+    all: ['seating'] as const,
+    recommendations: (locationId: string, serviceDate: string) =>
+      [...queryKeys.seating.all, 'recommendations', locationId, serviceDate] as const,
+  },
   floorMap: {
     all: ['floorMap'] as const,
     layout: (locationId: string, floorId: string) =>

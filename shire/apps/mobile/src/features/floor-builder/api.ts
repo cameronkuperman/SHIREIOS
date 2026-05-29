@@ -1,6 +1,5 @@
 import type { FloorMap } from '@shire/shared';
 import { apiClient } from '@/services/api/client';
-import { supabase } from '@/services/supabase/client';
 
 export interface HostFloorMapUpsertResponse {
   locationId: string;
@@ -30,40 +29,17 @@ export interface FloorMapRow {
 
 export async function fetchFloorMapLayout(
   locationId: string,
-  floorId: string,
+  _floorId: string,
 ): Promise<FloorMap | null> {
-  const { data, error } = await supabase
-    .from('floor_maps')
-    .select('map_data')
-    .eq('location_id', locationId)
-    .eq('floor_id', floorId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Failed to fetch floor map: ${error.message}`);
-  }
-
-  return (data?.map_data as FloorMap) ?? null;
+  const { data } = await apiClient.get<{ floorMap?: FloorMap }>(`/locations/${locationId}/bootstrap`);
+  return data.floorMap ?? null;
 }
 
 export async function saveFloorMapLayout(
-  locationId: string,
-  floorId: string,
-  floorMap: FloorMap,
+  _locationId: string,
+  _floorId: string,
+  _floorMap: FloorMap,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('floor_maps')
-    .upsert(
-      {
-        location_id: locationId,
-        floor_id: floorId,
-        map_version: floorMap.mapVersion,
-        map_data: floorMap,
-      },
-      { onConflict: 'location_id,floor_id' },
-    );
-
-  if (error) {
-    throw new Error(`Failed to save floor map: ${error.message}`);
-  }
+  // The backend `upsertHostFloorMap` call is the canonical write. This helper is
+  // kept as a compatibility no-op for the builder's existing save sequence.
 }

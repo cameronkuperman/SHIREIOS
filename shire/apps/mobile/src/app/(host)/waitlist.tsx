@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -21,6 +22,7 @@ import { ReservationCard } from '@/components/ReservationCard';
 import { WaitlistCard } from '@/components/WaitlistCard';
 import { WaitlistNotifySheet } from '@/components/WaitlistNotifySheet';
 import { useAuth } from '@/features/auth';
+import { fireHostMutation } from '@/features/host/backgroundMutation';
 import { extractHostRequestErrorMessage } from '@/features/host/errors';
 import {
   useActiveWaitlistEntries,
@@ -205,7 +207,10 @@ export default function WaitlistScreen() {
         isNotifying={waitlistNotify.isPending}
         onNotify={async () => {
           try {
-            await waitlistNotify.mutateAsync({ entryId: party.id });
+            await waitlistNotify.mutateAsync({
+              entryId: party.id,
+              input: { templateKey: 'waitlist_ready' },
+            });
           } catch (error) {
             Alert.alert(
               'Unable to Notify',
@@ -214,6 +219,21 @@ export default function WaitlistScreen() {
           }
         }}
         onNotifyMore={() => setNotifyEntryId(party.id)}
+        onMessage={() =>
+          router.push({
+            pathname: '/(host)/inbox/new',
+            params: {
+              waitlistId: party.id,
+              guestName: party.name,
+              phone: party.phone,
+            },
+          })
+        }
+        onCall={() => {
+          if (party.phone?.trim()) {
+            void Linking.openURL(`tel:${party.phone.trim()}`);
+          }
+        }}
       />
     </Animated.View>
   );
@@ -224,6 +244,22 @@ export default function WaitlistScreen() {
         reservation={reservation}
         isSelected={detailTarget?.source === 'reservations' && detailTarget.id === reservation.id}
         onPress={() => setDetailTarget({ source: 'reservations', id: reservation.id })}
+        onMessage={() =>
+          router.push({
+            pathname: '/(host)/inbox/new',
+            params: {
+              reservationId: reservation.id,
+              guestId: reservation.guestId ?? undefined,
+              guestName: reservation.guestName,
+              phone: reservation.guestPhone,
+            },
+          })
+        }
+        onCall={() => {
+          if (reservation.guestPhone.trim()) {
+            void Linking.openURL(`tel:${reservation.guestPhone.trim()}`);
+          }
+        }}
       />
     </Animated.View>
   );
@@ -598,8 +634,10 @@ export default function WaitlistScreen() {
         visible={showAddModal}
         onClose={() => setShowAddModal(false)}
         onAdd={async (data) => {
-          try {
-            await createWaitlistEntry({
+          // Optimistic onMutate already shows the party; close instantly and
+          // reconcile in the background.
+          fireHostMutation(
+            createWaitlistEntry({
               guestName: data.name,
               guestPhone: data.phone,
               partySize: data.size,
@@ -607,17 +645,10 @@ export default function WaitlistScreen() {
               quotedWaitMinutes: data.quotedWaitMinutes,
               notes: data.notes,
               source: 'manual',
-            });
-          } catch (error) {
-            Alert.alert(
-              'Unable to Add Party',
-              extractHostRequestErrorMessage(
-                error,
-                'The party could not be added to the waitlist.',
-              ),
-            );
-            throw error;
-          }
+            }),
+            'Unable to Add Party',
+            'The party could not be added to the waitlist.',
+          );
         }}
       />
       <WaitlistNotifySheet

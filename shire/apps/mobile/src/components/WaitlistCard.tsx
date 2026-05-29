@@ -43,6 +43,9 @@ export function WaitlistCard({
   onSeat,
   onCall,
   onMessage,
+  onNotify,
+  onNotifyMore,
+  isNotifying,
   quickSeatSuggestion,
 }: WaitlistCardProps) {
   const { colors } = useTheme();
@@ -87,10 +90,7 @@ export function WaitlistCard({
         <View style={styles.quickSeatRow}>
           <Pressable
             onPress={onSeat ?? onPress}
-            style={({ pressed }) => [
-              styles.quickSeatCopy,
-              pressed ? { opacity: 0.72 } : null,
-            ]}
+            style={({ pressed }) => [styles.quickSeatCopy, pressed ? { opacity: 0.72 } : null]}
           >
             <View style={styles.quickSeatBadgeLine}>
               <View style={[styles.quickSeatBadge, { backgroundColor: colors.accentLight }]}>
@@ -103,13 +103,8 @@ export function WaitlistCard({
                 </Text>
               </View>
             </View>
-            <Text
-              numberOfLines={1}
-              style={[styles.quickSeatReason, { color: colors.text.muted }]}
-            >
-              {quickSeatSuggestion.isSelected
-                ? 'Tap any open table'
-                : quickSeatSuggestion.reason}
+            <Text numberOfLines={1} style={[styles.quickSeatReason, { color: colors.text.muted }]}>
+              {quickSeatSuggestion.isSelected ? 'Tap any open table' : quickSeatSuggestion.reason}
             </Text>
           </Pressable>
         </View>
@@ -165,46 +160,62 @@ export function WaitlistCard({
 
       {/* Actions */}
       <View style={styles.actions}>
-        {quickSeatSuggestion ? (
+        {onNotify ? (
           <Pressable
-            onPress={onSeat ?? onPress}
+            disabled={isNotifying}
+            onPress={onNotify}
+            style={({ pressed }) => [
+              styles.notifyPressable,
+              pressed ? { transform: [{ scale: 0.98 }], opacity: 0.82 } : null,
+              isNotifying ? { opacity: 0.62 } : null,
+            ]}
+          >
+            <View style={[styles.notifyBtn, { backgroundColor: colors.accent }]}>
+              <Ionicons name="notifications-outline" size={12} color="#FFFFFF" />
+              <Text style={styles.notifyText} numberOfLines={1}>
+                {isNotifying ? 'Sending' : 'Notify ready'}
+              </Text>
+            </View>
+          </Pressable>
+        ) : null}
+        {onSeat ? (
+          <Pressable
+            onPress={onSeat}
             style={({ pressed }) => [
               styles.seatPressable,
               pressed ? { transform: [{ scale: 0.98 }], opacity: 0.82 } : null,
             ]}
           >
             <View style={styles.seatBtn}>
-              <Text style={styles.seatText}>Seat</Text>
+              <Text style={styles.seatText} numberOfLines={1}>
+                {quickSeatSuggestion ? `Seat T${quickSeatSuggestion.tableLabel}` : 'Seat'}
+              </Text>
               <Ionicons name="arrow-forward" size={11} color="#FFFFFF" />
             </View>
           </Pressable>
-        ) : (
+        ) : null}
+        {onNotifyMore ? (
           <Pressable
-            onPress={onSeat ?? onPress}
-            style={({ pressed }) => [
-              styles.seatPressable,
-              pressed ? { transform: [{ scale: 0.98 }] } : null,
-            ]}
+            onPress={onNotifyMore}
+            accessibilityLabel="More notification options"
+            style={({ pressed }) => [styles.ghostBtn, pressed ? { opacity: 0.5 } : null]}
           >
-            <View style={styles.seatBtn}>
-              <Text style={styles.seatText}>Seat</Text>
-              <Ionicons name="arrow-forward" size={11} color="#FFFFFF" />
-            </View>
+            <Ionicons name="ellipsis-horizontal" size={14} color={colors.text.secondary} />
           </Pressable>
-        )}
-        <Pressable
-          onPress={onCall ?? onPress}
-          accessibilityLabel="Call guest"
-          style={({ pressed }) => [styles.ghostBtn, pressed ? { opacity: 0.5 } : null]}
-        >
-          <Ionicons name="call-outline" size={14} color={colors.text.secondary} />
-        </Pressable>
+        ) : null}
         <Pressable
           onPress={onMessage ?? onPress}
           accessibilityLabel="Message guest"
           style={({ pressed }) => [styles.ghostBtn, pressed ? { opacity: 0.5 } : null]}
         >
           <Ionicons name="chatbubble-outline" size={14} color={colors.text.secondary} />
+        </Pressable>
+        <Pressable
+          onPress={onCall ?? onPress}
+          accessibilityLabel="Call guest"
+          style={({ pressed }) => [styles.ghostBtn, pressed ? { opacity: 0.5 } : null]}
+        >
+          <Ionicons name="call-outline" size={14} color={colors.text.secondary} />
         </Pressable>
       </View>
     </View>
@@ -332,12 +343,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexWrap: 'wrap',
+  },
+  notifyPressable: {
+    flexGrow: 1,
+    flexBasis: 126,
+    minWidth: 118,
+  },
+  notifyBtn: {
+    height: 30,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 5,
+  },
+  notifyText: {
+    fontFamily: fontFamily.sansSemibold,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   seatPressable: {
-    flexShrink: 0,
+    flexGrow: 1,
+    flexBasis: 88,
+    minWidth: 76,
   },
   seatBtn: {
-    height: 26,
+    height: 30,
     minWidth: 58,
     flexDirection: 'row',
     alignItems: 'center',
@@ -359,6 +393,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#FFFFFF',
+    flexShrink: 1,
   },
   ghostBtn: {
     width: 36,

@@ -86,6 +86,42 @@ export type ReservationActionInput = {
   waiterId?: string;
 };
 
+export type SeatingRecommendationOption = {
+  rank: number;
+  tableId: string;
+  tableNumber: string;
+  tableType?: string | null;
+  tableLocation?: string | null;
+  tableCapacity: number;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  waiterId?: string | null;
+  waiterName?: string | null;
+  score: number;
+  reasonCodes: string[];
+  displayReason: string;
+  canSeat: boolean;
+};
+
+export type SeatingRecommendationItem = {
+  entityType: 'reservation' | 'waitlist' | string;
+  entityId: string;
+  label?: string | null;
+  status: string;
+  partySize: number;
+  priorityScore: number;
+  primaryRecommendation?: SeatingRecommendationOption | null;
+  canSeat: boolean;
+  autoGratEligible: boolean;
+  gratThreshold: number;
+};
+
+export type SeatingRecommendationsResponse = {
+  generatedAt: string;
+  serviceDate: string;
+  recommendations: SeatingRecommendationItem[];
+};
+
 export type ArchiveReservationInput = {
   reason?: string;
 };
@@ -346,6 +382,17 @@ export async function runWaitlistAction(
     {},
   );
   return adaptWaitlistEntry(response.data);
+}
+
+export async function fetchSeatingRecommendations(
+  locationId: string,
+  serviceDate: string,
+): Promise<SeatingRecommendationsResponse> {
+  const response = await apiClient.get<SeatingRecommendationsResponse>(
+    `/locations/${locationId}/seating/recommendations`,
+    { params: { serviceDate } },
+  );
+  return response.data;
 }
 
 export async function fetchReservations(

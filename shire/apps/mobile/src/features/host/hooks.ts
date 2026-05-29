@@ -24,6 +24,7 @@ import {
   fetchReservationDensity,
   fetchReservationSettings,
   fetchReservations,
+  fetchSeatingRecommendations,
   fetchShiftAnalytics,
   removeDuplicateReservation,
   restoreReservation,
@@ -41,17 +42,12 @@ import {
   type ReservationAvailabilityInput,
   type ReservationListFilters,
   type ReservationScheduleInput,
+  type SeatingRecommendationsResponse,
   type UpdateReservationInput,
   type UpdateWaitlistInput,
   type WaitlistAction,
 } from './api';
 import { selectActiveWaitlistEntries, upsertReservation, upsertWaitlistEntry } from './contracts';
-import {
-  getMimosasReservations,
-  getMimosasShiftAnalytics,
-  getMimosasWaitlist,
-  useMimosasScenarioStore,
-} from './mimosasScenario';
 import { getReservationSourceLabel } from './source';
 
 const FALLBACK_WAITLIST_REFETCH_MS = 15_000;
@@ -166,19 +162,18 @@ export function useWaitlist() {
   const locationId = useLocationId();
   const isWorkdayActive = useIsWorkdayActive(locationId);
   const isRealtimeHealthy = useIsRealtimeHealthy();
-  const isMimosasScenarioActive = useMimosasScenarioStore((state) => state.isActive);
   const queryClient = useQueryClient();
   const queryRef = useRef<() => void>(() => undefined);
   const polling = usePolling(() => queryRef.current(), {
     foregroundMs: FALLBACK_WAITLIST_REFETCH_MS,
     backgroundMs: FALLBACK_WAITLIST_REFETCH_MS,
-    enabled: !!locationId && isWorkdayActive && !isRealtimeHealthy && !isMimosasScenarioActive,
+    enabled: !!locationId && isWorkdayActive && !isRealtimeHealthy,
   });
 
   const query = useQuery({
     queryKey: locationId ? queryKeys.waitlist.list(locationId) : ['waitlist', 'disabled'],
     queryFn: () => fetchWaitlist(locationId!),
-    enabled: !!locationId && isWorkdayActive && !isMimosasScenarioActive,
+    enabled: !!locationId && isWorkdayActive,
     ...polling,
   });
 
@@ -187,7 +182,7 @@ export function useWaitlist() {
   };
 
   useEffect(() => {
-    if (!locationId || !isWorkdayActive || isMimosasScenarioActive) {
+    if (!locationId || !isWorkdayActive) {
       return;
     }
 
@@ -204,34 +199,18 @@ export function useWaitlist() {
     return () => {
       subscription.remove();
     };
-  }, [isMimosasScenarioActive, isRealtimeHealthy, isWorkdayActive, locationId, queryClient]);
-
-  if (isMimosasScenarioActive) {
-    return {
-      ...query,
-      data: getMimosasWaitlist(),
-      error: null,
-      isError: false,
-      isFetching: false,
-      isLoading: false,
-      isPending: false,
-      isSuccess: true,
-      status: 'success' as const,
-      fetchStatus: 'idle' as const,
-    };
-  }
+  }, [isRealtimeHealthy, isWorkdayActive, locationId, queryClient]);
 
   return query;
 }
 
 export function useHostShiftAnalytics(range: HostAnalyticsRange) {
   const locationId = useLocationId();
-  const isMimosasScenarioActive = useMimosasScenarioStore((state) => state.isActive);
   const queryRef = useRef<() => void>(() => undefined);
   const polling = usePolling(() => queryRef.current(), {
     foregroundMs: FALLBACK_ANALYTICS_REFETCH_MS,
     backgroundMs: FALLBACK_ANALYTICS_REFETCH_MS,
-    enabled: !!locationId && !isMimosasScenarioActive,
+    enabled: !!locationId,
   });
 
   const query = useQuery({
@@ -239,7 +218,7 @@ export function useHostShiftAnalytics(range: HostAnalyticsRange) {
       ? queryKeys.analytics.shift(locationId, range)
       : ['analytics', 'shift', 'disabled', range],
     queryFn: () => fetchShiftAnalytics(locationId!, range),
-    enabled: !!locationId && !isMimosasScenarioActive,
+    enabled: !!locationId,
     placeholderData: (previousData) => previousData,
     retry: false,
     staleTime: 30_000,
@@ -249,21 +228,6 @@ export function useHostShiftAnalytics(range: HostAnalyticsRange) {
   queryRef.current = () => {
     void query.refetch();
   };
-
-  if (isMimosasScenarioActive) {
-    return {
-      ...query,
-      data: getMimosasShiftAnalytics(range),
-      error: null,
-      isError: false,
-      isFetching: false,
-      isLoading: false,
-      isPending: false,
-      isSuccess: true,
-      status: 'success' as const,
-      fetchStatus: 'idle' as const,
-    };
-  }
 
   return query;
 }
@@ -669,12 +633,11 @@ export function useReservations(filters: ReservationListFilters = {}) {
   const locationId = useLocationId();
   const isWorkdayActive = useIsWorkdayActive(locationId);
   const isRealtimeHealthy = useIsRealtimeHealthy();
-  const isMimosasScenarioActive = useMimosasScenarioStore((state) => state.isActive);
   const queryRef = useRef<() => void>(() => undefined);
   const polling = usePolling(() => queryRef.current(), {
     foregroundMs: FALLBACK_RESERVATIONS_REFETCH_MS,
     backgroundMs: FALLBACK_RESERVATIONS_REFETCH_MS,
-    enabled: !!locationId && isWorkdayActive && !isRealtimeHealthy && !isMimosasScenarioActive,
+    enabled: !!locationId && isWorkdayActive && !isRealtimeHealthy,
   });
 
   const query = useQuery({
@@ -682,7 +645,7 @@ export function useReservations(filters: ReservationListFilters = {}) {
       ? queryKeys.reservations.list(locationId, filters)
       : ['reservations', 'disabled'],
     queryFn: () => fetchReservations(locationId!, filters),
-    enabled: !!locationId && isWorkdayActive && !isMimosasScenarioActive,
+    enabled: !!locationId && isWorkdayActive,
     ...polling,
   });
 
@@ -690,22 +653,22 @@ export function useReservations(filters: ReservationListFilters = {}) {
     void query.refetch();
   };
 
-  if (isMimosasScenarioActive) {
-    return {
-      ...query,
-      data: getMimosasReservations(filters),
-      error: null,
-      isError: false,
-      isFetching: false,
-      isLoading: false,
-      isPending: false,
-      isSuccess: true,
-      status: 'success' as const,
-      fetchStatus: 'idle' as const,
-    };
-  }
-
   return query;
+}
+
+export function useSeatingRecommendations(serviceDate?: string) {
+  const locationId = useLocationId();
+  const resolvedDate = serviceDate ?? new Date().toISOString().slice(0, 10);
+
+  return useQuery<SeatingRecommendationsResponse>({
+    queryKey: locationId
+      ? queryKeys.seating.recommendations(locationId, resolvedDate)
+      : ['seating', 'recommendations', 'disabled', resolvedDate],
+    queryFn: () => fetchSeatingRecommendations(locationId!, resolvedDate),
+    enabled: !!locationId,
+    retry: false,
+    staleTime: 15_000,
+  });
 }
 
 /**
@@ -740,17 +703,30 @@ function withMockTableSuggestions(reservations: Reservation[], tableIds: string[
 export function useReservationDayBook(date: string) {
   const reservationsQuery = useReservations({ date });
   const floorTables = useFloorStore((state) => state.floorMap.tables);
+  const seatingRecommendationsQuery = useSeatingRecommendations(date);
 
-  return useMemo(
-    () =>
-      withMockTableSuggestions(
-        (reservationsQuery.data ?? [])
-          .slice()
-          .sort((left, right) => left.timeSlot.localeCompare(right.timeSlot)),
-        Object.keys(floorTables),
-      ),
-    [reservationsQuery.data, floorTables],
-  );
+  return useMemo(() => {
+    const tableIdByNumber = new Map(
+      Object.values(floorTables).map((table) => [table.tableNumber, table.tableId]),
+    );
+    const recommendationByReservationId = new Map(
+      (seatingRecommendationsQuery.data?.recommendations ?? [])
+        .filter((item) => item.entityType === 'reservation' && item.primaryRecommendation)
+        .map((item) => [item.entityId, item.primaryRecommendation?.tableNumber ?? '']),
+    );
+    const reservations = (reservationsQuery.data ?? [])
+      .slice()
+      .sort((left, right) => left.timeSlot.localeCompare(right.timeSlot))
+      .map((reservation) => {
+        if (reservation.suggestedTableId || reservation.assignedTableId) {
+          return reservation;
+        }
+        const tableNumber = recommendationByReservationId.get(reservation.id);
+        const suggestedTableId = tableNumber ? tableIdByNumber.get(tableNumber) : null;
+        return suggestedTableId ? { ...reservation, suggestedTableId } : reservation;
+      });
+    return withMockTableSuggestions(reservations, Object.keys(floorTables));
+  }, [floorTables, reservationsQuery.data, seatingRecommendationsQuery.data?.recommendations]);
 }
 
 export function useReservationDensity(
