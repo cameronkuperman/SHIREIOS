@@ -18,7 +18,15 @@
     },
     "production": {
       "channel": "production",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://web-production-5c5b4.up.railway.app/api/v1",
+        "EXPO_PUBLIC_WS_URL": "wss://web-production-5c5b4.up.railway.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://oosflioiqxkbkmrfxksu.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vc2ZsaW9pcXhrYmttcmZ4a3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxNTIwMTksImV4cCI6MjA4NTcyODAxOX0.FgjsAyHqSKkN5Pp11mYIXEInneBHq6p6KPTfG2qVU7k",
+        "EXPO_PUBLIC_USE_MOCK_REALTIME": "false",
+        "EXPO_PUBLIC_APP_ENV": "production"
+      }
     }
   },
   "submit": {
