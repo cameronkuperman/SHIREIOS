@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Modal,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import type {
@@ -49,6 +49,7 @@ import {
   useWaiterRoutingState,
   useWaiters,
 } from '@/features/routing';
+import { useAuth } from '@/features/auth';
 import { useReservationDayBook } from '@/features/host/hooks';
 import { ShiftHourGrid, type ShiftHourSlot } from './ShiftHourGrid';
 
@@ -155,6 +156,47 @@ function compactList(values: string[], emptyLabel: string, limit = 4): string {
   return `${values.slice(0, limit).join(', ')} +${values.length - limit} more`;
 }
 
+function makeSectionPlanId(waiterCount: number): string {
+  return `section-plan-${Math.max(1, Math.round(waiterCount))}-${Date.now().toString(36)}`;
+}
+
+// A brand-new preset, independent of any existing one: seeds one empty section
+// per waiter so it has its own sections to fill (never falls back to the floor's
+// current layout). This is the "create a second/third preset" path.
+function buildBlankSectionPlan(waiterCount: number, name: string): FloorMapSectionPlan {
+  const count = Math.max(1, Math.round(waiterCount));
+  const now = new Date().toISOString();
+  return {
+    planId: makeSectionPlanId(count),
+    name: name.trim() || `${count} Waiters`,
+    waiterCount: count,
+    sections: Array.from({ length: count }, (_, index) => ({
+      sectionId: `Section ${index + 1}`,
+      tableIds: [],
+    })),
+    isDefault: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+// A deep copy of an existing preset as a new, separate preset (new id, not default).
+function duplicateSectionPlan(plan: FloorMapSectionPlan): FloorMapSectionPlan {
+  const now = new Date().toISOString();
+  return {
+    ...plan,
+    planId: makeSectionPlanId(plan.waiterCount),
+    name: `${plan.name} copy`,
+    sections: plan.sections.map((section) => ({
+      sectionId: section.sectionId,
+      tableIds: [...section.tableIds],
+    })),
+    isDefault: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export function ShiftSetupSheet({
   visible,
   onClose,
@@ -165,6 +207,7 @@ export function ShiftSetupSheet({
   const { colors, isDark } = useTheme();
   const router = useRouter();
   const isInline = presentation === 'inline';
+  const { currentLocation } = useAuth();
   const { routing, locationId, isSaving } = useWaiterRoutingState();
   const { persistRouting } = useWaiterRoutingActions();
   const { waiters: roster } = useWaiters(locationId);
@@ -174,11 +217,13 @@ export function ShiftSetupSheet({
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const reservations = useReservationDayBook(today);
+  const draftLocationId = locationId ?? currentLocation?.id ?? null;
   const draftStorageKey = useMemo(
-    () => getShiftSetupDraftKey(locationId, today),
-    [locationId, today],
+    () => getShiftSetupDraftKey(draftLocationId, today),
+    [draftLocationId, today],
   );
   const initializedDraftKeyRef = useRef<string | null>(null);
+  const hasChosenEntryRef = useRef(false);
 
   const [selectedSectionPlanId, setSelectedSectionPlanId] = useState<string | null>(
     floorMap.activeSectionPlanId ?? null,
@@ -190,6 +235,9 @@ export function ShiftSetupSheet({
   const [setupMode, setSetupMode] = useState<SetupMode>('rotation_sections');
   const [setupStep, setSetupStep] = useState<SetupStep>(requireApproval ? 'entry' : 'review');
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isEditingPlan, setIsEditingPlan] = useState(false);
+  const [planNameDraft, setPlanNameDraft] = useState('');
+  const [newPlanSectionName, setNewPlanSectionName] = useState('');
   const modalBackgroundColor = isDark ? '#14181C' : '#F8FAFC';
   const seededRouting = useMemo(() => withRosterWaiters(routing, roster), [roster, routing]);
   const workingRouting = draftRouting ?? seededRouting;
@@ -197,13 +245,34 @@ export function ShiftSetupSheet({
   useEffect(() => {
     if (!visible) {
       initializedDraftKeyRef.current = null;
+      hasChosenEntryRef.current = false;
       setDraftRouting(null);
       setSetupStep(requireApproval ? 'entry' : 'review');
       setIsCommitting(false);
+      setIsEditingPlan(false);
+      setNewPlanSectionName('');
       return;
     }
 
-    if (!seededRouting || initializedDraftKeyRef.current === draftStorageKey) {
+    if (!seededRouting) {
+      return;
+    }
+
+    if (initializedDraftKeyRef.current === draftStorageKey) {
+      return;
+    }
+
+    const previousDraftStorageKey = initializedDraftKeyRef.current;
+    if (previousDraftStorageKey && previousDraftStorageKey !== draftStorageKey) {
+      const migratedDraft = readShiftSetupDraft(previousDraftStorageKey);
+      if (migratedDraft && !readShiftSetupDraft(draftStorageKey)) {
+        writeShiftSetupDraft(draftStorageKey, migratedDraft);
+        storage.delete(previousDraftStorageKey);
+      }
+    }
+
+    if (hasChosenEntryRef.current) {
+      initializedDraftKeyRef.current = draftStorageKey;
       return;
     }
 
@@ -320,6 +389,19 @@ export function ShiftSetupSheet({
     }
   }, [selectedSectionPlan?.planId, selectedSectionPlanId]);
 
+  // Keep the inline rename field in sync with whichever preset is selected.
+  useEffect(() => {
+    setPlanNameDraft(selectedSectionPlan?.name ?? '');
+  }, [selectedSectionPlan?.planId, selectedSectionPlan?.name]);
+
+  const allTables = useMemo(
+    () =>
+      Object.values(floorMap.tables).sort((left, right) =>
+        left.tableNumber.localeCompare(right.tableNumber, undefined, { numeric: true }),
+      ),
+    [floorMap.tables],
+  );
+
   const sections = useMemo(() => {
     const planSections = sectionNamesForPlan(selectedSectionPlan);
     if (planSections.length > 0) {
@@ -418,6 +500,7 @@ export function ShiftSetupSheet({
 
   const handleContinueLastShift = () => {
     if (!seededRouting) return;
+    hasChosenEntryRef.current = true;
     setDraftRouting(seededRouting);
     setSetupMode(inferSetupModeFromRouting(seededRouting));
     setSelectedSectionPlanId(
@@ -428,6 +511,7 @@ export function ShiftSetupSheet({
 
   const handleStartFromBeginning = () => {
     if (!seededRouting) return;
+    hasChosenEntryRef.current = true;
     setDraftRouting(buildBeginningShiftRouting(seededRouting));
     setSetupMode('rotation_sections');
     setSelectedSectionPlanId(floorMap.activeSectionPlanId ?? null);
@@ -558,6 +642,172 @@ export function ShiftSetupSheet({
     },
     [floorMap, persistFloorMap],
   );
+
+  // Insert/replace a preset in the floor map and persist it. Selecting and
+  // applying it keeps the floor + preview in sync. `makeDefault` is opt-in only
+  // — saving a preset no longer silently steals the default badge from siblings.
+  const commitSectionPlan = useCallback(
+    (plan: FloorMapSectionPlan, options?: { makeDefault?: boolean }) => {
+      const makeDefault = options?.makeDefault ?? false;
+      const stamped: FloorMapSectionPlan = { ...plan, updatedAt: new Date().toISOString() };
+      const others = (floorMap.sectionPlans ?? []).filter(
+        (current) => current.planId !== stamped.planId,
+      );
+      const sectionPlans = [...others, stamped]
+        .map((current) =>
+          makeDefault && current.waiterCount === stamped.waiterCount
+            ? { ...current, isDefault: current.planId === stamped.planId }
+            : current,
+        )
+        .sort(
+          (left, right) =>
+            left.waiterCount - right.waiterCount || left.name.localeCompare(right.name),
+        );
+      const appliedMap = applySectionPlanToFloorMap({ ...floorMap, sectionPlans }, stamped);
+      setSelectedSectionPlanId(stamped.planId);
+      setTargetWaiterCountText(String(stamped.waiterCount));
+      setFloorMap(appliedMap);
+      persistFloorMap(appliedMap).catch(reportError('Could not save the section preset.'));
+    },
+    [floorMap, persistFloorMap, setFloorMap],
+  );
+
+  const handleCreatePreset = useCallback(() => {
+    const base = selectedSectionPlan;
+    const createBlank = () => {
+      const presetNumber = (floorMap.sectionPlans ?? []).length + 1;
+      commitSectionPlan(buildBlankSectionPlan(targetWaiterCount, `Preset ${presetNumber}`));
+      setIsEditingPlan(true);
+    };
+    if (!base) {
+      createBlank();
+      return;
+    }
+    Alert.alert('New section preset', 'Start fresh, or duplicate the current preset to tweak it?', [
+      { text: 'Blank', onPress: createBlank },
+      {
+        text: `Duplicate “${base.name}”`,
+        onPress: () => {
+          commitSectionPlan(duplicateSectionPlan(base));
+          setIsEditingPlan(true);
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [commitSectionPlan, floorMap.sectionPlans, selectedSectionPlan, targetWaiterCount]);
+
+  const handleCommitPlanName = useCallback(() => {
+    const plan = selectedSectionPlan;
+    if (!plan) return;
+    const name = planNameDraft.trim();
+    if (!name || name === plan.name) return;
+    commitSectionPlan({ ...plan, name });
+  }, [commitSectionPlan, planNameDraft, selectedSectionPlan]);
+
+  const handleToggleDefaultPlan = useCallback(() => {
+    const plan = selectedSectionPlan;
+    if (!plan) return;
+    if (plan.isDefault) {
+      commitSectionPlan({ ...plan, isDefault: false });
+    } else {
+      commitSectionPlan({ ...plan, isDefault: true }, { makeDefault: true });
+    }
+  }, [commitSectionPlan, selectedSectionPlan]);
+
+  const handleAddPlanSection = useCallback(() => {
+    const plan = selectedSectionPlan;
+    if (!plan) return;
+    const name = normalizeSectionName(newPlanSectionName);
+    if (!name) return;
+    if (
+      plan.sections.some(
+        (section) =>
+          normalizeSectionName(section.sectionId).toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )
+    ) {
+      Alert.alert('Section exists', `“${name}” is already in this preset.`);
+      return;
+    }
+    commitSectionPlan({
+      ...plan,
+      sections: [...plan.sections, { sectionId: name, tableIds: [] }],
+    });
+    setNewPlanSectionName('');
+  }, [commitSectionPlan, newPlanSectionName, selectedSectionPlan]);
+
+  const handleRemovePlanSection = useCallback(
+    (sectionId: string) => {
+      const plan = selectedSectionPlan;
+      if (!plan) return;
+      commitSectionPlan({
+        ...plan,
+        sections: plan.sections.filter((section) => section.sectionId !== sectionId),
+      });
+      setDraftRouting((current) => {
+        const base = current ?? workingRouting;
+        if (!base || !base.sectionAssignments[sectionId]) return current;
+        const sectionAssignments = { ...base.sectionAssignments };
+        delete sectionAssignments[sectionId];
+        return { ...base, sectionAssignments };
+      });
+    },
+    [commitSectionPlan, selectedSectionPlan, workingRouting],
+  );
+
+  const handleTogglePlanTable = useCallback(
+    (sectionId: string, tableId: string) => {
+      const plan = selectedSectionPlan;
+      if (!plan) return;
+      const alreadyInSection = plan.sections
+        .find((section) => section.sectionId === sectionId)
+        ?.tableIds.includes(tableId);
+      // A table belongs to at most one section: drop it everywhere, then add it
+      // back to the target section unless we were toggling it off.
+      const sections = plan.sections.map((section) => ({
+        ...section,
+        tableIds: section.tableIds.filter((id) => id !== tableId),
+      }));
+      if (!alreadyInSection) {
+        const target = sections.find((section) => section.sectionId === sectionId);
+        if (target) target.tableIds = [...target.tableIds, tableId];
+      }
+      commitSectionPlan({ ...plan, sections });
+    },
+    [commitSectionPlan, selectedSectionPlan],
+  );
+
+  const handleDeletePlan = useCallback(() => {
+    const plan = selectedSectionPlan;
+    if (!plan) return;
+    Alert.alert('Delete preset', `Delete “${plan.name}”? This can’t be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          const remaining = (floorMap.sectionPlans ?? []).filter(
+            (current) => current.planId !== plan.planId,
+          );
+          const nextActive =
+            remaining.find((current) => current.planId === floorMap.activeSectionPlanId) ??
+            remaining[0] ??
+            null;
+          let nextMap: FloorMap = {
+            ...floorMap,
+            sectionPlans: remaining,
+            activeSectionPlanId: nextActive?.planId ?? null,
+          };
+          if (nextActive) {
+            nextMap = applySectionPlanToFloorMap(nextMap, nextActive);
+          }
+          setSelectedSectionPlanId(nextActive?.planId ?? null);
+          setIsEditingPlan(false);
+          setFloorMap(nextMap);
+          persistFloorMap(nextMap).catch(reportError('Could not delete the preset.'));
+        },
+      },
+    ]);
+  }, [floorMap, persistFloorMap, selectedSectionPlan, setFloorMap]);
 
   const handleAddStartGroup = () => {
     if (!workingRouting) return;
@@ -718,6 +968,7 @@ export function ShiftSetupSheet({
 
   const content = (
     <View
+      onStartShouldSetResponder={() => true}
       style={[
         styles.sheet,
         isInline && styles.inlineSheet,
@@ -747,11 +998,27 @@ export function ShiftSetupSheet({
               : "Pick the team, choose today's preset, assign the floor."}
           </Text>
         </View>
-        {!isInline && !requireApproval && (
-          <TouchableOpacity onPress={onClose} accessibilityLabel="Close" hitSlop={8}>
-            <Ionicons name="close" size={24} color={colors.text.primary} />
-          </TouchableOpacity>
-        )}
+        {!isInline &&
+          (requireApproval ? (
+            // In the start-of-shift approval flow, give hosts a way out: from the
+            // entry/review screens this closes the sheet (back to Start Workday);
+            // from an inner edit step it steps back to the review screen.
+            <TouchableOpacity
+              onPress={() => (showEntry || showReview ? onClose() : setSetupStep('review'))}
+              accessibilityLabel={showEntry || showReview ? 'Close' : 'Back'}
+              hitSlop={8}
+            >
+              <Ionicons
+                name={showEntry || showReview ? 'close' : 'chevron-back'}
+                size={24}
+                color={colors.text.primary}
+              />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={onClose} accessibilityLabel="Close" hitSlop={8}>
+              <Ionicons name="close" size={24} color={colors.text.primary} />
+            </TouchableOpacity>
+          ))}
       </View>
 
       <ScrollView
@@ -885,15 +1152,6 @@ export function ShiftSetupSheet({
           </View>
         ) : (
           <>
-            {requireApproval && (
-              <TouchableOpacity
-                style={styles.stepBackButton}
-                onPress={() => setSetupStep('review')}
-              >
-                <Ionicons name="chevron-back" size={18} color={colors.accent} />
-                <Text style={[styles.addLinkText, { color: colors.accent }]}>Review</Text>
-              </TouchableOpacity>
-            )}
             {showModeEditor && (
               <>
                 <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
@@ -1300,14 +1558,20 @@ export function ShiftSetupSheet({
               ) : (
                 <>
                   {/* Section plan */}
-                  <Text
-                    style={[
-                      styles.sectionLabel,
-                      { color: colors.text.muted, marginTop: spacing.xl },
-                    ]}
-                  >
-                    SECTION PLAN
-                  </Text>
+                  <View style={[styles.planHeaderRow, { marginTop: spacing.xl }]}>
+                    <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
+                      SECTION PLAN
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.newPlanButton}
+                      onPress={handleCreatePreset}
+                      accessibilityRole="button"
+                      accessibilityLabel="Create new section preset"
+                    >
+                      <Ionicons name="add" size={16} color={colors.accent} />
+                      <Text style={[styles.addLinkText, { color: colors.accent }]}>New preset</Text>
+                    </TouchableOpacity>
+                  </View>
                   <View style={styles.planCountRow}>
                     <Text style={[styles.helpText, { color: colors.text.muted }]}>
                       Staffing count
@@ -1339,8 +1603,19 @@ export function ShiftSetupSheet({
                       ]}
                     >
                       <Text style={[styles.empty, { color: colors.text.muted }]}>
-                        No saved section presets yet. Build permanent presets in Floor Builder.
+                        No saved section presets yet. Create one here for tonight, or build a
+                        permanent layout in Floor Builder.
                       </Text>
+                      <TouchableOpacity
+                        style={[styles.createPresetButton, { backgroundColor: colors.accent }]}
+                        onPress={handleCreatePreset}
+                        accessibilityRole="button"
+                      >
+                        <Ionicons name="add" size={18} color={colors.white} />
+                        <Text style={[styles.createPresetText, { color: colors.white }]}>
+                          Create a preset
+                        </Text>
+                      </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.addLink}
                         onPress={() => {
@@ -1394,11 +1669,223 @@ export function ShiftSetupSheet({
                                 ]}
                               >
                                 {plan.waiterCount} waiters · {plan.sections.length} sections
+                                {plan.isDefault ? ' · default' : ''}
                               </Text>
                             </TouchableOpacity>
                           );
                         })}
                       </ScrollView>
+
+                      {selectedSectionPlan ? (
+                        <View style={styles.planToolbarRow}>
+                          <TouchableOpacity
+                            style={styles.planToolbarButton}
+                            onPress={handleToggleDefaultPlan}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: selectedSectionPlan.isDefault }}
+                          >
+                            <Ionicons
+                              name={selectedSectionPlan.isDefault ? 'star' : 'star-outline'}
+                              size={16}
+                              color={
+                                selectedSectionPlan.isDefault ? colors.accent : colors.text.muted
+                              }
+                            />
+                            <Text
+                              style={[
+                                styles.planToolbarText,
+                                {
+                                  color: selectedSectionPlan.isDefault
+                                    ? colors.accent
+                                    : colors.text.secondary,
+                                },
+                              ]}
+                            >
+                              {selectedSectionPlan.isDefault
+                                ? `Default · ${selectedSectionPlan.waiterCount}`
+                                : 'Set default'}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.planToolbarButton}
+                            onPress={() => setIsEditingPlan((value) => !value)}
+                            accessibilityRole="button"
+                          >
+                            <Ionicons
+                              name={isEditingPlan ? 'checkmark' : 'create-outline'}
+                              size={16}
+                              color={colors.accent}
+                            />
+                            <Text style={[styles.planToolbarText, { color: colors.accent }]}>
+                              {isEditingPlan ? 'Done editing' : 'Edit sections'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+
+                      {isEditingPlan && selectedSectionPlan ? (
+                        <View
+                          style={[
+                            styles.planEditor,
+                            {
+                              borderColor: colors.border.subtle,
+                              backgroundColor: colors.surface.level2,
+                            },
+                          ]}
+                        >
+                          <View style={styles.planEditorHeader}>
+                            <TextInput
+                              value={planNameDraft}
+                              onChangeText={setPlanNameDraft}
+                              onEndEditing={handleCommitPlanName}
+                              onSubmitEditing={handleCommitPlanName}
+                              placeholder="Preset name"
+                              placeholderTextColor={colors.text.muted}
+                              style={[
+                                styles.planNameInput,
+                                {
+                                  color: colors.text.primary,
+                                  backgroundColor: colors.surface.level1,
+                                  borderColor: colors.border.subtle,
+                                },
+                              ]}
+                            />
+                            <TouchableOpacity
+                              style={styles.planDeleteButton}
+                              onPress={handleDeletePlan}
+                              accessibilityRole="button"
+                              accessibilityLabel="Delete this preset"
+                            >
+                              <Ionicons
+                                name="trash-outline"
+                                size={18}
+                                color={colors.status.dirty.text}
+                              />
+                            </TouchableOpacity>
+                          </View>
+
+                          {selectedSectionPlan.sections.length === 0 ? (
+                            <Text style={[styles.empty, { color: colors.text.muted }]}>
+                              No sections yet. Add one below, then tap tables to fill it.
+                            </Text>
+                          ) : null}
+
+                          {selectedSectionPlan.sections.map((section) => (
+                            <View
+                              key={section.sectionId}
+                              style={[
+                                styles.planEditSection,
+                                {
+                                  borderColor: colors.border.subtle,
+                                  backgroundColor: colors.surface.level1,
+                                },
+                              ]}
+                            >
+                              <View style={styles.planEditSectionHeader}>
+                                <Text
+                                  style={[
+                                    styles.sectionName,
+                                    { color: colors.text.primary, flex: 1 },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {section.sectionId}
+                                </Text>
+                                <Text style={[styles.countPill, { color: colors.text.muted }]}>
+                                  {section.tableIds.length}
+                                </Text>
+                                <TouchableOpacity
+                                  onPress={() => handleRemovePlanSection(section.sectionId)}
+                                  hitSlop={8}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Remove ${section.sectionId}`}
+                                >
+                                  <Ionicons
+                                    name="close-circle"
+                                    size={20}
+                                    color={colors.text.muted}
+                                  />
+                                </TouchableOpacity>
+                              </View>
+                              <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.chipScroll}
+                              >
+                                {allTables.length === 0 ? (
+                                  <Text style={[styles.chipEmpty, { color: colors.text.muted }]}>
+                                    No tables on the floor yet.
+                                  </Text>
+                                ) : (
+                                  allTables.map((table) => {
+                                    const inSection = section.tableIds.includes(table.tableId);
+                                    return (
+                                      <TouchableOpacity
+                                        key={table.tableId}
+                                        activeOpacity={0.75}
+                                        onPress={() =>
+                                          handleTogglePlanTable(section.sectionId, table.tableId)
+                                        }
+                                        style={[
+                                          styles.chip,
+                                          {
+                                            backgroundColor: inSection
+                                              ? colors.accent
+                                              : colors.surface.level2,
+                                            borderColor: inSection
+                                              ? colors.accent
+                                              : colors.border.subtle,
+                                          },
+                                        ]}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.chipText,
+                                            {
+                                              color: inSection
+                                                ? colors.white
+                                                : colors.text.secondary,
+                                            },
+                                          ]}
+                                        >
+                                          {table.tableNumber}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })
+                                )}
+                              </ScrollView>
+                            </View>
+                          ))}
+
+                          <View style={styles.addRow}>
+                            <TextInput
+                              value={newPlanSectionName}
+                              onChangeText={setNewPlanSectionName}
+                              onSubmitEditing={handleAddPlanSection}
+                              placeholder="New section name"
+                              placeholderTextColor={colors.text.muted}
+                              style={[
+                                styles.addInput,
+                                {
+                                  color: colors.text.primary,
+                                  backgroundColor: colors.surface.level1,
+                                  borderColor: colors.border.subtle,
+                                },
+                              ]}
+                            />
+                            <TouchableOpacity
+                              style={[styles.addConfirm, { backgroundColor: colors.accent }]}
+                              onPress={handleAddPlanSection}
+                              accessibilityRole="button"
+                              accessibilityLabel="Add section to preset"
+                            >
+                              <Ionicons name="add" size={20} color={colors.white} />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : null}
+
                       <SectionFloorPreview
                         floorMap={floorMap}
                         routing={workingRouting}
@@ -1524,13 +2011,19 @@ export function ShiftSetupSheet({
   return (
     <Modal
       visible={visible}
+      transparent
       animationType="slide"
-      presentationStyle="fullScreen"
+      presentationStyle="overFullScreen"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={[styles.modalScreen, { backgroundColor: modalBackgroundColor }]}>
-        {content}
-      </SafeAreaView>
+      <View
+        style={[styles.modalScreen, { backgroundColor: modalBackgroundColor }]}
+        onStartShouldSetResponder={() => true}
+      >
+        <SafeAreaView style={styles.modalSafeArea} edges={['top', 'bottom', 'left', 'right']}>
+          {content}
+        </SafeAreaView>
+      </View>
     </Modal>
   );
 }
@@ -1682,6 +2175,9 @@ function SectionFloorPreview({
 
 const styles = StyleSheet.create({
   modalScreen: {
+    flex: 1,
+  },
+  modalSafeArea: {
     flex: 1,
   },
   sheet: {
@@ -1990,6 +2486,85 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     marginTop: spacing.sm,
+  },
+  planHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  newPlanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  createPresetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+  },
+  createPresetText: {
+    ...textStyles.label,
+    fontWeight: '800',
+  },
+  planToolbarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.lg,
+    marginTop: spacing.sm,
+  },
+  planToolbarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  planToolbarText: {
+    ...textStyles.caption,
+    fontWeight: '800',
+  },
+  planEditor: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  planEditorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  planNameInput: {
+    flex: 1,
+    ...textStyles.body,
+    fontWeight: '700',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  planDeleteButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  planEditSection: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    gap: spacing.xs,
+  },
+  planEditSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   planCountRow: {
     flexDirection: 'row',

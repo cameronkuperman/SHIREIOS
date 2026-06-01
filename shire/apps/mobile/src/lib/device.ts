@@ -5,8 +5,8 @@ const DEVICE_ID_KEY = 'shire_device_id';
 
 export function getOrCreateDeviceId(): string {
   const existing = storage.getString(DEVICE_ID_KEY);
-  if (existing) {
-    return existing;
+  if (existing?.trim()) {
+    return existing.trim();
   }
 
   const nextId = `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -15,6 +15,7 @@ export function getOrCreateDeviceId(): string {
 }
 
 export function getAppVersionLabel(): string {
-  const version = Constants.expoConfig?.version ?? Constants.manifest2?.extra?.expoClient?.version ?? 'dev';
+  const version =
+    Constants.expoConfig?.version ?? Constants.manifest2?.extra?.expoClient?.version ?? 'dev';
   return String(version);
 }

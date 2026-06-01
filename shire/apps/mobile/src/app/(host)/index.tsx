@@ -26,6 +26,11 @@ import {
   useTableDetails,
 } from '@/features/floor';
 import { requestCctvModeChangeConfirmation } from '@/features/floor/cctvModeConfirmation';
+import {
+  getCurrentDeviceFloorLayoutInput,
+  loadBestFloorLayoutProfile,
+  type FloorLayoutProfile,
+} from '@/features/floor/layoutProfiles';
 import { floorRealtimeRepository } from '@/features/floor/repository';
 import { AddPartyModal } from '@/components/AddPartyModal';
 import { HostFloorSearch } from '@/components/HostFloorSearch';
@@ -283,7 +288,7 @@ function buildBackendQuickSeatRecommendation(
 export default function FloorPlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { colors } = useTheme();
   const { currentLocation } = useAuth();
   const { routing, isSaving: isRoutingSaving } = useWaiterRoutingState();
@@ -332,6 +337,11 @@ export default function FloorPlanScreen() {
     width: 0,
     height: 0,
   });
+  const deviceLayoutInput = useMemo(
+    () => getCurrentDeviceFloorLayoutInput(windowWidth, windowHeight),
+    [windowHeight, windowWidth],
+  );
+  const [floorLayoutProfile, setFloorLayoutProfile] = useState<FloorLayoutProfile | null>(null);
   const hostContentWidth = Math.max(0, windowWidth - HOST_RAIL_WIDTH);
   const isCompactHostLayout = hostContentWidth < 1180;
   const isTightHostLayout = hostContentWidth < 1040;
@@ -358,6 +368,30 @@ export default function FloorPlanScreen() {
       prev.width === width && prev.height === height ? prev : { width, height },
     );
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFloorLayoutProfile(null);
+    void loadBestFloorLayoutProfile({
+      locationId: currentLocation?.id ?? null,
+      floorId: floorMap.floorId,
+      profileKey: deviceLayoutInput.profileKey,
+      deviceId: deviceLayoutInput.deviceId,
+      surface: 'host',
+    }).then((profile) => {
+      if (!cancelled) {
+        setFloorLayoutProfile(profile);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentLocation?.id,
+    deviceLayoutInput.deviceId,
+    deviceLayoutInput.profileKey,
+    floorMap.floorId,
+  ]);
 
   const rooms = liveRooms;
 
@@ -702,23 +736,12 @@ export default function FloorPlanScreen() {
     [waiterColorMap, colors.status.occupied.text],
   );
 
-  // Render the floor at the proportions it was designed with in the builder,
-  // scaled to fit — so the live floor matches the builder instead of cramming.
+  // Host rendering owns its own screen fit. Builder canvas size/zoom are editor
+  // affordances and should not reshape the live host floor after bootstrap.
   const floorDesign = useMemo(() => {
     const mapHeight = Math.max(0, mapSize.height - MAP_BOTTOM_UI_INSET);
-    const hasDesign =
-      typeof floorMap.canvasWidth === 'number' &&
-      typeof floorMap.canvasHeight === 'number' &&
-      floorMap.canvasWidth > 0 &&
-      floorMap.canvasHeight > 0;
-    const designWidth = hasDesign ? floorMap.canvasWidth! : mapSize.width;
-    const designHeight = hasDesign ? floorMap.canvasHeight! : mapHeight;
-    const fit =
-      hasDesign && designWidth > 0 && designHeight > 0
-        ? Math.min(mapSize.width / designWidth, mapHeight / designHeight)
-        : 1;
-    return { designWidth, designHeight, fit, mapHeight };
-  }, [mapSize, floorMap.canvasWidth, floorMap.canvasHeight]);
+    return { designWidth: mapSize.width, designHeight: mapHeight, fit: 1, mapHeight };
+  }, [mapSize]);
 
   type GlobalTablePos = {
     table: (typeof visibleRooms)[number]['tables'][number];
@@ -739,11 +762,12 @@ export default function FloorPlanScreen() {
       leftFlex += roomFlex;
       if (room.layoutMode === 'freeform') {
         for (const table of room.tables) {
+          const layout = floorLayoutProfile?.tables[table.id];
           out.push({
             table,
-            x: (table.x ?? 0.5) * floorDesign.designWidth,
-            y: (table.y ?? 0.5) * floorDesign.designHeight,
-            rotation: table.rotation,
+            x: (layout?.x ?? table.x ?? 0.5) * floorDesign.designWidth,
+            y: (layout?.y ?? table.y ?? 0.5) * floorDesign.designHeight,
+            rotation: layout?.rotation ?? table.rotation,
           });
         }
       } else {
@@ -761,7 +785,7 @@ export default function FloorPlanScreen() {
       }
     }
     return out;
-  }, [visibleRooms, mapSize, floorDesign]);
+  }, [visibleRooms, mapSize, floorDesign, floorLayoutProfile]);
 
   const isUsingStarterMap =
     floorMap.floorId === DEFAULT_FLOOR_MAP.floorId &&
@@ -1677,15 +1701,15 @@ export default function FloorPlanScreen() {
                   height: floorDesign.designHeight,
                   left: (mapSize.width - floorDesign.designWidth) / 2,
                   top: (floorDesign.mapHeight - floorDesign.designHeight) / 2,
-                  transform: [{ scale: floorDesign.fit * (floorMap.zoom ?? 1) }],
+                  transform: [{ scale: floorDesign.fit }],
                 }}
                 pointerEvents="box-none"
               >
                 {positionedTables.map(({ table, x, y, rotation }) => {
                   const baseDim = TABLE_DIMENSIONS[table.shape] ?? TABLE_DIMENSIONS.square;
-                  const mapTable = floorMap.tables[table.id];
-                  const tableWidth = mapTable?.width ?? baseDim.width;
-                  const tableHeight = mapTable?.height ?? baseDim.height;
+                  const layout = floorLayoutProfile?.tables[table.id];
+                  const tableWidth = layout?.width ?? baseDim.width;
+                  const tableHeight = layout?.height ?? baseDim.height;
                   return (
                     <View
                       key={table.id}

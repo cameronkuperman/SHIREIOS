@@ -29,6 +29,7 @@ export default function WorkdayScreen() {
   const { isAuthenticated, currentLocation, userSession, signOut } = useAuth();
   const startWorkday = useWorkdayStore((state) => state.startWorkday);
   const approveSetup = useWorkdayStore((state) => state.approveSetup);
+  const manuallyEnded = useWorkdayStore((state) => state.manuallyEnded);
   const applySnapshot = useFloorStore((state) => state.applySnapshot);
   const { routing } = useWaiterRoutingState();
   const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
@@ -37,7 +38,10 @@ export default function WorkdayScreen() {
   const floorId = resolveFloorId(currentLocation?.floorId);
 
   useEffect(() => {
-    if (!currentLocation || isWorkdayActive || routing?.requiresSetup !== false) {
+    // Don't auto-resume after the host explicitly ended the workday — the server
+    // still holds today's approval, so we'd otherwise bounce straight back to the
+    // floor. The flag clears once a new shift is approved.
+    if (manuallyEnded || !currentLocation || isWorkdayActive || routing?.requiresSetup !== false) {
       return;
     }
     const serviceDate = routing.setupApproval?.serviceDate ?? routing.setupServiceDate;
@@ -47,7 +51,7 @@ export default function WorkdayScreen() {
     }
     approveSetup(currentLocation.id, serviceDate, approvedAt);
     router.replace('/(host)');
-  }, [approveSetup, currentLocation, isWorkdayActive, router, routing]);
+  }, [approveSetup, currentLocation, isWorkdayActive, manuallyEnded, router, routing]);
 
   if (!isAuthenticated) {
     return <Redirect href="/(auth)" />;
@@ -124,7 +128,8 @@ export default function WorkdayScreen() {
         <Text style={[styles.eyebrow, { color: colors.text.muted }]}>PRE-SHIFT</Text>
         <Text style={[styles.title, { color: colors.text.primary }]}>Start Workday</Text>
         <Text style={[styles.subtitle, { color: colors.text.secondary }]}>
-          Connect the host stand to live floor state and waitlist updates for {currentLocation.name}.
+          Connect the host stand to live floor state and waitlist updates for {currentLocation.name}
+          .
         </Text>
 
         <GlassSurface intensity={45} borderRadius={borderRadius['2xl']} style={styles.card}>
