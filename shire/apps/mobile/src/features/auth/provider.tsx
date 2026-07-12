@@ -15,6 +15,7 @@ import { supabase } from '@/services/supabase/client';
 import { useWorkdayStore } from '@/features/workday';
 import { createLocationApi, fetchCurrentSession, fetchHostBootstrap, fetchLocations } from './api';
 import { useAuthStore } from './store';
+import { HOST_PREVIEW_LOCATION_ID, hostPreviewBootstrap, hostPreviewLocation, hostPreviewSession } from '@/preview/runtime';
 
 type SignInResult = {
   error: AuthError | null;
@@ -70,6 +71,7 @@ function useSessionQueries(
     queryFn: () => fetchHostBootstrap(currentLocationId!),
     enabled: !!session && !!currentLocationId && isWorkdayActive,
     staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 
   return {
@@ -266,6 +268,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
     sessionQuery.isLoading,
     setCurrentLocationId,
   ]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function PreviewAuthProvider({ children }: AuthProviderProps) {
+  const [tokens, setTokens] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    useWorkdayStore.getState().approveSetup(HOST_PREVIEW_LOCATION_ID, new Date().toISOString().slice(0, 10), new Date().toISOString());
+    if (typeof window === 'undefined') return;
+    const receive = (event: MessageEvent) => {
+      if (event.data?.type === 'shire-ui-preview-theme' && event.data.service === 'host' && event.data.tokens) {
+        setTokens(event.data.tokens);
+      }
+    };
+    window.addEventListener('message', receive);
+    window.parent?.postMessage({ type: 'shire-ui-preview-ready', service: 'host' }, '*');
+    return () => window.removeEventListener('message', receive);
+  }, []);
+
+  const value = useMemo<AuthContextValue>(() => ({
+    session: null,
+    userSession: hostPreviewSession,
+    locations: [hostPreviewLocation],
+    currentLocation: hostPreviewLocation,
+    bootstrap: hostPreviewBootstrap(tokens),
+    isInitializing: false,
+    isAuthenticated: true,
+    locationsLoading: false,
+    locationsError: false,
+    locationsErrorMessage: null,
+    signIn: async () => ({ error: null }),
+    signOut: async () => {},
+    selectLocation: () => {},
+    refetchLocations: () => {},
+    createLocation: async () => hostPreviewLocation,
+  }), [tokens]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

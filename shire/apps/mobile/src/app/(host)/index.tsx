@@ -1167,6 +1167,9 @@ export default function FloorPlanScreen() {
         partyName={liveTable.partyName}
         currentPartySize={liveTable.currentPartySize}
         seatedTime={liveTable.seatedTime}
+        reservationHoldLabel={liveTable.reservationHoldLabel}
+        reservationHoldGuestName={liveTable.reservationHold?.guestName ?? null}
+        reservationHoldPartySize={liveTable.reservationHold?.partySize ?? null}
         initialWalkInMode={liveTable.status === 'available' && !selectedParty}
         selectedPartyName={selectedParty?.name ?? null}
         nextUpServer={
@@ -1186,7 +1189,7 @@ export default function FloorPlanScreen() {
         onChangeServer={canPickSeatWaiter ? (id) => setSeatWaiterId(id) : undefined}
         onClearServerAssignment={canPickSeatWaiter ? () => setSeatWaiterId(null) : undefined}
         onMarkSeated={!selectedParty || liveTable.isBlocked ? undefined : handleSeat}
-        onSeatWalkIn={liveTable.isBlocked ? undefined : handleSeatWalkIn}
+        onSeatWalkIn={liveTable.isBlocked || liveTable.reservationHold ? undefined : handleSeatWalkIn}
         onMarkAvailable={handleMarkAvailable}
         onMarkDirty={handleMarkDirty}
         onBlock={handleBlock}
@@ -1739,6 +1742,7 @@ export default function FloorPlanScreen() {
                             ? undefined
                             : serverBadgeForTable(table.server, table.serverId)
                         }
+                        liveDatum={table.seatedTime ?? table.reservationHoldLabel}
                         onPress={() =>
                           handleTablePress(table.id, tableRefs.current[table.id] ?? null)
                         }

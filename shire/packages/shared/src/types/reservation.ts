@@ -112,8 +112,29 @@ export interface ReservationSettings {
   leadTimeMinutes: number;
   sameDayCutoffMinutes: number | null;
   defaultChannel: ReservationSource;
+  timingPolicies?: {
+    online: ReservationTimingPolicy;
+    staff: ReservationTimingPolicy;
+  };
+  channelRules?: ReservationChannelRule[];
   servicePeriods: ReservationServicePeriod[];
   updatedAt: string | null;
+}
+
+export interface ReservationTimingPolicy {
+  bookingHorizonDays: number;
+  leadTimeMinutes: number;
+  gracePeriodMinutes: number;
+}
+
+export interface ReservationChannelRule {
+  id?: string | null;
+  channel: ReservationSource | string;
+  servicePeriodId?: string | null;
+  isEnabled: boolean;
+  bookingHorizonDays?: number | null;
+  leadTimeMinutes?: number | null;
+  gracePeriodMinutes?: number | null;
 }
 
 export interface ReservationDensityDay {

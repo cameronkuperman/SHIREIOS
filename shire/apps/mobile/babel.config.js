@@ -4,6 +4,31 @@ module.exports = function (api) {
 
   return {
     presets: isJest ? ['babel-preset-expo'] : ['babel-preset-expo', 'nativewind/babel'],
-    plugins: isJest ? [] : ['react-native-reanimated/plugin'],
+    plugins: isJest ? [] : [
+      function transformImportMetaForMetro({ types: t }) {
+        return {
+          visitor: {
+            MetaProperty(path) {
+              if (path.node.meta.name !== 'import' || path.node.property.name !== 'meta') return;
+              path.replaceWith(t.objectExpression([
+                t.objectProperty(
+                  t.identifier('env'),
+                  t.objectExpression([
+                    t.objectProperty(
+                      t.identifier('MODE'),
+                      t.memberExpression(
+                        t.memberExpression(t.identifier('process'), t.identifier('env')),
+                        t.identifier('NODE_ENV'),
+                      ),
+                    ),
+                  ]),
+                ),
+              ]));
+            },
+          },
+        };
+      },
+      'react-native-reanimated/plugin',
+    ],
   };
 };

@@ -9,6 +9,7 @@ import type {
   TableDisplayStatus,
   TableLiveState,
   TableOverride,
+  ReservationTableHold,
   TableShape,
   TableType,
   TableUpdateSource,
@@ -61,6 +62,8 @@ export interface FloorTableViewModel {
   serverId?: string | null;
   partyName?: string;
   seatedTime?: string;
+  reservationHold?: ReservationTableHold | null;
+  reservationHoldLabel?: string;
   isBlocked: boolean;
   isPending: boolean;
   hasExplicitServerAssignment: boolean;
@@ -294,6 +297,7 @@ function fallbackTableState(
     hostIntentCommandId: null,
     mlSuppressedReason: null,
     emittedAt: null,
+    reservationHold: null,
   };
 }
 
@@ -437,6 +441,7 @@ function applyOptimisticCommandToTable(
           currentWaitlistEntryId: command.party.source === 'waitlist' ? command.party.id : null,
           currentReservationId: command.party.source === 'reservations' ? command.party.id : null,
           currentWaiterId: command.waiterId ?? table.currentWaiterId ?? null,
+          reservationHold: null,
         },
         command,
       );
@@ -455,6 +460,7 @@ function applyOptimisticCommandToTable(
           currentReservationId: null,
           currentWaiterId: null,
           currentWaiterName: null,
+          reservationHold: null,
         },
         command,
       );
@@ -472,6 +478,7 @@ function applyOptimisticCommandToTable(
           currentReservationId: null,
           currentWaiterId: null,
           currentWaiterName: null,
+          reservationHold: null,
         },
         command,
       );
@@ -487,6 +494,7 @@ function applyOptimisticCommandToTable(
         currentReservationId: null,
         currentWaiterId: null,
         currentWaiterName: null,
+        reservationHold: null,
       };
     case 'unblock_table':
       return {
@@ -803,6 +811,22 @@ function formatSeatedTime(seatedAt: string | null, now = Date.now()): string | u
   return formatMinutes(Math.max(0, Math.floor((now - seatedAtMs) / 60_000)));
 }
 
+function formatReservationHoldLabel(hold: ReservationTableHold | null | undefined): string | undefined {
+  const reservationTime = hold?.reservationTime;
+  if (!reservationTime) {
+    return undefined;
+  }
+  const [hoursRaw, minutesRaw] = reservationTime.split(':');
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return undefined;
+  }
+  const suffix = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 || 12;
+  return `RSV ${hour12}:${String(minutes).padStart(2, '0')} ${suffix}`;
+}
+
 function isTablePending(
   pendingCommands: Record<string, PendingCommandEntry>,
   tableId: string,
@@ -896,6 +920,7 @@ function toTableViewModel(
     undefined;
   const displayServerId =
     liveTable.currentWaiterId ?? currentWaiter?.id ?? routedWaiter?.id ?? null;
+  const reservationHoldLabel = formatReservationHoldLabel(liveTable.reservationHold);
 
   return {
     id: tableId,
@@ -910,6 +935,8 @@ function toTableViewModel(
     serverId: displayServerId,
     partyName: liveTable.party?.name,
     seatedTime: formatSeatedTime(liveTable.seatedAt, now),
+    reservationHold: liveTable.reservationHold ?? null,
+    reservationHoldLabel,
     isBlocked: liveTable.isBlocked,
     isPending: isTablePending(pendingCommands, tableId),
     hasExplicitServerAssignment: Boolean(

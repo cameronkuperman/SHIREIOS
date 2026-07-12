@@ -89,9 +89,9 @@ export const lightColors: Colors = {
       text: '#7A5F40',
     },
     reserved: {
-      fill: 'rgba(130, 105, 185, 0.14)',
-      border: 'rgba(130, 105, 185, 0.45)',
-      text: '#6E5A9C',
+      fill: 'rgba(45, 120, 210, 0.15)',
+      border: 'rgba(45, 120, 210, 0.55)',
+      text: '#2D69B3',
     },
   },
 

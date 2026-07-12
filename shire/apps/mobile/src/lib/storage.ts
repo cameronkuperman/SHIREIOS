@@ -1,9 +1,11 @@
 import { MMKV } from 'react-native-mmkv';
 import type { StateStorage } from 'zustand/middleware';
 
+const isWeb = process.env.EXPO_OS === 'web' || typeof window !== 'undefined';
+
 export const storage = new MMKV({
   id: 'shire-app-storage',
-  encryptionKey: 'shire-enc-key',
+  ...(isWeb ? {} : { encryptionKey: 'shire-enc-key' }),
 });
 
 /**

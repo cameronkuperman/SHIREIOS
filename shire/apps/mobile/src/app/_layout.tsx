@@ -15,17 +15,18 @@ import {
   InterTight_600SemiBold,
   InterTight_700Bold,
 } from '@expo-google-fonts/inter-tight';
-import {
-  GeistMono_400Regular,
-  GeistMono_500Medium,
-} from '@expo-google-fonts/geist-mono';
+import { GeistMono_400Regular, GeistMono_500Medium } from '@expo-google-fonts/geist-mono';
 import { queryClient } from '@/services/api/queryClient';
 import { setupNetworkListener } from '@/lib/network';
 import { validateEnv } from '@/config/env';
-import { AuthProvider } from '@/features/auth';
+import { AuthProvider, PreviewAuthProvider } from '@/features/auth';
 import { FloorRealtimeProvider } from '@/features/floor';
 import { WaiterRoutingProvider } from '@/features/routing';
 import { ThemeProvider } from '@/theme';
+import { installHostPreviewTransport, isHostPreviewRuntime } from '@/preview/runtime';
+
+const previewRuntime = isHostPreviewRuntime();
+if (previewRuntime) installHostPreviewTransport();
 
 SplashScreen.preventAutoHideAsync();
 
@@ -41,8 +42,12 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    validateEnv();
-    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+    if (!previewRuntime) validateEnv();
+    if (Platform.OS !== 'web') {
+      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(
+        (error) => console.warn('[orientation] landscape lock unavailable:', error),
+      );
+    }
     const unsubscribe = setupNetworkListener();
     return unsubscribe;
   }, []);
@@ -58,11 +63,12 @@ export default function RootLayout() {
   }
 
   // Do not wrap the app in GestureHandlerRootView — it breaks TouchableOpacity on iPad host UI.
+  const SessionProvider = previewRuntime ? PreviewAuthProvider : AuthProvider;
   return (
     <SafeAreaProvider>
-      <ThemeProvider>
-        <QueryClientProvider client={queryClient}>
-          <AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <SessionProvider>
+          <ThemeProvider>
             <WaiterRoutingProvider>
               <FloorRealtimeProvider>
                 <Stack>
@@ -98,9 +104,9 @@ export default function RootLayout() {
                 </Stack>
               </FloorRealtimeProvider>
             </WaiterRoutingProvider>
-          </AuthProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
+          </ThemeProvider>
+        </SessionProvider>
+      </QueryClientProvider>
     </SafeAreaProvider>
   );
 }

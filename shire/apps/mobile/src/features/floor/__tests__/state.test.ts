@@ -824,6 +824,34 @@ describe('floor selectors', () => {
     expect(tableDetails?.seatedTime).toBe('15m');
   });
 
+  it('surfaces active reservation holds as reserved table details', () => {
+    const state = createBaseState();
+    const tablesById = {
+      ...state.tablesById,
+      '2': {
+        ...state.tablesById['2']!,
+        displayStatus: 'reserved' as const,
+        reservationHold: {
+          id: 'hold-1',
+          reservationId: 'reservation-1',
+          guestName: 'Mira Ray',
+          partySize: 6,
+          reservationTime: '19:30:00',
+          status: 'held',
+        },
+      },
+    };
+
+    const tableDetails = selectTableDetails(DEFAULT_FLOOR_MAP, tablesById, {}, null, '2');
+
+    expect(tableDetails?.status).toBe('reserved');
+    expect(tableDetails?.reservationHoldLabel).toBe('RSV 7:30 PM');
+    expect(tableDetails?.reservationHold?.guestName).toBe('Mira Ray');
+    expect(
+      selectAvailableTables(DEFAULT_FLOOR_MAP, tablesById, {}, null).map((table) => table.id),
+    ).not.toContain('2');
+  });
+
   it('shows section waiter badges on available tables without changing table state', () => {
     const state = createBaseState();
     const rooms = selectTablesByRoom(DEFAULT_FLOOR_MAP, state.tablesById, {}, makeRoutingState());

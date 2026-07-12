@@ -5,6 +5,7 @@ import type {
   FloorTableStateMode,
   FloorSnapshot,
   FloorStreamMessage,
+  ReservationTableHold,
   TableLiveState,
   TableState,
   TableUpdateSource,
@@ -95,8 +96,12 @@ function toSensedState(state: BackendLiveTable['state']): TableState {
 function toDisplayStatus(
   sensedState: TableState,
   isBlocked: boolean,
+  reservationHold?: ReservationTableHold | null,
 ): TableLiveState['displayStatus'] {
   if (isBlocked) {
+    return 'reserved';
+  }
+  if (reservationHold && sensedState === 'empty_clean') {
     return 'reserved';
   }
 
@@ -118,6 +123,27 @@ function toOptionalDisplayStatus(value: unknown): TableLiveState['displayStatus'
 
 function toOptionalString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function toReservationHold(value: unknown): ReservationTableHold | null {
+  if (!isRecord(value)) return null;
+  const id = toOptionalString(value.id);
+  const reservationId = toOptionalString(value.reservationId);
+  if (!id || !reservationId) return null;
+  const partySize = typeof value.partySize === 'number' ? value.partySize : null;
+  return {
+    id,
+    reservationId,
+    guestName: toOptionalString(value.guestName),
+    partySize,
+    serviceDate: toOptionalString(value.serviceDate),
+    reservationTime: toOptionalString(value.reservationTime),
+    windowStartAt: toOptionalString(value.windowStartAt),
+    holdExpiresAt: toOptionalString(value.holdExpiresAt),
+    status: toOptionalString(value.status) ?? undefined,
+    scarcityLevel: toOptionalString(value.scarcityLevel),
+    reason: toOptionalString(value.reason),
+  };
 }
 
 function toTableStateMode(value: unknown): FloorTableStateMode | undefined {
@@ -155,12 +181,13 @@ export function adaptBackendTable(
 ): TableLiveState {
   const sensedState = toSensedState(table.state);
   const tableId = resolveLiveTableId(table);
+  const reservationHold = toReservationHold(table.reservationHold);
 
   return {
     tableId,
     backendTableId: table.id,
     tableNumber: table.tableNumber?.trim() || tableId,
-    displayStatus: toDisplayStatus(sensedState, table.isBlocked),
+    displayStatus: toDisplayStatus(sensedState, table.isBlocked, reservationHold),
     sensedState,
     stateConfidence: table.stateConfidence ?? 0,
     lastStateChange: table.stateChangedAt ?? table.updatedAt,
@@ -182,6 +209,7 @@ export function adaptBackendTable(
     hostIntentUntil: toOptionalString(table.hostIntentUntil),
     hostIntentCommandId: toOptionalString(table.hostIntentCommandId),
     mlSuppressedReason: toOptionalString(table.mlSuppressedReason),
+    reservationHold,
     emittedAt,
   };
 }

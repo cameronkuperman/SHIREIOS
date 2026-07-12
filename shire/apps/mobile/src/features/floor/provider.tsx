@@ -17,6 +17,7 @@ import { resolveFloorId } from './floorId';
 import { floorRealtimeRepository } from './repository';
 import { useFloorStore } from './store';
 import { setActiveFloorTransport } from './transport';
+import { hostPreviewFloorSnapshot, isHostPreviewRuntime } from '@/preview/runtime';
 
 type FloorRealtimeProviderProps = {
   children: ReactNode;
@@ -62,6 +63,13 @@ export function FloorRealtimeProvider({ children }: FloorRealtimeProviderProps) 
   const clearAllPendingSeats = usePendingSeatStore((state) => state.clearAll);
 
   useEffect(() => {
+    if (isHostPreviewRuntime() && bootstrap && currentLocation) {
+      setFloorMap(bootstrap.floorMap);
+      applySnapshot(hostPreviewFloorSnapshot);
+      setConnectionState('connected');
+      setSyncError(null);
+      return () => setConnectionState('idle');
+    }
     if (!isAuthenticated || !currentLocation || !bootstrap || !isWorkdayActive) {
       setActiveFloorTransport(null);
       clearAllPendingSeats();

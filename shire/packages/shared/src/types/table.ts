@@ -123,6 +123,20 @@ export interface TableOverride {
   active: boolean;
 }
 
+export interface ReservationTableHold {
+  id: string;
+  reservationId: string;
+  guestName?: string | null;
+  partySize?: number | null;
+  serviceDate?: string | null;
+  reservationTime?: string | null;
+  windowStartAt?: string | null;
+  holdExpiresAt?: string | null;
+  status?: "pending" | "eligible" | "held" | "seated" | "released" | "no_show" | "canceled" | string;
+  scarcityLevel?: "normal" | "scarce" | "critical" | string | null;
+  reason?: string | null;
+}
+
 export interface TableLiveState {
   tableId: string;
   backendTableId?: string | null;
@@ -149,6 +163,7 @@ export interface TableLiveState {
   hostIntentUntil?: string | null;
   hostIntentCommandId?: string | null;
   mlSuppressedReason?: string | null;
+  reservationHold?: ReservationTableHold | null;
   emittedAt?: string | null;
 }
 
@@ -346,6 +361,7 @@ export interface BackendLiveTable {
   hostIntentUntil?: string | null;
   hostIntentCommandId?: string | null;
   mlSuppressedReason?: string | null;
+  reservationHold?: ReservationTableHold | null;
   isBlocked: boolean;
   block?: unknown | null;
 }

@@ -120,4 +120,5 @@ export interface HostBootstrap {
   floorId: string;
   floorMap: FloorMap;
   routingSnapshot?: WaiterRoutingState | null;
+  uiTheme?: Record<string, string>;
 }

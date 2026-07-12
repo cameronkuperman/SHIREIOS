@@ -95,6 +95,37 @@ describe('floor backend contracts', () => {
     expect(snapshot.routingSnapshot?.nextUpBySection?.Patio).toBe('waiter-1');
   });
 
+  it('marks clean backend tables with active reservation holds as reserved', () => {
+    const table = adaptBackendTable(
+      {
+        id: 'table-uuid-2',
+        tableNumber: 'T2',
+        capacity: 6,
+        state: 'clean',
+        stateConfidence: 0.96,
+        updatedAt: '2026-03-12T22:05:00.000Z',
+        isBlocked: false,
+        block: null,
+        reservationHold: {
+          id: 'hold-1',
+          reservationId: 'reservation-1',
+          guestName: 'Mira Ray',
+          partySize: 6,
+          reservationTime: '19:30:00',
+          windowStartAt: '2026-03-12T23:45:00.000Z',
+          holdExpiresAt: '2026-03-13T00:45:00.000Z',
+          status: 'held',
+          scarcityLevel: 'scarce',
+        },
+      },
+      43,
+    );
+
+    expect(table.displayStatus).toBe('reserved');
+    expect(table.reservationHold?.reservationId).toBe('reservation-1');
+    expect(table.reservationHold?.guestName).toBe('Mira Ray');
+  });
+
   it('falls back safely when a snapshot payload is missing fields', () => {
     const snapshot = adaptFloorSnapshot(undefined);
 

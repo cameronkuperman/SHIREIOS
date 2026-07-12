@@ -45,6 +45,9 @@ async function getFallbackSession() {
 }
 
 apiClient.interceptors.request.use(async (config) => {
+  if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('shirePreview') === '1') {
+    return config;
+  }
   let session = useAuthStore.getState().session;
 
   if (!isSessionFresh(session)) {

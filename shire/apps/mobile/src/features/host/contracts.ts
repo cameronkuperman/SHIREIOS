@@ -151,6 +151,27 @@ export interface ReservationSettingsDto {
   leadTimeMinutes?: number | null;
   sameDayCutoffMinutes?: number | null;
   defaultChannel?: ReservationSourceDto;
+  timingPolicies?: {
+    online?: {
+      bookingHorizonDays?: number | null;
+      leadTimeMinutes?: number | null;
+      gracePeriodMinutes?: number | null;
+    } | null;
+    staff?: {
+      bookingHorizonDays?: number | null;
+      leadTimeMinutes?: number | null;
+      gracePeriodMinutes?: number | null;
+    } | null;
+  } | null;
+  channelRules?: {
+    id?: string | null;
+    channel?: ReservationSourceDto;
+    servicePeriodId?: string | null;
+    isEnabled?: boolean | null;
+    bookingHorizonDays?: number | null;
+    leadTimeMinutes?: number | null;
+    gracePeriodMinutes?: number | null;
+  }[] | null;
   servicePeriods?: ReservationServicePeriodDto[] | null;
   service_periods?: ReservationServicePeriodDto[] | null;
   updatedAt?: string | null;
@@ -374,13 +395,36 @@ export function adaptReservationServicePeriod(
 
 export function adaptReservationSettings(settings: ReservationSettingsDto): ReservationSettings {
   const servicePeriods = settings.servicePeriods ?? settings.service_periods ?? [];
+  const defaultLeadTime = settings.leadTimeMinutes ?? servicePeriods[0]?.leadTimeMinutes ?? servicePeriods[0]?.lead_time_minutes ?? 0;
+  const timingPolicy = (policy?: {
+    bookingHorizonDays?: number | null;
+    leadTimeMinutes?: number | null;
+    gracePeriodMinutes?: number | null;
+  } | null) => ({
+    bookingHorizonDays: policy?.bookingHorizonDays ?? settings.bookingHorizonDays ?? 30,
+    leadTimeMinutes: policy?.leadTimeMinutes ?? defaultLeadTime,
+    gracePeriodMinutes: policy?.gracePeriodMinutes ?? settings.gracePeriodMinutes ?? 15,
+  });
   return {
     locationId: settings.locationId ?? '',
     bookingHorizonDays: settings.bookingHorizonDays ?? 30,
     gracePeriodMinutes: settings.gracePeriodMinutes ?? 15,
-    leadTimeMinutes: settings.leadTimeMinutes ?? 0,
+    leadTimeMinutes: defaultLeadTime,
     sameDayCutoffMinutes: settings.sameDayCutoffMinutes ?? null,
     defaultChannel: normalizeReservationSource(settings.defaultChannel),
+    timingPolicies: {
+      online: timingPolicy(settings.timingPolicies?.online),
+      staff: timingPolicy(settings.timingPolicies?.staff),
+    },
+    channelRules: (settings.channelRules ?? []).map((rule) => ({
+      id: rule.id ?? null,
+      channel: normalizeReservationSource(rule.channel),
+      servicePeriodId: rule.servicePeriodId ?? null,
+      isEnabled: rule.isEnabled !== false,
+      bookingHorizonDays: rule.bookingHorizonDays ?? null,
+      leadTimeMinutes: rule.leadTimeMinutes ?? null,
+      gracePeriodMinutes: rule.gracePeriodMinutes ?? null,
+    })),
     servicePeriods: servicePeriods.map(adaptReservationServicePeriod),
     updatedAt: settings.updatedAt ?? null,
   };

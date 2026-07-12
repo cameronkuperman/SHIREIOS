@@ -32,6 +32,9 @@ type TablePopoverProps = {
   partyName?: string;
   currentPartySize?: number | null;
   seatedTime?: string;
+  reservationHoldLabel?: string;
+  reservationHoldGuestName?: string | null;
+  reservationHoldPartySize?: number | null;
   anchorLayout?: LayoutRectangle;
   initialWalkInMode?: boolean;
   selectedPartyName?: string | null;
@@ -88,6 +91,9 @@ export function TablePopover({
   partyName,
   currentPartySize,
   seatedTime,
+  reservationHoldLabel,
+  reservationHoldGuestName,
+  reservationHoldPartySize,
   anchorLayout,
   initialWalkInMode = false,
   selectedPartyName,
@@ -386,6 +392,36 @@ export function TablePopover({
                 );
               })}
             </View>
+
+            {reservationHoldLabel ? (
+              <View
+                style={[
+                  styles.reservationHoldRow,
+                  {
+                    backgroundColor: colors.status.reserved.fill,
+                    borderColor: colors.status.reserved.border,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="calendar-outline"
+                  size={16}
+                  color={colors.status.reserved.text}
+                />
+                <Text
+                  style={[styles.reservationHoldText, { color: colors.status.reserved.text }]}
+                  numberOfLines={2}
+                >
+                  {[
+                    reservationHoldLabel,
+                    reservationHoldPartySize ? `${reservationHoldPartySize}p` : null,
+                    reservationHoldGuestName,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+              </View>
+            ) : null}
 
             {walkInMode ? (
               <View style={styles.walkInPanel}>
@@ -1091,6 +1127,21 @@ const styles = StyleSheet.create({
   warningText: {
     ...textStyles.tiny,
     fontWeight: '500',
+    flex: 1,
+  },
+  reservationHoldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+    borderWidth: 1,
+    borderRadius: borderRadius.sm,
+    marginBottom: spacing.sm,
+  },
+  reservationHoldText: {
+    ...textStyles.tiny,
+    fontWeight: '600',
     flex: 1,
   },
   walkInPanel: {
