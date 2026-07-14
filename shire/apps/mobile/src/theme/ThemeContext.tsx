@@ -1,10 +1,13 @@
 import React, { createContext, useContext, useMemo } from 'react';
+import type { TextStyle, ViewStyle } from 'react-native';
 import { useAuth } from '@/features/auth';
 import { lightColors, type Colors } from './colors';
 
 type ThemeValue = {
   colors: Colors;
   isDark: boolean;
+  componentStyle: (componentId?: string) => ViewStyle;
+  componentTextStyle: (componentId?: string) => TextStyle;
 };
 
 // Light-only. `isDark` is retained as `false` so existing consumers that
@@ -13,6 +16,8 @@ type ThemeValue = {
 const defaultThemeValue: ThemeValue = {
   colors: lightColors,
   isDark: false,
+  componentStyle: () => ({}),
+  componentTextStyle: () => ({}),
 };
 
 const ThemeContext = createContext<ThemeValue>(defaultThemeValue);
@@ -43,11 +48,22 @@ function applyThemeTokens(base: Colors, tokens?: Record<string, string>): Colors
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const { bootstrap } = useAuth();
   const value = useMemo<ThemeValue>(
-    () => ({
-      colors: applyThemeTokens(lightColors, bootstrap?.uiTheme),
-      isDark: false,
-    }),
-    [bootstrap?.uiTheme],
+    () => {
+      const overrides = bootstrap?.uiComponentOverrides ?? {};
+      return {
+        colors: applyThemeTokens(lightColors, bootstrap?.uiTheme),
+        isDark: false,
+        componentStyle: (componentId?: string) => {
+          const value = componentId ? overrides[componentId] ?? {} : {};
+          return { backgroundColor: value.backgroundColor, borderColor: value.borderColor };
+        },
+        componentTextStyle: (componentId?: string) => {
+          const value = componentId ? overrides[componentId] ?? {} : {};
+          return { color: value.color };
+        },
+      };
+    },
+    [bootstrap?.uiComponentOverrides, bootstrap?.uiTheme],
   );
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

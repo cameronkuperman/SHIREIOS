@@ -121,4 +121,5 @@ export interface HostBootstrap {
   floorMap: FloorMap;
   routingSnapshot?: WaiterRoutingState | null;
   uiTheme?: Record<string, string>;
+  uiComponentOverrides?: Record<string, Record<string, string>>;
 }

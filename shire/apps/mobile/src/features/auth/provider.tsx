@@ -16,6 +16,7 @@ import { useWorkdayStore } from '@/features/workday';
 import { createLocationApi, fetchCurrentSession, fetchHostBootstrap, fetchLocations } from './api';
 import { useAuthStore } from './store';
 import { HOST_PREVIEW_LOCATION_ID, hostPreviewBootstrap, hostPreviewLocation, hostPreviewSession } from '@/preview/runtime';
+import { installHostPreviewEditorBridge, type HostPreviewUiState } from '@/preview/uiEditorBridge';
 
 type SignInResult = {
   error: AuthError | null;
@@ -273,19 +274,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 }
 
 export function PreviewAuthProvider({ children }: AuthProviderProps) {
-  const [tokens, setTokens] = useState<Record<string, string>>({});
+  const [uiState, setUiState] = useState<HostPreviewUiState>({ tokens: {}, componentOverrides: {}, mode: 'view' });
 
   useEffect(() => {
     useWorkdayStore.getState().approveSetup(HOST_PREVIEW_LOCATION_ID, new Date().toISOString().slice(0, 10), new Date().toISOString());
-    if (typeof window === 'undefined') return;
-    const receive = (event: MessageEvent) => {
-      if (event.data?.type === 'shire-ui-preview-theme' && event.data.service === 'host' && event.data.tokens) {
-        setTokens(event.data.tokens);
-      }
-    };
-    window.addEventListener('message', receive);
-    window.parent?.postMessage({ type: 'shire-ui-preview-ready', service: 'host' }, '*');
-    return () => window.removeEventListener('message', receive);
+    return installHostPreviewEditorBridge(setUiState);
   }, []);
 
   const value = useMemo<AuthContextValue>(() => ({
@@ -293,7 +286,7 @@ export function PreviewAuthProvider({ children }: AuthProviderProps) {
     userSession: hostPreviewSession,
     locations: [hostPreviewLocation],
     currentLocation: hostPreviewLocation,
-    bootstrap: hostPreviewBootstrap(tokens),
+    bootstrap: hostPreviewBootstrap(uiState.tokens, uiState.componentOverrides),
     isInitializing: false,
     isAuthenticated: true,
     locationsLoading: false,
@@ -304,7 +297,7 @@ export function PreviewAuthProvider({ children }: AuthProviderProps) {
     selectLocation: () => {},
     refetchLocations: () => {},
     createLocation: async () => hostPreviewLocation,
-  }), [tokens]);
+  }), [uiState.componentOverrides, uiState.tokens]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

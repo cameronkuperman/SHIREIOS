@@ -26,7 +26,10 @@ export const hostPreviewSession: UserSession = {
   permissions: hostPreviewLocation.permissions,
 };
 
-export function hostPreviewBootstrap(tokens: Record<string, string> = {}): HostBootstrap {
+export function hostPreviewBootstrap(
+  tokens: Record<string, string> = {},
+  componentOverrides: Record<string, Record<string, string>> = {},
+): HostBootstrap {
   return {
     session: hostPreviewSession,
     location: hostPreviewLocation,
@@ -34,6 +37,7 @@ export function hostPreviewBootstrap(tokens: Record<string, string> = {}): HostB
     floorMap: DEFAULT_FLOOR_MAP,
     routingSnapshot: null,
     uiTheme: tokens,
+    uiComponentOverrides: componentOverrides,
   };
 }
 

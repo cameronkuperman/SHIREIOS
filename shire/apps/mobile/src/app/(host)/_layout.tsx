@@ -12,6 +12,7 @@ import { useTotalUnread } from '@/features/messaging/hooks';
 import { borderRadius, fontFamily, spacing, useTheme } from '@/theme';
 
 type RailItem = {
+  id: string;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   href: Href;
@@ -20,24 +21,28 @@ type RailItem = {
 
 const RAIL_ITEMS: RailItem[] = [
   {
+    id: 'floor',
     label: 'Floor',
     icon: 'grid-outline',
     href: '/(host)' as Href,
     match: (pathname) => pathname === '/' || pathname === '/index',
   },
   {
+    id: 'stats',
     label: 'Stats',
     icon: 'stats-chart-outline',
     href: '/(host)/analytics' as Href,
     match: (pathname) => pathname.includes('/analytics'),
   },
   {
+    id: 'queue',
     label: 'Queue',
     icon: 'people-outline',
     href: '/(host)/waitlist' as Href,
     match: (pathname) => pathname.includes('/waitlist'),
   },
   {
+    id: 'reservations',
     label: 'RSV',
     icon: 'calendar-outline',
     href: '/(host)/reservations' as Href,
@@ -48,7 +53,7 @@ const RAIL_ITEMS: RailItem[] = [
 const ANALYTICS_PREFETCH_RANGES = ['current_shift', 'today', 'week'] as const;
 
 export default function HostLayout() {
-  const { colors } = useTheme();
+  const { colors, componentStyle, componentTextStyle } = useTheme();
   const { isInitializing, isAuthenticated, currentLocation } = useAuth();
   const isWorkdayActive = useIsWorkdayActive(currentLocation?.id ?? null);
   const endWorkday = useWorkdayStore((state) => state.endWorkday);
@@ -113,23 +118,26 @@ export default function HostLayout() {
         <View style={styles.navItems}>
           {RAIL_ITEMS.map((item) => {
             const active = item.match(pathname);
+            const componentId = `host.nav.${item.id}`;
+            const textOverride = componentTextStyle(componentId).color;
             return (
               <TouchableOpacity
                 key={item.label}
+                testID={`shire-ui-${componentId}`}
                 activeOpacity={0.76}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                style={[styles.navItem, active ? { backgroundColor: colors.accentLight } : null]}
+                style={[styles.navItem, active ? { backgroundColor: colors.accentLight } : null, componentStyle(componentId)]}
                 onPress={() => router.push(item.href)}
               >
                 <Ionicons
                   name={item.icon}
                   size={22}
-                  color={active ? colors.accent : colors.text.muted}
+                  color={textOverride ?? (active ? colors.accent : colors.text.muted)}
                 />
                 <Text
                   numberOfLines={1}
-                  style={[styles.navLabel, { color: active ? colors.accent : colors.text.muted }]}
+                  style={[styles.navLabel, { color: textOverride ?? (active ? colors.accent : colors.text.muted) }]}
                 >
                   {item.label}
                 </Text>
@@ -140,19 +148,20 @@ export default function HostLayout() {
 
         <View style={styles.footer} pointerEvents="auto">
           <TouchableOpacity
+            testID="shire-ui-host.nav.inbox"
             activeOpacity={0.76}
             accessibilityRole="button"
             accessibilityLabel={unreadCount > 0 ? `Inbox, ${unreadCount} unread` : 'Inbox'}
             accessibilityState={{ selected: inboxActive }}
             hitSlop={12}
-            style={[styles.navItem, inboxActive ? { backgroundColor: colors.accentLight } : null]}
+            style={[styles.navItem, inboxActive ? { backgroundColor: colors.accentLight } : null, componentStyle('host.nav.inbox')]}
             onPress={() => router.push('/(host)/inbox' as Href)}
           >
             <View>
               <Ionicons
                 name="chatbubble-outline"
                 size={22}
-                color={inboxActive ? colors.accent : colors.text.muted}
+                color={componentTextStyle('host.nav.inbox').color ?? (inboxActive ? colors.accent : colors.text.muted)}
               />
               {unreadCount > 0 ? (
                 <View
@@ -173,14 +182,15 @@ export default function HostLayout() {
           </TouchableOpacity>
 
           <TouchableOpacity
+            testID="shire-ui-host.nav.settings"
             activeOpacity={0.76}
             accessibilityRole="button"
             accessibilityLabel="Settings"
             hitSlop={12}
-            style={styles.navItem}
+            style={[styles.navItem, componentStyle('host.nav.settings')]}
             onPress={() => router.push('/settings' as Href)}
           >
-            <Ionicons name="settings-outline" size={22} color={colors.text.muted} />
+            <Ionicons name="settings-outline" size={22} color={componentTextStyle('host.nav.settings').color ?? colors.text.muted} />
           </TouchableOpacity>
         </View>
       </View>

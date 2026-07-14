@@ -20,6 +20,7 @@ type ButtonProps = {
   disabled?: boolean;
   fullWidth?: boolean;
   style?: ViewStyle;
+  uiComponentId?: string;
 };
 
 // SHIRE-FRONTEND Button sizes: sm px12/py6/12pt, md px16/py8/14pt, lg px24/py12/16pt.
@@ -45,8 +46,10 @@ export function Button({
   disabled,
   fullWidth,
   style,
+  uiComponentId,
 }: ButtonProps) {
-  const { colors } = useTheme();
+  const { colors, componentStyle, componentTextStyle } = useTheme();
+  const resolvedComponentId = uiComponentId ?? `host.button.${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64)}`;
   const s = SIZES[size];
 
   let bg = colors.accent;
@@ -82,6 +85,7 @@ export function Button({
 
   return (
     <Pressable
+      testID={`shire-ui-${resolvedComponentId}`}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
@@ -99,10 +103,11 @@ export function Button({
         disabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
         style,
+        componentStyle(resolvedComponentId),
       ]}
     >
       {icon}
-      <Text style={[styles.label as TextStyle, { color: fg, fontSize: s.font }]}>{label}</Text>
+      <Text style={[styles.label as TextStyle, { color: fg, fontSize: s.font }, componentTextStyle(resolvedComponentId)]}>{label}</Text>
     </Pressable>
   );
 }
